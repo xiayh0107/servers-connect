@@ -1,0 +1,4 @@
+interface:
+  display_name: "SSH Server Manager"
+  short_description: "Manage SSH hosts and secure credentials locally"
+  default_prompt: "Use $ssh-server-manager to list, configure, test, or connect to my SSH servers."

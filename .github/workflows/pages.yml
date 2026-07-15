@@ -1,0 +1,45 @@
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["website/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      # website/index.html is authored headless (no doctype/html/head/body)
+      # so the same file can be published as a Claude artifact; wrap it into
+      # a complete document for Pages. Everything up to </style> is head
+      # content, the rest is body.
+      - name: Assemble full HTML document
+        run: |
+          mkdir -p _site
+          awk 'BEGIN{h=1} h{print > "head.part"} !h{print > "body.part"} /<\/style>/{h=0}' website/index.html
+          {
+            printf '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+            cat head.part
+            printf '</head>\n<body>\n'
+            cat body.part
+            printf '</body>\n</html>\n'
+          } > _site/index.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

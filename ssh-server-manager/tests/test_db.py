@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+import pytest
+
+from ssh_server_manager.db import ConflictError, Database
+from ssh_server_manager.paths import ensure_private_dir
+from ssh_server_manager.validation import ValidationError
+
+
+def test_server_and_reusable_credentials(tmp_path):
+    database = Database(tmp_path / "manager.db")
+    credential = database.create_credential(label="Lab agent", kind="agent")
+    jump = database.create_server(
+        alias="jump", hostname="jump.example", port=2222, username="alice", credential_id=credential["id"]
+    )
+    target = database.create_server(
+        alias="target",
+        hostname="10.0.0.5",
+        port=22,
+        username="alice",
+        credential_id=credential["id"],
+        proxy_jumps=["jump"],
+    )
+    assert target["credential_label"] == "Lab agent"
+    assert target["proxy_jumps"] == ["jump"]
+    with pytest.raises(ConflictError):
+        database.delete_credential(credential["id"])
+
+    renamed = database.update_server(jump["id"], alias="gateway")
+    assert renamed["alias"] == "gateway"
+    assert database.get_server(target["id"])["proxy_jumps"] == ["gateway"]
+
+
+def test_proxy_cycle_and_dependent_delete_are_blocked(tmp_path):
+    database = Database(tmp_path / "manager.db")
+    database.create_server(alias="one", hostname="one.example", port=22, username="u")
+    database.create_server(alias="two", hostname="two.example", port=22, username="u", proxy_jumps=["one"])
+    with pytest.raises(ValidationError, match="cycle"):
+        database.update_server("one", proxy_jumps=["two"])
+    with pytest.raises(ConflictError, match="ProxyJump"):
+        database.delete_server("one")
+
+
+def test_alias_and_port_validation(tmp_path):
+    database = Database(tmp_path / "manager.db")
+    with pytest.raises(ValidationError):
+        database.create_server(alias="bad alias", hostname="example.org", port=22, username="u")
+    with pytest.raises(ValidationError):
+        database.create_server(alias="good", hostname="example.org", port=70000, username="u")
+
+
+def test_private_dir_rejects_symlink(tmp_path):
+    target = tmp_path / "target"
+    target.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(target, target_is_directory=True)
+    with pytest.raises(RuntimeError, match="not a real directory"):
+        ensure_private_dir(link)

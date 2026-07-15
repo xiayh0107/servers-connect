@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+SCRIPT=$0
+while [ -L "$SCRIPT" ]; do
+  SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SCRIPT")" && pwd)
+  LINK_TARGET=$(readlink "$SCRIPT")
+  case "$LINK_TARGET" in
+    /*) SCRIPT=$LINK_TARGET ;;
+    *) SCRIPT=$SCRIPT_DIR/$LINK_TARGET ;;
+  esac
+done
+ROOT=$(CDPATH= cd -- "$(dirname -- "$SCRIPT")/.." && pwd)
+exec python3 "$ROOT/scripts/bootstrap.py" "$@"

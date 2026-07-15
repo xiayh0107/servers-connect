@@ -1,0 +1,12 @@
+# internal workspaces, not part of the published product
+.remote-staging/
+.skill-maintenance/
+
+ssh-server-manager/.venv/
+ssh-server-manager/.pytest_cache/
+ssh-server-manager/**/*.egg-info/
+**/__pycache__/
+*.pyc
+.DS_Store
+ssh-server-manager/build/
+ssh-server-manager/dist/

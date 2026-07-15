@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SSH Server Manager</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">LOCAL CONTROL PLANE</p>
+        <h1>SSH Server Manager</h1>
+      </div>
+      <div class="header-actions">
+        <span id="systemStatus" class="status-pill neutral">Starting…</span>
+        <button id="refreshButton" class="secondary">Refresh</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="summary-grid" aria-label="Summary">
+        <article class="summary-card">
+          <span>Connection profiles</span>
+          <strong id="serverCount">0</strong>
+        </article>
+        <article class="summary-card">
+          <span>Credential profiles</span>
+          <strong id="credentialCount">0</strong>
+        </article>
+        <article class="summary-card wide">
+          <span>Managed OpenSSH config</span>
+          <code id="configPath">—</code>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">INVENTORY</p>
+            <h2>Servers</h2>
+          </div>
+          <div class="row-actions">
+            <button id="importButton" class="secondary">Import SSH config</button>
+            <button id="addServerButton">Add server</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Alias</th><th>Endpoint</th><th>Credential</th><th>ProxyJump</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody id="serverRows"></tbody>
+          </table>
+        </div>
+        <p id="emptyServers" class="empty">No managed servers yet. Import your SSH config or add one.</p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">SECURE STORAGE</p>
+            <h2>Credentials</h2>
+          </div>
+          <button id="addCredentialButton">Add credential</button>
+        </div>
+        <div class="notice">
+          Passwords and key passphrases stay in your operating-system vault. Private keys are referenced by path and never uploaded.
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Label</th><th>Type</th><th>Secret state</th><th>Key path</th><th></th></tr>
+            </thead>
+            <tbody id="credentialRows"></tbody>
+          </table>
+        </div>
+        <p id="emptyCredentials" class="empty">No credential profiles configured.</p>
+      </section>
+
+      <section class="panel auth-panel">
+        <div>
+          <p class="eyebrow">REVEAL PROTECTION</p>
+          <h2>Local reauthentication</h2>
+          <p id="authDescription">Checking authentication options…</p>
+        </div>
+        <div class="row-actions">
+          <button id="enrollPasskeyButton" class="secondary">Enroll passkey</button>
+          <button id="enrollMasterButton" class="secondary">Set fallback master password</button>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <dialog id="serverDialog">
+      <form id="serverForm" method="dialog">
+        <div class="dialog-heading">
+          <h2 id="serverDialogTitle">Add server</h2>
+          <button type="button" class="icon-button close-dialog" aria-label="Close">×</button>
+        </div>
+        <input id="serverId" type="hidden">
+        <label>Alias<input id="serverAlias" required pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,62}"></label>
+        <div class="two-columns">
+          <label>Hostname or IP<input id="serverHostname" required></label>
+          <label>Port<input id="serverPort" type="number" min="1" max="65535" value="22" required></label>
+        </div>
+        <label>Username<input id="serverUsername" required></label>
+        <label>Credential
+          <div class="credential-picker">
+            <select id="serverCredential"><option value="">OpenSSH default / agent</option></select>
+            <button id="newServerCredentialButton" type="button" class="secondary small">+ New</button>
+          </div>
+        </label>
+        <fieldset id="serverCredentialComposer" class="inline-composer" hidden>
+          <legend>New credential</legend>
+          <p class="hint">Create it here and it will be selected for this server automatically.</p>
+          <label>Label<input id="serverCredentialNewLabel" maxlength="100" autocomplete="off"></label>
+          <label>Authentication type
+            <select id="serverCredentialNewKind">
+              <option value="password">Password</option>
+              <option value="key">Private key file</option>
+              <option value="agent">OpenSSH default / ssh-agent</option>
+            </select>
+          </label>
+          <label id="serverCredentialNewSecretField">Password<input id="serverCredentialNewSecret" type="password" autocomplete="new-password"></label>
+          <label id="serverCredentialNewKeyPathField" hidden>Private-key path<input id="serverCredentialNewKeyPath" placeholder="~/.ssh/id_ed25519"></label>
+          <label id="serverCredentialNewPassphraseField" hidden>Key passphrase (optional)<input id="serverCredentialNewPassphrase" type="password" autocomplete="new-password"></label>
+          <div class="inline-composer-actions">
+            <button id="cancelServerCredentialButton" type="button" class="secondary">Cancel</button>
+            <button id="saveServerCredentialButton" type="button">Save and use</button>
+          </div>
+        </fieldset>
+        <label>ProxyJump aliases<input id="serverProxy" placeholder="jump-one, jump-two"></label>
+        <label>Notes<textarea id="serverNotes" rows="3"></textarea></label>
+        <div class="dialog-actions"><button type="button" class="secondary close-dialog">Cancel</button><button type="submit">Save server</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="credentialDialog">
+      <form id="credentialForm" method="dialog">
+        <div class="dialog-heading">
+          <h2 id="credentialDialogTitle">Add credential</h2>
+          <button type="button" class="icon-button close-dialog" aria-label="Close">×</button>
+        </div>
+        <input id="credentialId" type="hidden">
+        <label>Label<input id="credentialLabel" required maxlength="100"></label>
+        <label>Authentication type
+          <select id="credentialKind">
+            <option value="password">Password</option>
+            <option value="key">Private key file</option>
+            <option value="agent">OpenSSH default / ssh-agent</option>
+          </select>
+        </label>
+        <label id="secretField">Password<input id="credentialSecret" type="password" autocomplete="new-password"></label>
+        <label id="keyPathField" hidden>Private-key path<input id="credentialKeyPath" placeholder="~/.ssh/id_ed25519"></label>
+        <label id="passphraseField" hidden>Key passphrase (optional)<input id="credentialPassphrase" type="password" autocomplete="new-password"></label>
+        <label id="clearPassphraseField" class="checkbox-label" hidden><input id="credentialClearPassphrase" type="checkbox"> Remove the stored passphrase</label>
+        <p id="credentialEditHint" class="hint" hidden>Leave secret fields empty to keep their existing values.</p>
+        <div class="dialog-actions"><button type="button" class="secondary close-dialog">Cancel</button><button type="submit">Save credential</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="revealDialog">
+      <div class="dialog-heading">
+        <h2>Revealed secret</h2>
+        <button type="button" class="icon-button close-reveal" aria-label="Close">×</button>
+      </div>
+      <p>This value will be cleared from the page in <strong id="revealCountdown">15</strong> seconds.</p>
+      <div class="secret-box"><code id="revealedSecret"></code><button id="copySecretButton" class="secondary">Copy</button></div>
+      <div class="dialog-actions"><button type="button" class="secondary close-reveal">Close now</button></div>
+    </dialog>
+
+    <dialog id="masterDialog">
+      <form id="masterForm" method="dialog">
+        <div class="dialog-heading">
+          <h2 id="masterDialogTitle">Local authentication</h2>
+          <button type="button" class="icon-button cancel-master" aria-label="Close">×</button>
+        </div>
+        <label>Master password<input id="masterPassword" type="password" autocomplete="current-password" required minlength="12"></label>
+        <label id="masterConfirmField" hidden>Confirm master password<input id="masterPasswordConfirm" type="password" autocomplete="new-password" minlength="12"></label>
+        <div class="dialog-actions"><button type="button" class="secondary cancel-master">Cancel</button><button type="submit">Authenticate</button></div>
+      </form>
+    </dialog>
+
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

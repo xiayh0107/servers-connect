@@ -1,0 +1,35 @@
+[project]
+name = "ssh-server-manager"
+version = "0.2.0"
+description = "Local SSH host and secure credential manager"
+requires-python = ">=3.10"
+dependencies = [
+  "argon2-cffi>=23.1",
+  "fastapi>=0.115",
+  "keyring>=25.0",
+  "platformdirs>=4.0",
+  "uvicorn>=0.34",
+  "webauthn>=2.2",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+serverctl = "ssh_server_manager.cli:main"
+ssh-server-manager-askpass = "ssh_server_manager.askpass:main"
+
+[tool.setuptools]
+package-dir = {"" = "scripts"}
+packages = ["ssh_server_manager"]
+
+[tool.setuptools.package-data]
+ssh_server_manager = ["assets/ui/*"]
+
+[project.optional-dependencies]
+test = ["httpx>=0.28", "pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
