@@ -1,44 +1,28 @@
 <title>SSH Server Manager — local-first SSH host & credential manager</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+  /* Dark is the default look — the amber-terminal identity of the product.
+     data-theme (set by the toggle or the artifact viewer) always wins. */
   :root {
-    --ground: #f7f5f0;
-    --surface: #fffdf8;
-    --surface-2: #f0ece2;
-    --ink: #221c10;
-    --ink-soft: #5c5546;
-    --ink-faint: #8a8272;
-    --accent: #a06a10;
-    --accent-strong: #7d520a;
-    --accent-wash: #f3e7cf;
-    --line: #ddd6c6;
-    --ok: #3d7a45;
-    --bad: #a04532;
-    --term-bg: #17130c;
+    --ground: #14110b;
+    --surface: #1d1810;
+    --surface-2: #251f14;
+    --ink: #ece3cf;
+    --ink-soft: #b3a88e;
+    --ink-faint: #7d735c;
+    --accent: #e8a33d;
+    --accent-strong: #f0b95f;
+    --accent-wash: #2e2513;
+    --line: #332b1c;
+    --ok: #8fc47a;
+    --bad: #d98a75;
+    --term-bg: #0e0b06;
     --term-ink: #e8dcc0;
     --term-amber: #e8a33d;
     --term-dim: #776a51;
     --term-green: #9fce7a;
-    --shadow: 0 1px 2px rgba(34, 28, 16, .06), 0 12px 32px -16px rgba(34, 28, 16, .18);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --ground: #14110b;
-      --surface: #1d1810;
-      --surface-2: #251f14;
-      --ink: #ece3cf;
-      --ink-soft: #b3a88e;
-      --ink-faint: #7d735c;
-      --accent: #e8a33d;
-      --accent-strong: #f0b95f;
-      --accent-wash: #2e2513;
-      --line: #332b1c;
-      --ok: #8fc47a;
-      --bad: #d98a75;
-      --term-bg: #0e0b06;
-      --term-ink: #e8dcc0;
-      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 16px 40px -16px rgba(0, 0, 0, .55);
-    }
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 16px 40px -16px rgba(0, 0, 0, .55);
+    color-scheme: dark;
   }
   :root[data-theme="light"] {
     --ground: #f7f5f0; --surface: #fffdf8; --surface-2: #f0ece2; --ink: #221c10;
@@ -46,6 +30,7 @@
     --accent-wash: #f3e7cf; --line: #ddd6c6; --ok: #3d7a45; --bad: #a04532;
     --term-bg: #17130c; --term-ink: #e8dcc0;
     --shadow: 0 1px 2px rgba(34,28,16,.06), 0 12px 32px -16px rgba(34,28,16,.18);
+    color-scheme: light;
   }
   :root[data-theme="dark"] {
     --ground: #14110b; --surface: #1d1810; --surface-2: #251f14; --ink: #ece3cf;
@@ -53,6 +38,7 @@
     --accent-wash: #2e2513; --line: #332b1c; --ok: #8fc47a; --bad: #d98a75;
     --term-bg: #0e0b06; --term-ink: #e8dcc0;
     --shadow: 0 1px 2px rgba(0,0,0,.4), 0 16px 40px -16px rgba(0,0,0,.55);
+    color-scheme: dark;
   }
 
   * { box-sizing: border-box; }
@@ -240,6 +226,7 @@
       <a href="#install"><span lang="en">Install</span><span lang="zh-CN">安装</span></a>
     </nav>
     <button class="lang-btn" id="langToggle" aria-label="Switch language">中文</button>
+    <button class="lang-btn" id="themeToggle" aria-label="Switch theme">☀</button>
   </div>
 </header>
 
@@ -531,5 +518,20 @@
       apply();
     });
     apply();
+
+    var themeBtn = document.getElementById("themeToggle");
+    var theme = null;
+    try { theme = localStorage.getItem("ssm-theme"); } catch (e) {}
+    if (!theme) { theme = root.getAttribute("data-theme") || "dark"; }
+    function applyTheme() {
+      root.setAttribute("data-theme", theme);
+      themeBtn.textContent = theme === "dark" ? "☀" : "☾";
+    }
+    themeBtn.addEventListener("click", function () {
+      theme = theme === "dark" ? "light" : "dark";
+      try { localStorage.setItem("ssm-theme", theme); } catch (e) {}
+      applyTheme();
+    });
+    applyTheme();
   })();
 </script>
