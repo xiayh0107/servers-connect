@@ -68,8 +68,10 @@
   /* header */
   header {
     position: sticky; top: 0; z-index: 10;
-    background: color-mix(in srgb, var(--ground) 88%, transparent);
-    backdrop-filter: blur(10px);
+    /* Keep the sticky layer on the normal paint path. A filtered translucent
+       layer can fail to composite in headed Chromium on macOS, blanking the
+       whole tab even when headless rendering succeeds. */
+    background: var(--ground);
     border-bottom: 1px solid var(--line);
   }
   .nav { display: flex; align-items: center; gap: 20px; padding: 14px 0; }
