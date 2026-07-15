@@ -7,6 +7,7 @@ manager for humans and AI agents.
 > in one line — see the
 > [agent deployment guide](ssh-server-manager/docs/ai-agents.md).
 
+- Website: **https://xiayh0107.github.io/servers-connect/**
 - Product source, docs, and Agent Skill: [`ssh-server-manager/`](ssh-server-manager/)
 - One-line skill install: `./install.sh` (macOS/Linux) or `install.ps1` (Windows) —
   installs deps, links the skill into every detected agent, runs `doctor`

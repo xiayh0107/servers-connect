@@ -22,8 +22,14 @@ First release prepared for standalone distribution.
 - MIT license, user documentation under `docs/`, English and Chinese READMEs,
   and a product website under `website/`.
 
+### Fixed
+- Windows: OpenSSH config parsing (`Include`, `Host`) no longer mangles
+  backslash paths; verified by CI on windows-latest.
+
 ### Changed
 - UI assets moved from `assets/ui/` to `scripts/ssh_server_manager/assets/ui/`.
+- Published at https://github.com/xiayh0107/servers-connect with the website
+  at https://xiayh0107.github.io/servers-connect/.
 
 ## 0.1.0
 
