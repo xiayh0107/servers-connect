@@ -129,6 +129,7 @@
     margin-top: 14px; display: inline-flex; align-items: center; gap: 12px;
     background: var(--term-bg); color: var(--term-ink); border-radius: 8px; padding: 10px 16px;
     font-family: ui-monospace, Menlo, monospace; font-size: 13.5px;
+    max-width: 100%; overflow-x: auto; white-space: nowrap;
   }
   .install-pill .dollar { color: var(--term-amber); user-select: none; }
   .agent-callout {
@@ -266,7 +267,7 @@
           <span lang="zh-CN">在用 Claude Code 或 Codex？一句话即可把 skill 部署到本机所有智能体——依赖安装、目录链接、健康体检一步到位。<a href="https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md">智能体部署指南 →</a></span>
         </p>
       </div>
-      <div class="install-pill"><span class="dollar">$</span> pipx install ssh-server-manager</div>
+      <div class="install-pill"><span class="dollar">$</span> curl -fsSL https://raw.githubusercontent.com/xiayh0107/servers-connect/main/install.sh | sh</div>
     </div>
 
     <div class="terminal" role="img" aria-label="serverctl terminal session">
@@ -469,7 +470,7 @@
     <div class="grid-3" style="margin-top: 28px; align-items: start;">
       <div>
         <h3 style="margin: 0 0 12px; font-size: 15px;"><span lang="en">For humans — pipx / uv</span><span lang="zh-CN">给人用 — pipx / uv</span></h3>
-        <pre class="block"><span class="a">$</span> pipx install ssh-server-manager
+        <pre class="block"><span class="a">$</span> pipx install "git+https://github.com/xiayh0107/servers-connect.git#subdirectory=ssh-server-manager"
 <span class="a">$</span> serverctl doctor
 <span class="a">$</span> serverctl server import --apply
 <span class="a">$</span> serverctl connect web1</pre>
