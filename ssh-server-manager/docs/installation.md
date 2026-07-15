@@ -14,9 +14,9 @@
 Installs `serverctl` as an isolated global command:
 
 ```bash
-pipx install git+https://github.com/xiayh0107/servers-connect.git#subdirectory=ssh-server-manager
+pipx install ssh-server-manager
 # or
-uv tool install git+https://github.com/xiayh0107/servers-connect.git#subdirectory=ssh-server-manager
+uv tool install ssh-server-manager
 ```
 
 Then from anywhere:

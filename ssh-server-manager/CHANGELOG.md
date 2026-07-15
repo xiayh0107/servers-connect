@@ -2,7 +2,9 @@
 
 ## 0.2.0 — 2026-07-15
 
-First release prepared for standalone distribution.
+First public release: on [PyPI](https://pypi.org/project/ssh-server-manager/)
+(`pipx install ssh-server-manager`) and
+[GitHub](https://github.com/xiayh0107/servers-connect/releases/tag/v0.2.0).
 
 ### Added
 - One-line Agent Skill deployment: `install.sh` (curl | sh) and

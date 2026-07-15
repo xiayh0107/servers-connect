@@ -6,6 +6,7 @@ connect to your servers — with every password and passphrase stored in your
 operating system's native credential vault, never in a plaintext file.
 
 [![test](https://github.com/xiayh0107/servers-connect/actions/workflows/test.yml/badge.svg)](https://github.com/xiayh0107/servers-connect/actions/workflows/test.yml)
+[![PyPI](https://img.shields.io/pypi/v/ssh-server-manager)](https://pypi.org/project/ssh-server-manager/)
 [![release](https://img.shields.io/github/v/release/xiayh0107/servers-connect)](https://github.com/xiayh0107/servers-connect/releases)
 [![license](https://img.shields.io/badge/license-MIT-green.svg)](../LICENSE)
 

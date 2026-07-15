@@ -4,11 +4,10 @@ Priorities informed by a July 2026 survey of the SSH-manager landscape
 (Termius, XPipe, Tabby, sshs/wishlist, CtrlOps, Termix and the MCP-SSH
 ecosystem). Ordered by expected impact.
 
-1. **Published packages** — PyPI release so `pipx install ssh-server-manager`
-   works without a checkout; then a Homebrew tap and winget manifest.
-   Status: dist passes `twine check`, a Trusted-Publishing workflow
-   (`.github/workflows/publish.yml`) triggers on GitHub Release — the only
-   remaining step is registering the pending publisher on pypi.org.
+1. ~~**Published packages** — PyPI release~~ **Done (0.2.0):**
+   `pipx install ssh-server-manager` is live on PyPI, and the
+   Trusted-Publishing workflow (`.github/workflows/publish.yml`) automates
+   future releases. Still open: a Homebrew tap and winget manifest.
 2. **File transfer helpers** — `serverctl cp ALIAS:remote local` /
    `serverctl get` wrapping scp/sftp with the same vault auth; the most
    cited feature gap versus every GUI competitor.
