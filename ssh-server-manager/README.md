@@ -5,7 +5,11 @@ One CLI (`serverctl`) and a loopback-only web UI to add, import, test, and
 connect to your servers — with every password and passphrase stored in your
 operating system's native credential vault, never in a plaintext file.
 
-[简体中文说明](README.zh-CN.md) · [Documentation](docs/) · [Security model](docs/security.md)
+[![test](https://github.com/xiayh0107/servers-connect/actions/workflows/test.yml/badge.svg)](https://github.com/xiayh0107/servers-connect/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/xiayh0107/servers-connect)](https://github.com/xiayh0107/servers-connect/releases)
+[![license](https://img.shields.io/badge/license-MIT-green.svg)](../LICENSE)
+
+[简体中文说明](README.zh-CN.md) · [Documentation](docs/) · [Security model](docs/security.md) · [Website](https://xiayh0107.github.io/servers-connect/)
 
 > 🤖 **Using an AI agent?** The skill deploys to every agent on your machine
 > in one line — dependencies, links, and health check included. See the

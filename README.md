@@ -3,6 +3,9 @@
 Monorepo for **SSH Server Manager** — a local-first SSH host and credential
 manager for humans and AI agents.
 
+[![test](https://github.com/xiayh0107/servers-connect/actions/workflows/test.yml/badge.svg)](https://github.com/xiayh0107/servers-connect/actions/workflows/test.yml)
+[![release](https://img.shields.io/github/v/release/xiayh0107/servers-connect)](https://github.com/xiayh0107/servers-connect/releases)
+
 > 🤖 **Using an AI agent?** The skill deploys to every agent on your machine
 > in one line — see the
 > [agent deployment guide](ssh-server-manager/docs/ai-agents.md).
