@@ -6,7 +6,9 @@ ecosystem). Ordered by expected impact.
 
 1. **Published packages** — PyPI release so `pipx install ssh-server-manager`
    works without a checkout; then a Homebrew tap and winget manifest.
-   (The packaging itself already supports this as of 0.2.0.)
+   Status: dist passes `twine check`, a Trusted-Publishing workflow
+   (`.github/workflows/publish.yml`) triggers on GitHub Release — the only
+   remaining step is registering the pending publisher on pypi.org.
 2. **File transfer helpers** — `serverctl cp ALIAS:remote local` /
    `serverctl get` wrapping scp/sftp with the same vault auth; the most
    cited feature gap versus every GUI competitor.
