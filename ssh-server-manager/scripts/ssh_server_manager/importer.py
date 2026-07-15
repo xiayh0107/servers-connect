@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import glob
 import os
-import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from .db import ConflictError, Database, NotFoundError
 from .paths import original_ssh_config_path
+from .ssh_config import split_config_line
 from .validation import ValidationError, validate_alias
 
 
@@ -29,10 +29,7 @@ def _read_config_aliases(config: Path, seen: set[Path] | None = None) -> tuple[l
     except (OSError, UnicodeError) as exc:
         raise ImportError(f"cannot read SSH config {config}: {exc}") from exc
     for line in lines:
-        try:
-            tokens = shlex.split(line, comments=True, posix=True)
-        except ValueError:
-            continue
+        tokens = split_config_line(line)
         if not tokens:
             continue
         directive = tokens[0].casefold()

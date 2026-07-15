@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import socket
 
 import pytest
@@ -68,7 +69,8 @@ def test_ui_never_prints_launch_token_and_writes_private_url(tmp_path, monkeypat
     assert "token=" not in output
     assert "launch URL written to" in output
     assert "token=" in observed["url"]
-    assert observed["mode"] == 0o600
+    if os.name != "nt":
+        assert observed["mode"] == 0o600
     assert not url_file.exists()
 
 

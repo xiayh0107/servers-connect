@@ -22,11 +22,22 @@ def quote_value(value: str) -> str:
     return value
 
 
-def _parse_include_tokens(line: str) -> list[str]:
+def split_config_line(line: str) -> list[str]:
+    """Tokenize one OpenSSH config line.
+
+    On Windows a backslash is a path separator, not an escape character, so
+    it is preserved before POSIX-style quote handling is applied.
+    """
+    if os.name == "nt":
+        line = line.replace("\\", "\\\\")
     try:
-        tokens = shlex.split(line, comments=True, posix=True)
+        return shlex.split(line, comments=True, posix=True)
     except ValueError:
         return []
+
+
+def _parse_include_tokens(line: str) -> list[str]:
+    tokens = split_config_line(line)
     if not tokens or tokens[0].casefold() != "include":
         return []
     return tokens[1:]
