@@ -1,602 +1,233 @@
-<title>SSH Server Manager — local-first SSH host & credential manager</title>
+<title>SSH Server Manager — local-first SSH access</title>
+<meta name="description" content="A local SSH server and credential manager built for people and AI agents.">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  /* Dark is the default look — the amber-terminal identity of the product.
-     data-theme (set by the toggle or the artifact viewer) always wins. */
   :root {
-    --ground: #14110b;
-    --surface: #1d1810;
-    --surface-2: #251f14;
-    --ink: #ece3cf;
-    --ink-soft: #b3a88e;
-    --ink-faint: #7d735c;
-    --accent: #e8a33d;
-    --accent-strong: #f0b95f;
-    --accent-wash: #2e2513;
-    --line: #332b1c;
-    --ok: #8fc47a;
-    --bad: #d98a75;
-    --term-bg: #0e0b06;
-    --term-ink: #e8dcc0;
-    --term-amber: #e8a33d;
-    --term-dim: #776a51;
-    --term-green: #9fce7a;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 16px 40px -16px rgba(0, 0, 0, .55);
-    color-scheme: dark;
-  }
-  :root[data-theme="light"] {
-    --ground: #f7f5f0; --surface: #fffdf8; --surface-2: #f0ece2; --ink: #221c10;
-    --ink-soft: #5c5546; --ink-faint: #8a8272; --accent: #a06a10; --accent-strong: #7d520a;
-    --accent-wash: #f3e7cf; --line: #ddd6c6; --ok: #3d7a45; --bad: #a04532;
-    --term-bg: #17130c; --term-ink: #e8dcc0;
-    --shadow: 0 1px 2px rgba(34,28,16,.06), 0 12px 32px -16px rgba(34,28,16,.18);
+    --bg: #faf9f6;
+    --panel: #ffffff;
+    --ink: #171717;
+    --muted: #666963;
+    --faint: #949892;
+    --line: #e3e4e0;
+    --soft: #f4f4f1;
+    --black: #111111;
+    --green: #237a57;
     color-scheme: light;
-  }
-  :root[data-theme="dark"] {
-    --ground: #14110b; --surface: #1d1810; --surface-2: #251f14; --ink: #ece3cf;
-    --ink-soft: #b3a88e; --ink-faint: #7d735c; --accent: #e8a33d; --accent-strong: #f0b95f;
-    --accent-wash: #2e2513; --line: #332b1c; --ok: #8fc47a; --bad: #d98a75;
-    --term-bg: #0e0b06; --term-ink: #e8dcc0;
-    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 16px 40px -16px rgba(0,0,0,.55);
-    color-scheme: dark;
   }
 
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
   body {
-    margin: 0;
-    background: var(--ground);
-    color: var(--ink);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
-    line-height: 1.65;
-    font-size: 16px;
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
   }
-  code, pre, .mono {
-    font-family: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
-  }
-  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
-  a:hover { color: var(--accent-strong); }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  button, a { font: inherit; }
+  a { color: inherit; text-underline-offset: 3px; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--black); outline-offset: 3px; }
+  body [lang="zh-CN"] { display: none; }
+  html[data-lang="zh"] body [lang="zh-CN"] { display: revert; }
+  html[data-lang="zh"] body [lang="en"] { display: none; }
 
-  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  .page {
+    width: min(1120px, calc(100% - 48px)); min-height: calc(100vh - 58px); margin: 0 auto;
+    display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(340px, .85fr); gap: 72px; align-items: center;
+    padding: 46px 0 34px;
+  }
+  .intro { min-width: 0; }
+  .brand-row { display: flex; align-items: center; gap: 13px; margin-bottom: 22px; }
+  .mark {
+    width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center;
+    border: 3px solid var(--ink); border-radius: 11px; font: 800 15px ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  h1 { margin: 0; font-size: clamp(29px, 3.4vw, 42px); line-height: 1; letter-spacing: -.04em; }
+  .badge { padding: 4px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); font-size: 13px; }
+  .description { max-width: 600px; margin: 0 0 28px; color: #4f5350; font-size: clamp(16px, 1.7vw, 19px); line-height: 1.55; }
+  .product-shot { margin: 0; max-width: 650px; }
+  .product-shot img {
+    width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 12px;
+    box-shadow: 0 18px 50px -38px rgba(25, 35, 31, .35);
+  }
+  .product-shot figcaption { margin-top: 9px; color: var(--faint); font-size: 12px; }
 
-  /* language switching */
-  [lang="zh-CN"] { display: none; }
-  html[data-lang="zh"] [lang="zh-CN"] { display: revert; }
-  html[data-lang="zh"] [lang="en"] { display: none; }
+  .start-card {
+    min-height: 610px; display: flex; flex-direction: column; overflow: hidden;
+    border: 1px solid var(--line); border-radius: 15px; background: var(--panel);
+    box-shadow: 0 18px 45px -34px rgba(20, 30, 26, .32);
+  }
+  .card-main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 42px 34px 28px; text-align: center; }
+  .card-main h2 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
+  .terminal-mark {
+    width: 82px; height: 82px; margin: auto 0 20px; display: grid; place-items: center;
+    border-radius: 18px; background: var(--soft); color: var(--black); font: 750 25px ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .card-main h3 { margin: 0 0 8px; font-size: 19px; }
+  .card-main p { max-width: 29ch; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+  .proof { margin-top: auto; display: flex; gap: 12px; color: var(--faint); font-size: 12px; }
+  .proof span + span::before { content: "·"; margin-right: 12px; }
+  .agent-entry {
+    min-height: 68px; display: flex; align-items: center; justify-content: center; gap: 12px;
+    border: 0; background: var(--black); color: white; font-weight: 650; font-size: 16px;
+  }
+  .agent-entry:hover { background: #2a2a2a; }
+  .arrow { font-size: 23px; font-weight: 300; transition: transform .18s ease; }
+  .agent-entry:hover .arrow { transform: translateX(4px); }
 
-  /* header */
-  header {
-    position: sticky; top: 0; z-index: 10;
-    /* Keep the sticky layer on the normal paint path. A filtered translucent
-       layer can fail to composite in headed Chromium on macOS, blanking the
-       whole tab even when headless rendering succeeds. */
-    background: var(--ground);
-    border-bottom: 1px solid var(--line);
+  footer {
+    width: min(1120px, calc(100% - 48px)); height: 58px; margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between; gap: 20px;
+    color: var(--faint); font-size: 12px;
   }
-  .nav { display: flex; align-items: center; gap: 20px; padding: 14px 0; }
-  .brand { font-weight: 700; letter-spacing: -.01em; font-size: 15px; color: var(--ink); text-decoration: none; display: flex; align-items: center; gap: 9px; }
-  .brand .glyph {
-    width: 26px; height: 26px; border-radius: 6px; background: var(--term-bg); color: var(--term-amber);
-    display: inline-flex; align-items: center; justify-content: center;
-    font-family: ui-monospace, Menlo, monospace; font-size: 13px; font-weight: 600;
-  }
-  .nav-links { display: flex; gap: 18px; margin-left: auto; font-size: 14px; }
-  .nav-links a { color: var(--ink-soft); text-decoration: none; }
-  .nav-links a:hover { color: var(--ink); }
-  .lang-btn {
-    margin-left: 4px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-soft);
-    border-radius: 999px; padding: 4px 12px; font-size: 13px; cursor: pointer; font-family: inherit;
-  }
-  .lang-btn:hover { color: var(--ink); border-color: var(--ink-faint); }
+  .footer-links { display: flex; align-items: center; gap: 18px; }
+  .footer-links a { text-decoration: none; }
+  .footer-links a:hover { color: var(--ink); }
+  .lang-button { padding: 0; border: 0; background: none; color: inherit; }
+  .lang-button:hover { color: var(--ink); }
 
-  /* hero */
-  .hero { padding: 72px 0 56px; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 48px; align-items: center; }
-  @media (max-width: 880px) { .hero { grid-template-columns: 1fr; padding-top: 48px; } }
-  .eyebrow {
-    font-family: ui-monospace, Menlo, monospace; font-size: 12px; letter-spacing: .14em;
-    text-transform: uppercase; color: var(--accent); margin: 0 0 18px;
+  dialog {
+    width: min(680px, calc(100% - 32px)); padding: 0; border: 0; border-radius: 14px;
+    color: var(--ink); background: var(--panel); box-shadow: 0 28px 90px rgba(0, 0, 0, .22);
   }
-  h1 {
-    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
-    font-size: clamp(28px, 4.2vw, 42px); line-height: 1.18; letter-spacing: -.02em;
-    margin: 0 0 20px; text-wrap: balance; font-weight: 700;
+  dialog::backdrop { background: rgba(19, 20, 19, .45); }
+  .dialog-content { padding: 28px; }
+  .dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+  .dialog-head h2 { margin: 0 0 5px; font-size: 22px; }
+  .dialog-head p { margin: 0; color: var(--muted); font-size: 14px; }
+  .close-button { padding: 0 4px; border: 0; background: none; color: var(--faint); font-size: 26px; line-height: 1; }
+  .close-button:hover { color: var(--ink); }
+  .prompt {
+    margin: 24px 0; padding: 18px 20px; border-radius: 10px; background: var(--soft); color: #4b4f4c;
+    font: 15px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere;
   }
-  h1 .amp { color: var(--accent); }
-  .lede { color: var(--ink-soft); font-size: 17px; max-width: 46ch; margin: 0 0 28px; }
-  .cta-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-  .btn {
-    display: inline-block; padding: 10px 20px; border-radius: 8px; font-size: 15px; font-weight: 600;
-    text-decoration: none; border: 1px solid transparent;
+  .copy-button {
+    width: 100%; min-height: 50px; border: 0; border-radius: 8px; background: var(--black); color: white;
+    font-weight: 700; font-size: 16px;
   }
-  .btn-primary { background: var(--accent); color: var(--ground); }
-  .btn-primary:hover { background: var(--accent-strong); color: var(--ground); }
-  .btn-ghost { border-color: var(--line); color: var(--ink); background: var(--surface); }
-  .btn-ghost:hover { border-color: var(--ink-faint); color: var(--ink); }
-  .install-pill {
-    margin-top: 14px; display: flex; align-items: center; gap: 12px; width: 100%;
-    background: var(--term-bg); color: var(--term-ink); border-radius: 8px; padding: 10px 16px;
-    font-family: ui-monospace, Menlo, monospace; font-size: 13.5px;
-    max-width: 52ch; overflow: hidden; white-space: nowrap;
-  }
-  .install-pill .dollar { color: var(--term-amber); user-select: none; }
-  .install-command { min-width: 0; flex: 1 1 auto; overflow-x: auto; user-select: all; }
-  .copy-btn {
-    flex: 0 0 auto; border: 1px solid rgba(232, 163, 61, .35); background: var(--accent-wash);
-    color: var(--accent-strong); border-radius: 6px; padding: 5px 10px; cursor: pointer;
-    font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-  .copy-btn:hover { border-color: var(--accent); color: var(--ink); }
-  .copy-btn.copied { background: var(--ok); border-color: var(--ok); color: var(--term-bg); }
-  .agent-callout {
-    margin-top: 26px; padding: 14px 18px; border: 1px solid var(--accent);
-    background: var(--accent-wash); border-radius: 10px; max-width: 52ch;
-  }
-  .agent-callout .ac-label {
-    display: block; font-family: ui-monospace, Menlo, monospace; font-size: 11px;
-    letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
-  }
-  .agent-callout p { margin: 0; font-size: 14.5px; color: var(--ink); }
-  .agent-callout a { font-weight: 600; white-space: nowrap; }
+  .copy-button:hover { background: #2a2a2a; }
+  .copy-button.copied { background: var(--green); }
 
-  /* terminal */
-  .terminal {
-    background: var(--term-bg); border-radius: 12px; box-shadow: var(--shadow);
-    overflow: hidden; border: 1px solid rgba(232, 163, 61, .18);
+  @media (max-width: 880px) {
+    .page { grid-template-columns: 1fr; gap: 34px; padding-top: 36px; }
+    .product-shot { max-width: none; }
+    .start-card { min-height: 500px; }
+    .card-main { min-height: 430px; }
+    footer { height: auto; padding: 28px 0; }
   }
-  .term-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid rgba(232,163,61,.12); }
-  .term-bar .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--term-dim); opacity: .5; }
-  .term-bar .title { margin-left: 8px; color: var(--term-dim); font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
-  .term-body { padding: 18px 20px 22px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; line-height: 1.75; color: var(--term-ink); overflow-x: auto; }
-  .term-body .ps { color: var(--term-amber); }
-  .term-body .dim { color: var(--term-dim); }
-  .term-body .ok { color: var(--term-green); }
-  .t-line { opacity: 0; animation: rise .3s ease-out forwards; }
-  .t-line:nth-child(1) { animation-delay: .15s; } .t-line:nth-child(2) { animation-delay: .55s; }
-  .t-line:nth-child(3) { animation-delay: .95s; } .t-line:nth-child(4) { animation-delay: 1.2s; }
-  .t-line:nth-child(5) { animation-delay: 1.45s; } .t-line:nth-child(6) { animation-delay: 1.9s; }
-  .t-line:nth-child(7) { animation-delay: 2.3s; } .t-line:nth-child(8) { animation-delay: 2.55s; }
-  @keyframes rise { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
-  @media (prefers-reduced-motion: reduce) {
-    .t-line { animation: none; opacity: 1; }
-    html { scroll-behavior: auto; }
+  @media (max-width: 560px) {
+    .page, footer { width: min(100% - 28px, 1120px); }
+    .brand-row { flex-wrap: wrap; }
+    .description { font-size: 16px; }
+    .start-card { min-height: 460px; }
+    .card-main { min-height: 390px; padding: 30px 22px 24px; }
+    footer { align-items: flex-start; flex-direction: column; gap: 14px; }
+    .footer-links { flex-wrap: wrap; }
+    .dialog-content { padding: 22px; }
   }
-
-  /* sections */
-  section { padding: 56px 0; }
-  section + section { border-top: 1px solid var(--line); }
-  h2 {
-    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: clamp(22px, 3vw, 28px);
-    letter-spacing: -.015em; margin: 0 0 8px; text-wrap: balance;
-  }
-  .kicker { font-family: ui-monospace, Menlo, monospace; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin: 0 0 10px; }
-  .section-lede { color: var(--ink-soft); max-width: 62ch; margin: 0 0 32px; }
-
-  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-  @media (max-width: 880px) { .grid-3 { grid-template-columns: 1fr; } .grid-2 { grid-template-columns: 1fr; } }
-  .card {
-    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 22px;
-  }
-  .card h3 { margin: 0 0 8px; font-size: 16px; letter-spacing: -.01em; }
-  .card p { margin: 0; color: var(--ink-soft); font-size: 14.5px; }
-  .card .tag {
-    display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 11px; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--accent); background: var(--accent-wash);
-    border-radius: 4px; padding: 2px 8px; margin-bottom: 12px;
-  }
-
-  /* product UI preview */
-  .ui-preview {
-    margin: 30px 0 0; padding: 10px; background: var(--surface); border: 1px solid var(--line);
-    border-radius: 14px; box-shadow: var(--shadow);
-  }
-  .ui-preview img { display: block; width: 100%; height: auto; border-radius: 9px; }
-  .ui-preview figcaption { padding: 12px 8px 4px; color: var(--ink-soft); font-size: 13.5px; }
-
-  /* secret path diagram */
-  .flow { display: flex; align-items: stretch; gap: 0; margin: 8px 0 4px; overflow-x: auto; padding-bottom: 8px; }
-  .flow-node {
-    flex: 1 1 0; min-width: 130px; border: 1px solid var(--line); background: var(--surface);
-    border-radius: 10px; padding: 14px 16px; text-align: center;
-  }
-  .flow-node .fn-title { font-weight: 650; font-size: 14px; }
-  .flow-node .fn-sub { color: var(--ink-faint); font-size: 12.5px; margin-top: 4px; }
-  .flow-arrow { align-self: center; padding: 0 10px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
-  .flow-node.vault { border-color: var(--accent); background: var(--accent-wash); }
-  .flow-note { color: var(--ink-soft); font-size: 14px; margin-top: 16px; max-width: 66ch; }
-  .barrier {
-    align-self: stretch; width: 2px; background: var(--bad); margin: 0 14px; border-radius: 2px; position: relative; flex: 0 0 2px;
-  }
-
-  /* tables */
-  .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
-  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 640px; }
-  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  tr:last-child td { border-bottom: none; }
-  th { font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
-  td:first-child { font-weight: 600; }
-  .yes { color: var(--ok); font-weight: 700; }
-  .no { color: var(--ink-faint); }
-  .warn { color: var(--bad); }
-  td .small { display: block; font-weight: 400; color: var(--ink-faint); font-size: 12.5px; }
-
-  /* code blocks */
-  pre.block {
-    background: var(--term-bg); color: var(--term-ink); border-radius: 10px; padding: 18px 20px;
-    font-size: 13px; line-height: 1.7; overflow-x: auto; margin: 0;
-  }
-  pre.block .c { color: var(--term-dim); }
-  pre.block .a { color: var(--term-amber); }
-
-  footer { border-top: 1px solid var(--line); padding: 36px 0 48px; color: var(--ink-faint); font-size: 14px; }
-  footer .foot-links { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 12px; }
 </style>
 
-<header>
-  <div class="wrap nav">
-    <a class="brand" href="#"><span class="glyph">$_</span> SSH Server Manager</a>
-    <nav class="nav-links">
-      <a href="#security"><span lang="en">Security</span><span lang="zh-CN">安全</span></a>
-      <a href="#features"><span lang="en">Features</span><span lang="zh-CN">功能</span></a>
-      <a href="#ui">UI</a>
-      <a href="#agents"><span lang="en">AI Agents</span><span lang="zh-CN">AI 智能体</span></a>
-      <a href="#compare"><span lang="en">Compare</span><span lang="zh-CN">对比</span></a>
-      <a href="#install"><span lang="en">Install</span><span lang="zh-CN">安装</span></a>
-    </nav>
-    <button class="lang-btn" id="langToggle" aria-label="Switch language">中文</button>
-    <button class="lang-btn" id="themeToggle" aria-label="Switch theme">☀</button>
-  </div>
-</header>
-
-<main class="wrap">
-
-  <div class="hero">
-    <div>
-      <p class="eyebrow">local-first &middot; MIT licensed &middot; macOS / Linux / Windows</p>
-      <h1>
-        <span lang="en">Your servers, one command away. Your secrets, <span class="amp">nowhere else.</span></span>
-        <span lang="zh-CN">服务器一条命令直达，秘密<span class="amp">哪儿也不去。</span></span>
-      </h1>
-      <p class="lede">
-        <span lang="en">An SSH host and credential manager secured by your OS keychain and safely drivable by AI agents — no cloud, no subscription, no keys in the model's context.</span>
-        <span lang="zh-CN">由操作系统钥匙串保管凭据、可被 AI 智能体安全驱动的 SSH 主机管理器——没有云同步，没有订阅费，秘密永不进入模型上下文。</span>
-      </p>
-      <div class="cta-row">
-        <a class="btn btn-primary" href="#install"><span lang="en">Get started</span><span lang="zh-CN">开始使用</span></a>
-        <a class="btn btn-ghost" href="#security"><span lang="en">Read the security model</span><span lang="zh-CN">了解安全模型</span></a>
-      </div>
-      <div class="agent-callout">
-        <span class="ac-label"><span lang="en">for AI agents</span><span lang="zh-CN">面向 AI 智能体</span></span>
-        <p>
-          <span lang="en">Running Claude Code or Codex? One line deploys the skill to every agent on your machine — dependencies, links, and health check included. <a href="https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md">Agent deployment guide →</a></span>
-          <span lang="zh-CN">在用 Claude Code 或 Codex？一句话即可把 skill 部署到本机所有智能体——依赖安装、目录链接、健康体检一步到位。<a href="https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md">智能体部署指南 →</a></span>
-        </p>
-      </div>
-      <div class="install-pill">
-        <span class="dollar">$</span>
-        <span class="install-command" id="agentInstallCommand">curl -fsSL https://raw.githubusercontent.com/xiayh0107/servers-connect/main/install.sh | sh</span>
-        <button class="copy-btn" id="copyAgentCommand" type="button" aria-label="Copy agent installation command">
-          <span lang="en">Copy</span><span lang="zh-CN">复制</span>
-        </button>
-      </div>
+<main class="page">
+  <div class="intro">
+    <div class="brand-row">
+      <span class="mark">$_</span>
+      <h1>SSH Server Manager</h1>
+      <span class="badge"><span lang="en">Open source</span><span lang="zh-CN">开源</span></span>
     </div>
-
-    <div class="terminal" role="img" aria-label="serverctl terminal session">
-      <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="title">serverctl — zsh</span></div>
-      <div class="term-body"><div class="t-line"><span class="ps">$</span> serverctl server test web1 --json</div><div class="t-line">{ "alias": "web1", <span class="ok">"ok": true</span>, "latency_ms": 142 }</div><div class="t-line"><span class="ps">$</span> serverctl exec web1 -- uptime</div><div class="t-line"> 13:58  up 214 days, load averages: 0.31 0.28 0.24</div><div class="t-line"><span class="dim"># password fetched from macOS Keychain via AskPass —</span></div><div class="t-line"><span class="dim"># never printed, never in argv, never seen by an agent</span></div><div class="t-line"><span class="ps">$</span> serverctl connect db1   <span class="dim"># ProxyJump via bastion</span></div><div class="t-line">dba@db1:~ <span class="ok">▊</span></div></div>
-    </div>
-  </div>
-
-  <section id="why">
-    <p class="kicker"><span lang="en">Why it exists</span><span lang="zh-CN">为什么做这个</span></p>
-    <h2><span lang="en">Three ways SSH managers betray you</span><span lang="zh-CN">SSH 管理工具的三种背叛方式</span></h2>
-    <div class="grid-3" style="margin-top: 28px;">
-      <div class="card">
-        <span class="tag"><span lang="en">cloud clients</span><span lang="zh-CN">云客户端</span></span>
-        <h3><span lang="en">Your vault on someone else's servers</span><span lang="zh-CN">你的保险库在别人的服务器上</span></h3>
-        <p><span lang="en">Subscription GUIs sync credentials through their cloud. Cancel, get breached, or go offline — you don't own your vault.</span><span lang="zh-CN">订阅制 GUI 把凭据同步到它们的云端。停订、被入侵或断网时，保险库根本不属于你。</span></p>
-      </div>
-      <div class="card">
-        <span class="tag">sshpass</span>
-        <h3><span lang="en">Passwords in files and history</span><span lang="zh-CN">密码散落在文件和历史里</span></h3>
-        <p><span lang="en">Wrapper scripts leave secrets in dotfiles, environment variables, and shell history — readable by anything on your machine.</span><span lang="zh-CN">包装脚本把秘密留在配置文件、环境变量和 shell 历史中，机器上任何程序都读得到。</span></p>
-      </div>
-      <div class="card">
-        <span class="tag"><span lang="en">AI + raw ssh</span><span lang="zh-CN">AI + 裸 ssh</span></span>
-        <h3><span lang="en">Secrets in the model's context</span><span lang="zh-CN">秘密进了模型上下文</span></h3>
-        <p><span lang="en">Hand an agent your ssh setup and every password it touches lands in its context window and logs. MCP SSH servers have shipped real key-exfiltration and shell-injection CVEs.</span><span lang="zh-CN">把 ssh 直接交给智能体，它碰到的每个密码都会进上下文和日志。MCP SSH 服务器已出过真实的密钥外泄与命令注入 CVE。</span></p>
-      </div>
-    </div>
-  </section>
-
-  <section id="security">
-    <p class="kicker"><span lang="en">Security model</span><span lang="zh-CN">安全模型</span></p>
-    <h2><span lang="en">The secret never crosses the line</span><span lang="zh-CN">秘密永远不越过这条线</span></h2>
-    <p class="section-lede">
-      <span lang="en">serverctl never types your password. OpenSSH asks a tiny AskPass helper, which matches the prompt to a credential and pulls the value straight from the OS vault into the ssh process — and refuses to answer host-key or OTP prompts that belong to a human.</span>
-      <span lang="zh-CN">serverctl 从不替你「输入」密码。OpenSSH 向一个极小的 AskPass 助手发问，助手将提示匹配到对应凭据，把秘密从系统保险库直接送进 ssh 进程——并拒绝回答本应由人确认的主机密钥和动态口令提示。</span>
+    <p class="description">
+      <span lang="en">A local SSH server and credential manager for people and AI agents. Your connections stay organized, while passwords remain inside the operating-system keychain.</span>
+      <span lang="zh-CN">为你和 AI 智能体打造的本地 SSH 服务器与凭据管理器。连接井然有序，密码始终留在操作系统钥匙串中。</span>
     </p>
-    <div class="flow">
-      <div class="flow-node">
-        <div class="fn-title"><span lang="en">You / your agent</span><span lang="zh-CN">你 / 你的智能体</span></div>
-        <div class="fn-sub"><span lang="en">sees aliases &amp; JSON results</span><span lang="zh-CN">只见别名与 JSON 结果</span></div>
-      </div>
-      <div class="flow-arrow">→</div>
-      <div class="flow-node">
-        <div class="fn-title">serverctl</div>
-        <div class="fn-sub"><span lang="en">passes credential IDs only</span><span lang="zh-CN">只传递凭据标识符</span></div>
-      </div>
-      <div class="barrier" title="secrets never cross"></div>
-      <div class="flow-node">
-        <div class="fn-title">AskPass</div>
-        <div class="fn-sub"><span lang="en">answers ssh directly</span><span lang="zh-CN">直接应答 ssh</span></div>
-      </div>
-      <div class="flow-arrow">⇄</div>
-      <div class="flow-node vault">
-        <div class="fn-title"><span lang="en">OS vault</span><span lang="zh-CN">系统保险库</span></div>
-        <div class="fn-sub">Keychain · Credential Locker · Secret Service</div>
-      </div>
-    </div>
-    <p class="flow-note">
-      <span lang="en">Left of the red line, secrets simply don't exist: not in argv, not in env vars, not in logs, not in any output a model reads. Unsafe plaintext keyring backends are rejected as a hard error. Host-key verification is never weakened — there is no flag for it.</span>
-      <span lang="zh-CN">红线左侧不存在任何秘密：参数里没有、环境变量里没有、日志里没有、模型读到的输出里也没有。明文 keyring 后端会被直接报错拒绝。主机密钥校验永不弱化——连绕过它的选项都不存在。</span>
-    </p>
-    <div class="grid-3" style="margin-top: 24px;">
-      <div class="card">
-        <h3><span lang="en">Loopback-only web UI</span><span lang="zh-CN">仅本机回环的 Web UI</span></h3>
-        <p><span lang="en">Binds 127.0.0.1 with a single-use launch token, HttpOnly sessions, CSRF headers, Origin checks, and a strict CSP. The network never sees it.</span><span lang="zh-CN">只绑定 127.0.0.1：一次性启动令牌、HttpOnly 会话、CSRF 头、Origin 校验、严格 CSP。网络上根本看不到它。</span></p>
-      </div>
-      <div class="card">
-        <h3><span lang="en">WebAuthn-gated reveal</span><span lang="zh-CN">通行密钥门禁的秘密查看</span></h3>
-        <p><span lang="en">Displaying a stored secret takes Touch ID / Windows Hello (or an Argon2id master password). Grants are single-use, expire in 30 s, and the value wipes from the page in 15 s.</span><span lang="zh-CN">查看已存秘密需 Touch ID / Windows Hello（或 Argon2id 主密码）。授权单次有效、30 秒过期，页面上的值 15 秒后自动清除。</span></p>
-      </div>
-      <div class="card">
-        <h3><span lang="en">Your ssh config, untouched</span><span lang="zh-CN">不碰你的 ssh 配置</span></h3>
-        <p><span lang="en">Managed hosts render to a separate file, written atomically with user-only permissions; your original <code>~/.ssh/config</code> is included last and never edited.</span><span lang="zh-CN">托管主机渲染到独立文件，原子写入、仅本用户可读；原有 <code>~/.ssh/config</code> 最后加载，永不被改写。</span></p>
-      </div>
-    </div>
-  </section>
-
-  <section id="features">
-    <p class="kicker"><span lang="en">Features</span><span lang="zh-CN">功能</span></p>
-    <h2><span lang="en">One CLI, a local UI, zero ceremony</span><span lang="zh-CN">一个 CLI，一个本地 UI，零繁文缛节</span></h2>
-    <div class="grid-3" style="margin-top: 28px;">
-      <div class="card"><h3><span lang="en">Profiles &amp; jump chains</span><span lang="zh-CN">连接档案与跳板链</span></h3><p><span lang="en">Aliases with host, port, user, notes, and ordered ProxyJump hops — cycle detection included.</span><span lang="zh-CN">别名承载主机、端口、用户、备注和有序 ProxyJump 跳板，自带环路检测。</span></p></div>
-      <div class="card"><h3><span lang="en">Three credential kinds</span><span lang="zh-CN">三种凭据类型</span></h3><p><span lang="en">Vault passwords, private keys with vaulted passphrases, or plain ssh-agent. Reusable across servers, undeletable while referenced.</span><span lang="zh-CN">保险库密码、带保险库口令的私钥、或 ssh-agent。可跨服务器复用，被引用时禁止删除。</span></p></div>
-      <div class="card"><h3><span lang="en">OpenSSH import</span><span lang="zh-CN">OpenSSH 导入</span></h3><p><span lang="en">Parses <code>~/.ssh/config</code> (following Include), resolves aliases with <code>ssh -G</code>, previews before applying.</span><span lang="zh-CN">解析 <code>~/.ssh/config</code>（跟随 Include），用 <code>ssh -G</code> 解析别名，先预览后应用。</span></p></div>
-      <div class="card"><h3><span lang="en">Diagnosable tests</span><span lang="zh-CN">可诊断的连接测试</span></h3><p><span lang="en">Latency plus a classified error code — <code>authentication-failed</code>, <code>host-key-untrusted</code>, <code>timeout</code>, <code>dns-failed</code> — with history.</span><span lang="zh-CN">延迟加分类错误码——认证失败、主机密钥不受信、超时、DNS 失败——并记录历史。</span></p></div>
-      <div class="card"><h3><span lang="en">Remote execution</span><span lang="zh-CN">远程执行</span></h3><p><span lang="en">Safely quoted args, <code>--shell</code> for pipelines, stdin streaming for scripts and binaries, connection reuse, JSON results.</span><span lang="zh-CN">参数安全转义，<code>--shell</code> 跑管道，stdin 流式传脚本和二进制，连接复用，JSON 结果。</span></p></div>
-      <div class="card"><h3><span lang="en">Doctor built in</span><span lang="zh-CN">内置体检</span></h3><p><span lang="en"><code>serverctl doctor</code> verifies ssh, vault backend safety, paths, and dependencies on any platform.</span><span lang="zh-CN"><code>serverctl doctor</code> 在任意平台检查 ssh、保险库后端安全性、路径与依赖。</span></p></div>
-    </div>
-  </section>
-
-  <section id="ui">
-    <p class="kicker"><span lang="en">Local web UI</span><span lang="zh-CN">本地 Web UI</span></p>
-    <h2><span lang="en">See every server. Expose no secrets.</span><span lang="zh-CN">所有服务器一目了然，秘密一个也不暴露。</span></h2>
-    <p class="section-lede">
-      <span lang="en">Manage connection profiles, reusable credentials, ProxyJump routes, and connection tests from a loopback-only dashboard. It runs entirely on your machine.</span>
-      <span lang="zh-CN">在仅限本机访问的控制台中管理连接档案、复用凭据、ProxyJump 路由和连接测试。所有内容都只运行在你的电脑上。</span>
-    </p>
-    <figure class="ui-preview">
-      <img src="assets/ssh-server-manager-ui.png" width="1440" height="1100" loading="lazy" alt="SSH Server Manager local dashboard showing server profiles, credentials, and ProxyJump routes">
-      <figcaption><span lang="en">The real local dashboard, shown with fictional demo servers.</span><span lang="zh-CN">真实的本地管理界面，截图中使用的是虚构演示服务器。</span></figcaption>
+    <figure class="product-shot">
+      <img src="assets/ssh-server-manager-ui.png" width="1440" height="1100" alt="SSH Server Manager local dashboard with fictional demo servers">
+      <figcaption><span lang="en">The real local dashboard, shown with fictional servers.</span><span lang="zh-CN">真实本地管理界面，截图使用虚构服务器。</span></figcaption>
     </figure>
-  </section>
+  </div>
 
-  <section id="agents">
-    <p class="kicker"><span lang="en">For AI agents</span><span lang="zh-CN">面向 AI 智能体</span></p>
-    <h2><span lang="en">Agent-drivable. Not agent-readable.</span><span lang="zh-CN">智能体驱动得了，读不到秘密。</span></h2>
-    <div class="grid-2" style="margin-top: 28px; align-items: start;">
-      <div>
-        <p class="section-lede" style="margin-bottom: 20px;">
-          <span lang="en">Ships as an Agent Skill (the open SKILL.md standard supported by Claude Code, Codex CLI, Gemini CLI, Cursor and more). The agent gets a deterministic CLI with <code>--json</code> everywhere and meaningful exit codes; authentication happens out-of-band, so there is no secret for a prompt injection to steal.</span>
-          <span lang="zh-CN">以 Agent Skill 形式发布（开放的 SKILL.md 标准，Claude Code、Codex CLI、Gemini CLI、Cursor 等均支持）。智能体得到的是全量 <code>--json</code> 输出和有意义退出码的确定性 CLI；认证在带外完成，提示注入根本偷不到不存在的东西。</span>
-        </p>
-        <ul style="color: var(--ink-soft); font-size: 14.5px; padding-left: 20px; margin: 0; display: grid; gap: 8px;">
-          <li><span lang="en">Structured inventory, tests, and exec results for reliable automation</span><span lang="zh-CN">结构化的主机清单、测试与执行结果，自动化更可靠</span></li>
-          <li><span lang="en">AskPass refuses host-key and OTP prompts — humans stay in the loop</span><span lang="zh-CN">AskPass 拒答主机密钥与动态口令提示——人始终在环内</span></li>
-          <li><span lang="en">Launch tokens and secrets are withheld from stdout by design</span><span lang="zh-CN">启动令牌与秘密从设计上就不进入标准输出</span></li>
-        </ul>
-      </div>
-      <pre class="block"><span class="c"># deploy the skill to every agent on this machine — one line</span>
-<span class="a">$</span> curl -fsSL https://raw.githubusercontent.com/xiayh0107/servers-connect/main/install.sh | sh
-<span class="c">#   → deps installed, linked into ~/.claude/skills</span>
-<span class="c">#     and ~/.codex/skills, doctor: all green</span>
-
-<span class="c"># the agent works with structure, not secrets</span>
-<span class="a">$</span> serverctl server list --json
-<span class="a">$</span> serverctl exec web1 --json -- \
-    systemctl is-active nginx</pre>
+  <aside class="start-card">
+    <div class="card-main">
+      <h2><span lang="en">Your local SSH control plane</span><span lang="zh-CN">你的本地 SSH 控制台</span></h2>
+      <div class="terminal-mark">&gt;_</div>
+      <h3><span lang="en">Ready on your machine</span><span lang="zh-CN">在你的电脑上运行</span></h3>
+      <p><span lang="en">No cloud account. No plaintext secrets. Works with macOS, Linux, and Windows.</span><span lang="zh-CN">无需云账户，没有明文秘密，支持 macOS、Linux 和 Windows。</span></p>
+      <div class="proof"><span>Local only</span><span>OS keychain</span><span>MIT</span></div>
     </div>
-  </section>
-
-  <section id="compare">
-    <p class="kicker"><span lang="en">Compare</span><span lang="zh-CN">横向对比</span></p>
-    <h2><span lang="en">Where it stands, honestly</span><span lang="zh-CN">诚实的定位</span></h2>
-    <p class="section-lede"><span lang="en">Great tools exist in this space. This one occupies a corner none of them do: OS-native custody plus a safe agent surface.</span><span lang="zh-CN">这个领域好工具不少。本工具占据的是它们都没有的一角：系统原生托管凭据，加上安全的智能体接口。</span></p>
-    <div class="tbl-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th></th>
-            <th>SSH Server Manager</th>
-            <th>Termius</th>
-            <th>XPipe</th>
-            <th>Tabby</th>
-            <th>sshs / wishlist</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><span lang="en">Credential storage</span><span lang="zh-CN">凭据存储</span></td>
-            <td class="yes"><span lang="en">OS keychain</span><span lang="zh-CN">系统钥匙串</span></td>
-            <td><span lang="en">vendor cloud</span><span lang="zh-CN">厂商云端</span></td>
-            <td><span lang="en">app vault</span><span lang="zh-CN">应用自带库</span></td>
-            <td><span lang="en">app vault</span><span lang="zh-CN">应用自带库</span></td>
-            <td class="no"><span lang="en">none</span><span lang="zh-CN">无</span></td>
-          </tr>
-          <tr>
-            <td><span lang="en">Price</span><span lang="zh-CN">价格</span></td>
-            <td class="yes"><span lang="en">free, MIT</span><span lang="zh-CN">免费，MIT</span></td>
-            <td>$10–30/mo</td>
-            <td><span lang="en">open-core, $5–10/mo</span><span lang="zh-CN">开放内核，$5–10/月</span></td>
-            <td class="yes"><span lang="en">free, MIT</span><span lang="zh-CN">免费，MIT</span></td>
-            <td class="yes"><span lang="en">free</span><span lang="zh-CN">免费</span></td>
-          </tr>
-          <tr>
-            <td><span lang="en">CLI-first + JSON</span><span lang="zh-CN">CLI 优先 + JSON</span></td>
-            <td class="yes">✓</td>
-            <td class="no">—</td>
-            <td class="no">—</td>
-            <td class="no">—</td>
-            <td><span lang="en">TUI only</span><span lang="zh-CN">仅 TUI</span></td>
-          </tr>
-          <tr>
-            <td><span lang="en">Safe AI-agent surface</span><span lang="zh-CN">安全的 AI 接口</span></td>
-            <td class="yes"><span lang="en">Skill, secrets out of context</span><span lang="zh-CN">Skill，秘密不进上下文</span></td>
-            <td class="no">—</td>
-            <td><span lang="en">MCP server</span><span lang="zh-CN">MCP 服务器</span></td>
-            <td class="no">—</td>
-            <td class="no">—</td>
-          </tr>
-          <tr>
-            <td><span lang="en">Reveal re-auth (passkey)</span><span lang="zh-CN">查看重认证（通行密钥）</span></td>
-            <td class="yes">✓</td>
-            <td class="no">—</td>
-            <td class="no">—</td>
-            <td class="no">—</td>
-            <td class="no">—</td>
-          </tr>
-          <tr>
-            <td><span lang="en">Integrated SFTP / tunnels</span><span lang="zh-CN">内置 SFTP / 隧道</span></td>
-            <td class="warn"><span lang="en">roadmap</span><span lang="zh-CN">路线图中</span></td>
-            <td class="yes">✓</td>
-            <td class="yes">✓</td>
-            <td class="yes">✓</td>
-            <td class="no">—</td>
-          </tr>
-          <tr>
-            <td><span lang="en">Full graphical terminal</span><span lang="zh-CN">完整图形终端</span></td>
-            <td class="no"><span lang="en">uses your terminal</span><span lang="zh-CN">用你自己的终端</span></td>
-            <td class="yes">✓</td>
-            <td class="yes">✓</td>
-            <td class="yes">✓</td>
-            <td class="no">—</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <section id="install">
-    <p class="kicker"><span lang="en">Install</span><span lang="zh-CN">安装</span></p>
-    <h2><span lang="en">Running in two minutes</span><span lang="zh-CN">两分钟跑起来</span></h2>
-    <div class="grid-3" style="margin-top: 28px; align-items: start;">
-      <div>
-        <h3 style="margin: 0 0 12px; font-size: 15px;"><span lang="en">For humans — pipx / uv</span><span lang="zh-CN">给人用 — pipx / uv</span></h3>
-        <pre class="block"><span class="a">$</span> pipx install ssh-server-manager
-<span class="a">$</span> serverctl doctor
-<span class="a">$</span> serverctl server import --apply
-<span class="a">$</span> serverctl connect web1</pre>
-      </div>
-      <div>
-        <h3 style="margin: 0 0 12px; font-size: 15px;"><span lang="en">For your agent — one line</span><span lang="zh-CN">给智能体 — 一句话</span></h3>
-        <pre class="block"><span class="a">$</span> curl -fsSL https://raw.githubusercontent.com/xiayh0107/servers-connect/main/install.sh | sh
-<span class="c"># deps + skill links + doctor,</span>
-<span class="c"># every agent on the machine</span>
-<span class="c"># Windows: install.ps1 | iex</span></pre>
-      </div>
-      <div>
-        <h3 style="margin: 0 0 12px; font-size: 15px;"><span lang="en">From source</span><span lang="zh-CN">源码运行</span></h3>
-        <pre class="block"><span class="a">$</span> git clone https://github.com/xiayh0107/servers-connect.git
-<span class="a">$</span> cd servers-connect/ssh-server-manager
-<span class="a">$</span> ./scripts/bootstrap
-<span class="a">$</span> ./scripts/serverctl doctor</pre>
-      </div>
-    </div>
-    <p class="flow-note" style="margin-top: 24px;">
-      <span lang="en">Requires Python 3.10+ and an OpenSSH client. Full per-platform notes — including headless Linux and the Windows Credential Locker — live in the docs: installation, quickstart, CLI reference, security model, platforms, AI agents, FAQ.</span>
-      <span lang="zh-CN">需要 Python 3.10+ 和 OpenSSH 客户端。完整的平台说明（含无桌面 Linux 与 Windows 凭据管理器）见文档：安装、快速上手、CLI 参考、安全模型、平台说明、AI 集成、常见问题。</span>
-    </p>
-  </section>
-
+    <button class="agent-entry" id="openAgentDialog" type="button">
+      <span lang="en">Connect your Agent</span><span lang="zh-CN">Agent 一键接入</span><span class="arrow">→</span>
+    </button>
+  </aside>
 </main>
 
 <footer>
-  <div class="wrap">
-    <div class="foot-links mono">
-      <a href="https://github.com/xiayh0107/servers-connect">GitHub</a>
-      <a href="https://github.com/xiayh0107/servers-connect/tree/main/ssh-server-manager/docs">docs/</a>
-      <a href="https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/security.md">security model</a>
-      <a href="https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md">agent guide</a>
-      <a href="https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/roadmap.md">roadmap</a>
-    </div>
-    <div>
-      <span lang="en">MIT licensed. No cloud, no telemetry, no subscription — by design, not by promise.</span>
-      <span lang="zh-CN">MIT 许可。没有云端、没有遥测、没有订阅——这是架构决定的，不只是承诺。</span>
-    </div>
+  <span>SSH Server Manager · MIT</span>
+  <div class="footer-links">
+    <a href="https://github.com/xiayh0107/servers-connect">GitHub</a>
+    <a href="https://github.com/xiayh0107/servers-connect/tree/main/ssh-server-manager/docs">Docs</a>
+    <a href="https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/security.md">Security</a>
+    <button class="lang-button" id="langToggle" type="button">中文</button>
   </div>
 </footer>
+
+<dialog id="agentDialog" aria-labelledby="agentDialogTitle">
+  <div class="dialog-content">
+    <div class="dialog-head">
+      <div>
+        <h2 id="agentDialogTitle"><span lang="en">Connect your Agent</span><span lang="zh-CN">Agent 一键接入</span></h2>
+        <p><span lang="en">Send this prompt to your Agent. It will install and verify the tool for you.</span><span lang="zh-CN">将下面的提示词发送给 Agent，它会帮你完成安装和检查。</span></p>
+      </div>
+      <button class="close-button" id="closeAgentDialog" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="prompt" id="agentInstallCommand"><span lang="en">Read https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md and follow it to install and configure SSH Server Manager for me. When finished, run serverctl doctor and report the results.</span><span lang="zh-CN">请阅读 https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md，按照文档为我安装并配置 SSH Server Manager。完成后运行 serverctl doctor，并告诉我检查结果。</span></div>
+    <button class="copy-button" id="copyAgentCommand" type="button"><span lang="en">Copy prompt</span><span lang="zh-CN">复制提示词</span></button>
+  </div>
+</dialog>
 
 <script>
   (function () {
     var root = document.documentElement;
-    var btn = document.getElementById("langToggle");
-    var stored = null;
-    try { stored = localStorage.getItem("ssm-lang"); } catch (e) {}
-    var zh = stored ? stored === "zh" : /^zh/i.test(navigator.language || "");
-    function apply() {
-      if (zh) { root.setAttribute("data-lang", "zh"); btn.textContent = "EN"; root.lang = "zh-CN"; }
-      else { root.removeAttribute("data-lang"); btn.textContent = "中文"; root.lang = "en"; }
-    }
-    btn.addEventListener("click", function () {
-      zh = !zh;
-      try { localStorage.setItem("ssm-lang", zh ? "zh" : "en"); } catch (e) {}
-      apply();
-    });
-    apply();
-
-    var themeBtn = document.getElementById("themeToggle");
-    var theme = null;
-    try { theme = localStorage.getItem("ssm-theme"); } catch (e) {}
-    if (!theme) { theme = root.getAttribute("data-theme") || "dark"; }
-    function applyTheme() {
-      root.setAttribute("data-theme", theme);
-      themeBtn.textContent = theme === "dark" ? "☀" : "☾";
-    }
-    themeBtn.addEventListener("click", function () {
-      theme = theme === "dark" ? "light" : "dark";
-      try { localStorage.setItem("ssm-theme", theme); } catch (e) {}
-      applyTheme();
-    });
-    applyTheme();
-
+    var langButton = document.getElementById("langToggle");
+    var dialog = document.getElementById("agentDialog");
+    var openButton = document.getElementById("openAgentDialog");
+    var closeButton = document.getElementById("closeAgentDialog");
     var copyButton = document.getElementById("copyAgentCommand");
-    var installCommand = document.getElementById("agentInstallCommand").textContent.trim();
-    copyButton.addEventListener("click", function () {
-      function showCopied() {
-        copyButton.classList.add("copied");
-        copyButton.textContent = root.getAttribute("data-lang") === "zh" ? "已复制" : "Copied";
-        window.setTimeout(function () {
-          copyButton.classList.remove("copied");
-          copyButton.innerHTML = '<span lang="en">Copy</span><span lang="zh-CN">复制</span>';
-        }, 1800);
+    var storedLanguage = null;
+    try { storedLanguage = localStorage.getItem("ssm-lang"); } catch (error) {}
+    var useChinese = storedLanguage ? storedLanguage === "zh" : /^zh/i.test(navigator.language || "");
+
+    function applyLanguage() {
+      if (useChinese) {
+        root.setAttribute("data-lang", "zh"); root.lang = "zh-CN"; langButton.textContent = "EN";
+      } else {
+        root.removeAttribute("data-lang"); root.lang = "en"; langButton.textContent = "中文";
       }
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(installCommand).then(showCopied);
-        return;
-      }
+    }
+    function promptText() {
+      var selector = useChinese ? '[lang="zh-CN"]' : '[lang="en"]';
+      return document.getElementById("agentInstallCommand").querySelector(selector).textContent.trim();
+    }
+    function copied() {
+      copyButton.classList.add("copied"); copyButton.textContent = useChinese ? "已复制" : "Copied";
+      window.setTimeout(function () {
+        copyButton.classList.remove("copied");
+        copyButton.innerHTML = '<span lang="en">Copy prompt</span><span lang="zh-CN">复制提示词</span>';
+      }, 1800);
+    }
+    function fallbackCopy(text) {
       var helper = document.createElement("textarea");
-      helper.value = installCommand;
-      helper.setAttribute("readonly", "");
-      helper.style.position = "fixed";
-      helper.style.opacity = "0";
-      document.body.appendChild(helper);
-      helper.select();
-      document.execCommand("copy");
-      helper.remove();
-      showCopied();
+      helper.value = text; helper.setAttribute("readonly", ""); helper.style.position = "fixed"; helper.style.opacity = "0";
+      document.body.appendChild(helper); helper.select(); document.execCommand("copy"); helper.remove(); copied();
+    }
+
+    langButton.addEventListener("click", function () {
+      useChinese = !useChinese;
+      try { localStorage.setItem("ssm-lang", useChinese ? "zh" : "en"); } catch (error) {}
+      applyLanguage();
     });
+    openButton.addEventListener("click", function () { dialog.showModal(); });
+    closeButton.addEventListener("click", function () { dialog.close(); });
+    copyButton.addEventListener("click", function () {
+      var text = promptText();
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(copied, function () { fallbackCopy(text); });
+      } else { fallbackCopy(text); }
+    });
+    applyLanguage();
   })();
 </script>
