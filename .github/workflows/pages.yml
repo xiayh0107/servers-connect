@@ -38,6 +38,7 @@ jobs:
             cat body.part
             printf '</body>\n</html>\n'
           } > _site/index.html
+          cp -R website/assets _site/assets
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

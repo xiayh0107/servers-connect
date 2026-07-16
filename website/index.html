@@ -114,12 +114,20 @@
   .btn-ghost { border-color: var(--line); color: var(--ink); background: var(--surface); }
   .btn-ghost:hover { border-color: var(--ink-faint); color: var(--ink); }
   .install-pill {
-    margin-top: 14px; display: inline-flex; align-items: center; gap: 12px;
+    margin-top: 14px; display: flex; align-items: center; gap: 12px; width: 100%;
     background: var(--term-bg); color: var(--term-ink); border-radius: 8px; padding: 10px 16px;
     font-family: ui-monospace, Menlo, monospace; font-size: 13.5px;
-    max-width: 100%; overflow-x: auto; white-space: nowrap;
+    max-width: 52ch; overflow: hidden; white-space: nowrap;
   }
   .install-pill .dollar { color: var(--term-amber); user-select: none; }
+  .install-command { min-width: 0; flex: 1 1 auto; overflow-x: auto; user-select: all; }
+  .copy-btn {
+    flex: 0 0 auto; border: 1px solid rgba(232, 163, 61, .35); background: var(--accent-wash);
+    color: var(--accent-strong); border-radius: 6px; padding: 5px 10px; cursor: pointer;
+    font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--ink); }
+  .copy-btn.copied { background: var(--ok); border-color: var(--ok); color: var(--term-bg); }
   .agent-callout {
     margin-top: 26px; padding: 14px 18px; border: 1px solid var(--accent);
     background: var(--accent-wash); border-radius: 10px; max-width: 52ch;
@@ -178,6 +186,14 @@
     border-radius: 4px; padding: 2px 8px; margin-bottom: 12px;
   }
 
+  /* product UI preview */
+  .ui-preview {
+    margin: 30px 0 0; padding: 10px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; box-shadow: var(--shadow);
+  }
+  .ui-preview img { display: block; width: 100%; height: auto; border-radius: 9px; }
+  .ui-preview figcaption { padding: 12px 8px 4px; color: var(--ink-soft); font-size: 13.5px; }
+
   /* secret path diagram */
   .flow { display: flex; align-items: stretch; gap: 0; margin: 8px 0 4px; overflow-x: auto; padding-bottom: 8px; }
   .flow-node {
@@ -223,6 +239,7 @@
     <nav class="nav-links">
       <a href="#security"><span lang="en">Security</span><span lang="zh-CN">安全</span></a>
       <a href="#features"><span lang="en">Features</span><span lang="zh-CN">功能</span></a>
+      <a href="#ui">UI</a>
       <a href="#agents"><span lang="en">AI Agents</span><span lang="zh-CN">AI 智能体</span></a>
       <a href="#compare"><span lang="en">Compare</span><span lang="zh-CN">对比</span></a>
       <a href="#install"><span lang="en">Install</span><span lang="zh-CN">安装</span></a>
@@ -256,7 +273,13 @@
           <span lang="zh-CN">在用 Claude Code 或 Codex？一句话即可把 skill 部署到本机所有智能体——依赖安装、目录链接、健康体检一步到位。<a href="https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md">智能体部署指南 →</a></span>
         </p>
       </div>
-      <div class="install-pill"><span class="dollar">$</span> curl -fsSL https://raw.githubusercontent.com/xiayh0107/servers-connect/main/install.sh | sh</div>
+      <div class="install-pill">
+        <span class="dollar">$</span>
+        <span class="install-command" id="agentInstallCommand">curl -fsSL https://raw.githubusercontent.com/xiayh0107/servers-connect/main/install.sh | sh</span>
+        <button class="copy-btn" id="copyAgentCommand" type="button" aria-label="Copy agent installation command">
+          <span lang="en">Copy</span><span lang="zh-CN">复制</span>
+        </button>
+      </div>
     </div>
 
     <div class="terminal" role="img" aria-label="serverctl terminal session">
@@ -346,6 +369,19 @@
       <div class="card"><h3><span lang="en">Remote execution</span><span lang="zh-CN">远程执行</span></h3><p><span lang="en">Safely quoted args, <code>--shell</code> for pipelines, stdin streaming for scripts and binaries, connection reuse, JSON results.</span><span lang="zh-CN">参数安全转义，<code>--shell</code> 跑管道，stdin 流式传脚本和二进制，连接复用，JSON 结果。</span></p></div>
       <div class="card"><h3><span lang="en">Doctor built in</span><span lang="zh-CN">内置体检</span></h3><p><span lang="en"><code>serverctl doctor</code> verifies ssh, vault backend safety, paths, and dependencies on any platform.</span><span lang="zh-CN"><code>serverctl doctor</code> 在任意平台检查 ssh、保险库后端安全性、路径与依赖。</span></p></div>
     </div>
+  </section>
+
+  <section id="ui">
+    <p class="kicker"><span lang="en">Local web UI</span><span lang="zh-CN">本地 Web UI</span></p>
+    <h2><span lang="en">See every server. Expose no secrets.</span><span lang="zh-CN">所有服务器一目了然，秘密一个也不暴露。</span></h2>
+    <p class="section-lede">
+      <span lang="en">Manage connection profiles, reusable credentials, ProxyJump routes, and connection tests from a loopback-only dashboard. It runs entirely on your machine.</span>
+      <span lang="zh-CN">在仅限本机访问的控制台中管理连接档案、复用凭据、ProxyJump 路由和连接测试。所有内容都只运行在你的电脑上。</span>
+    </p>
+    <figure class="ui-preview">
+      <img src="assets/ssh-server-manager-ui.png" width="1440" height="1100" loading="lazy" alt="SSH Server Manager local dashboard showing server profiles, credentials, and ProxyJump routes">
+      <figcaption><span lang="en">The real local dashboard, shown with fictional demo servers.</span><span lang="zh-CN">真实的本地管理界面，截图中使用的是虚构演示服务器。</span></figcaption>
+    </figure>
   </section>
 
   <section id="agents">
@@ -535,5 +571,32 @@
       applyTheme();
     });
     applyTheme();
+
+    var copyButton = document.getElementById("copyAgentCommand");
+    var installCommand = document.getElementById("agentInstallCommand").textContent.trim();
+    copyButton.addEventListener("click", function () {
+      function showCopied() {
+        copyButton.classList.add("copied");
+        copyButton.textContent = root.getAttribute("data-lang") === "zh" ? "已复制" : "Copied";
+        window.setTimeout(function () {
+          copyButton.classList.remove("copied");
+          copyButton.innerHTML = '<span lang="en">Copy</span><span lang="zh-CN">复制</span>';
+        }, 1800);
+      }
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(installCommand).then(showCopied);
+        return;
+      }
+      var helper = document.createElement("textarea");
+      helper.value = installCommand;
+      helper.setAttribute("readonly", "");
+      helper.style.position = "fixed";
+      helper.style.opacity = "0";
+      document.body.appendChild(helper);
+      helper.select();
+      document.execCommand("copy");
+      helper.remove();
+      showCopied();
+    });
   })();
 </script>

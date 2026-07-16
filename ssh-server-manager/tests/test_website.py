@@ -18,3 +18,16 @@ def test_sticky_header_stays_on_normal_paint_path():
 def test_marketing_page_does_not_intercept_context_menu():
     assert "contextmenu" not in WEBSITE_HTML
     assert "preventDefault" not in WEBSITE_HTML
+
+
+def test_marketing_page_has_copyable_agent_install_command():
+    assert 'id="agentInstallCommand"' in WEBSITE_HTML
+    assert 'id="copyAgentCommand"' in WEBSITE_HTML
+    assert "navigator.clipboard.writeText(installCommand)" in WEBSITE_HTML
+
+
+def test_marketing_page_shows_real_ui_preview():
+    screenshot = REPO_ROOT / "website" / "assets" / "ssh-server-manager-ui.png"
+
+    assert screenshot.is_file()
+    assert 'src="assets/ssh-server-manager-ui.png"' in WEBSITE_HTML
