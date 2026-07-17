@@ -63,7 +63,7 @@ cd servers-connect/ssh-server-manager
 - **托管配置渲染** —— 原子写入、仅本用户可读的 `~/.ssh/ssh-server-manager.conf`；原配置始终最后加载，不影响既有默认值。
 - **连接测试** —— `server test` 报告延迟和分类错误码（认证失败 / 主机密钥不受信 / 超时 / DNS 失败等），并记录历史。
 - **远程执行** —— `serverctl exec 别名 -- 命令 参数`；`--shell` 跑管道和复合命令，`--stdin`/`--stdin-binary` 流式传输文件，`--reuse N` 复用连接（macOS/Linux），`--json` 输出机器可读结果。
-- **本地 Web UI** —— 可新建、重命名、删除标签，搜索并批量分配主机，也可按项目/场景筛选；支持跟随系统、亮色和暗色主题；状态会随检查结果过期，不会永久显示在线；通过 SFTP 只读浏览远程目录并复制给 Agent 使用的文件引用；查看已存秘密前需通行密钥或主密码重新认证。
+- **本地 Web UI** —— 可新建、重命名、删除标签，搜索并批量分配主机，也可按项目/场景筛选；支持跟随系统、亮色和暗色主题；状态会随检查结果过期，不会永久显示在线；通过 SFTP 只读浏览远程目录并复制给 Agent 使用的文件引用；查看已存秘密前需通行密钥或主密码重新认证；后台运行的界面可用 `serverctl ui --status` / `--stop` 查看和关闭，无需手工记 PID。
 - **诊断** —— `serverctl doctor` 检查 ssh 与 sftp 可用性、OpenSSH 版本、保险库后端安全性、数据库与配置路径、Python 依赖。
 
 ## 平台支持
@@ -80,6 +80,8 @@ cd servers-connect/ssh-server-manager
 ## 面向 AI 智能体
 
 本项目同时以 Agent Skill（[SKILL.md](SKILL.md)）形式发布，Claude Code、Codex 等智能体可以安全地管理服务器：智能体获得结构化 JSON 输出和连接错误分类，而 AskPass 架构从设计上保证秘密不进入模型上下文。
+
+Skill 不只教命令，还规定了对话体验：智能体用一次 `--json` 调用回答主机清单问题；交互式 shell 交还给**你的**终端、后续命令由 `exec` 代理执行（`connect` 在无终端环境下会快速报错而不是挂起）；后台 UI 用 `serverctl ui --stop` 一键清理。
 
 一句话部署 skill：
 

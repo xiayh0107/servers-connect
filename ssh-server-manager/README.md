@@ -93,7 +93,8 @@ browser with a one-time tokenized URL.
   system/light/dark themes, import config, browse remote directories read-only
   over SFTP, copy file references for an agent, and reveal a stored secret
   after passkey or master-password re-authentication. Connection status expires
-  instead of staying green.
+  instead of staying green. Inspect or shut down a background instance with
+  `serverctl ui --status` / `--stop` — no pid bookkeeping.
 - **Diagnostics** — `serverctl doctor` checks ssh availability and version,
   SFTP availability, vault backend safety, database and config paths, and
   Python dependencies.
@@ -116,6 +117,12 @@ This project ships as an Agent Skill ([SKILL.md](SKILL.md)) so Claude Code,
 Codex, and other agents can manage servers safely: agents get structured
 JSON output and connection error classification, while the AskPass
 architecture keeps secrets out of the model's context by design.
+
+The skill also encodes conversation UX, not just commands: agents answer
+inventory questions from a single `--json` call, hand interactive shells to
+*your* terminal and proxy follow-up commands through `exec` (`connect`
+refuses to run without a TTY instead of hanging), and clean up a background
+UI with `serverctl ui --stop`.
 
 Deploy the skill with one line:
 
