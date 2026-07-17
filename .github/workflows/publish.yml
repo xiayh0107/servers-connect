@@ -42,3 +42,7 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # A manual re-run may race an already-uploaded version; treat
+          # duplicate files as success so verification runs stay green.
+          skip-existing: true
