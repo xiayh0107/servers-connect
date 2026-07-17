@@ -5,6 +5,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WEBSITE_HTML = (REPO_ROOT / "website" / "index.html").read_text(encoding="utf-8")
+COLLABORATION_IMAGE = REPO_ROOT / "website" / "assets" / "human-agent-collaboration.webp"
 
 
 def test_marketing_page_declares_utf8_before_localized_copy():
@@ -30,6 +31,17 @@ def test_marketing_page_has_copyable_agent_prompt():
     assert 'id="agentInstallCommand"' in WEBSITE_HTML
     assert 'id="copyAgentCommand"' in WEBSITE_HTML
     assert "navigator.clipboard.writeText(text)" in WEBSITE_HTML
+
+
+def test_marketing_page_leads_with_the_human_agent_workflow():
+    assert "Human + Agent SSH workspace" in WEBSITE_HTML
+    assert "One shared SSH workspace." in WEBSITE_HTML
+    assert "01 / INTENT" in WEBSITE_HTML
+    assert "02 / ACTION" in WEBSITE_HTML
+    assert "03 / REVIEW" in WEBSITE_HTML
+    assert 'src="assets/human-agent-collaboration.webp"' in WEBSITE_HTML
+    assert COLLABORATION_IMAGE.is_file()
+    assert COLLABORATION_IMAGE.stat().st_size <= 100_000
 
 
 def test_marketing_page_is_an_interactive_product_demo():

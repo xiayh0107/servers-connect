@@ -1,6 +1,6 @@
 <meta charset="utf-8">
-<title>SSH Server Manager — local-first SSH workspace</title>
-<meta name="description" content="Organize SSH hosts, credentials, tags, and remote files locally. Try the interactive SSH Server Manager demo with sample data.">
+<title>SSH Server Manager — one SSH workspace for you and your Agent</title>
+<meta name="description" content="Share one local SSH workspace with your AI Agent. You control hosts, files, credentials, scope, and approvals; the Agent executes with context, not secrets.">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#070c14">
 <style>
@@ -104,11 +104,11 @@
   .button.small { min-height: 34px; padding-inline: 12px; font-size: 11px; }
 
   .hero {
-    padding: 70px 0 46px;
+    padding: 64px 0 46px;
     display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(310px, .65fr);
-    gap: 64px;
-    align-items: end;
+    grid-template-columns: minmax(0, .94fr) minmax(440px, .76fr);
+    gap: 52px;
+    align-items: center;
   }
   .eyebrow {
     margin: 0 0 16px;
@@ -119,13 +119,14 @@
     text-transform: uppercase;
   }
   .hero h1 {
-    max-width: 880px;
+    max-width: 780px;
     margin: 0;
-    font-size: clamp(42px, 6vw, 82px);
+    font-size: clamp(42px, 5.2vw, 76px);
     line-height: .98;
     letter-spacing: -.055em;
   }
-  .hero h1 .muted-phrase { color: #8e9bb0; }
+  .hero > div { min-width: 0; }
+  .hero h1 .muted-phrase { display: block; color: #8e9bb0; }
   .hero-description {
     max-width: 760px;
     margin: 24px 0 30px;
@@ -134,19 +135,30 @@
     line-height: 1.6;
   }
   .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-  .hero-proof {
-    padding: 22px;
+  .agent-hero {
+    position: relative;
+    min-width: 0;
+    width: 100%;
+    overflow: hidden;
     border: 1px solid var(--line);
-    border-radius: 14px;
-    background: rgba(14, 23, 37, .72);
+    border-radius: 16px;
+    background: #0b1421;
+    box-shadow: 0 34px 90px -48px rgba(0, 0, 0, .95);
   }
-  .hero-proof > span { color: var(--faint); font-size: 10px; letter-spacing: .13em; text-transform: uppercase; }
-  .hero-proof strong { display: block; margin: 14px 0 8px; font-size: 19px; line-height: 1.35; }
-  .hero-proof p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
-  .proof-row { margin-top: 22px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .proof-row div { padding: 11px; border-radius: 9px; background: #0a1320; }
-  .proof-row b { display: block; font-size: 16px; }
-  .proof-row small { color: var(--faint); font-size: 9px; }
+  .agent-visual { position: relative; overflow: hidden; aspect-ratio: 8 / 5; background: #050a12; }
+  .agent-visual::after { content: ""; position: absolute; inset: 58% 0 0; background: linear-gradient(transparent, rgba(5, 10, 18, .7)); pointer-events: none; }
+  .agent-visual img { width: 100%; height: 100%; display: block; object-fit: cover; }
+  .agent-mode { position: absolute; z-index: 1; top: 14px; left: 14px; padding: 7px 9px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(135, 148, 255, .3); border-radius: 7px; background: rgba(6, 13, 23, .88); color: #c9d0ff; font-size: 9px; font-weight: 780; letter-spacing: .04em; }
+  .agent-mode i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(74, 214, 160, .12); }
+  .agent-caption { padding: 18px; border-top: 1px solid var(--line); }
+  .agent-caption > small { color: var(--accent); font-size: 9px; font-weight: 850; letter-spacing: .15em; text-transform: uppercase; }
+  .agent-caption > strong { display: block; margin: 8px 0 5px; font-size: 19px; letter-spacing: -.02em; }
+  .agent-caption > p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+  .agent-flow { margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); overflow: hidden; list-style: none; border: 1px solid var(--line); border-radius: 9px; background: #09121e; }
+  .agent-flow li { min-width: 0; padding: 10px; }
+  .agent-flow li + li { border-left: 1px solid var(--line); }
+  .agent-flow b { display: block; margin-bottom: 4px; color: var(--accent); font: 800 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .agent-flow span { color: #bdc7d7; font-size: 9px; line-height: 1.35; }
 
   .demo-section { padding: 28px 0 80px; }
   .section-heading {
@@ -447,7 +459,7 @@
 
   @media (max-width: 1080px) {
     .hero { grid-template-columns: 1fr; gap: 28px; }
-    .hero-proof { max-width: 650px; }
+    .agent-hero { max-width: 760px; }
     .demo-app { grid-template-columns: 205px minmax(0, 1fr); }
     .demo-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .tag-library { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -479,9 +491,12 @@
     .site-actions { gap: 12px; }
     .site-actions .button { min-height: 36px; padding-inline: 10px; }
     .hero { padding: 40px 0 28px; }
-    .hero h1 { font-size: 43px; }
+    .hero h1 { font-size: clamp(38px, 10.8vw, 43px); }
     .hero-description { font-size: 15px; }
-    .hero-proof { display: none; }
+    .agent-hero { border-radius: 12px; }
+    .agent-caption { padding: 14px; }
+    .agent-flow { grid-template-columns: 1fr; }
+    .agent-flow li + li { border-top: 1px solid var(--line); border-left: 0; }
     .demo-section { padding-top: 12px; }
     .demo-windowbar { padding-inline: 9px; }
     .demo-address { text-align: left; }
@@ -500,6 +515,10 @@
     .final-cta { padding: 25px; align-items: flex-start; flex-direction: column; }
     .site-footer { align-items: flex-start; flex-direction: column; }
     .tag-picker { width: min(280px, calc(100% - 20px)); }
+  }
+  @media (max-width: 440px) {
+    .site-nav { gap: 10px; }
+    .site-brand > span:nth-child(2) { display: none; }
   }
   @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 </style>
@@ -522,26 +541,36 @@
 <main id="top">
   <section class="hero">
     <div>
-      <p class="eyebrow"><span lang="en">Local-first SSH control plane</span><span lang="zh-CN">本地优先的 SSH 控制台</span></p>
-      <h1><span lang="en">Your hosts, files, and credentials. <span class="muted-phrase">One fast workspace.</span></span><span lang="zh-CN">主机、文件与凭据，<span class="muted-phrase">尽在一个高速工作区。</span></span></h1>
-      <p class="hero-description"><span lang="en">Organize every SSH endpoint with tags, browse remote files without opening a shell, and let AI agents work safely—while secrets stay in your operating-system keychain.</span><span lang="zh-CN">用标签整理所有 SSH 端点，无需打开终端即可浏览远程文件，并让 AI Agent 安全协作——秘密始终留在操作系统钥匙串中。</span></p>
+      <p class="eyebrow"><span lang="en">Human + Agent SSH workspace</span><span lang="zh-CN">用户与 Agent 共用的 SSH 工作区</span></p>
+      <h1><span lang="en">You and your Agent. <span class="muted-phrase">One shared SSH workspace.</span></span><span lang="zh-CN">你和 Agent，<span class="muted-phrase">共用 SSH 工作区。</span></span></h1>
+      <p class="hero-description"><span lang="en">You choose the goal, hosts, and approvals. Your Agent finds files, performs approved actions, and returns evidence in the same local workspace—without credentials entering the chat.</span><span lang="zh-CN">你决定目标、主机范围与授权；Agent 在同一个本地工作区中查找文件、执行获批操作并返回结果，凭据无需进入对话。</span></p>
       <div class="hero-actions">
-        <button class="button primary" id="focusDemo" type="button"><span lang="en">Try the product</span><span lang="zh-CN">立即体验产品</span> <span aria-hidden="true">↓</span></button>
+        <button class="button primary" id="focusDemo" type="button"><span lang="en">Try the shared workspace</span><span lang="zh-CN">体验共享工作区</span> <span aria-hidden="true">↓</span></button>
         <button class="button open-agent-dialog" type="button"><span lang="en">Connect your Agent</span><span lang="zh-CN">Agent 一键接入</span></button>
       </div>
     </div>
-    <aside class="hero-proof">
-      <span><span lang="en">Safe interactive preview</span><span lang="zh-CN">安全的交互预览</span></span>
-      <strong><span lang="en">This is the product UI, powered by fictional data.</span><span lang="zh-CN">这就是产品界面，数据全部为模拟内容。</span></strong>
-      <p><span lang="en">Click hosts, filter tags, edit assignments, and browse files. Nothing connects to a real machine.</span><span lang="zh-CN">可以选择主机、筛选标签、编辑分组和浏览文件，不会连接任何真实机器。</span></p>
-      <div class="proof-row"><div><b>11</b><small>demo hosts</small></div><div><b>4</b><small>workspaces</small></div><div><b>0</b><small>real secrets</small></div></div>
+    <aside class="agent-hero" aria-labelledby="agentCollaborationTitle">
+      <div class="agent-visual">
+        <img src="assets/human-agent-collaboration.webp" width="960" height="600" fetchpriority="high" decoding="async" alt="A person and an abstract AI Agent working through one shared local SSH control plane.">
+        <span class="agent-mode"><i></i><span lang="en">Shared local session</span><span lang="zh-CN">本地共享会话</span></span>
+      </div>
+      <div class="agent-caption">
+        <small><span lang="en">Human + Agent workflow</span><span lang="zh-CN">用户 + Agent 协作流程</span></small>
+        <strong id="agentCollaborationTitle"><span lang="en">One workspace. Two collaborators.</span><span lang="zh-CN">一个工作区，两个协作者。</span></strong>
+        <p><span lang="en">You keep control of scope and approval. The Agent receives context—not raw secrets.</span><span lang="zh-CN">范围与授权始终由你掌控；Agent 获得执行上下文，而不是原始秘密。</span></p>
+        <ol class="agent-flow">
+          <li><b>01 / INTENT</b><span lang="en">You choose the hosts</span><span lang="zh-CN">你选择主机范围</span></li>
+          <li><b>02 / ACTION</b><span lang="en">Agent works locally</span><span lang="zh-CN">Agent 在本地执行</span></li>
+          <li><b>03 / REVIEW</b><span lang="en">Evidence returns to you</span><span lang="zh-CN">结果回到你手中</span></li>
+        </ol>
+      </div>
     </aside>
   </section>
 
   <section class="demo-section" id="demo" aria-labelledby="demoTitle">
     <div class="section-heading">
-      <div><p class="eyebrow">Live product demo</p><h2 id="demoTitle"><span lang="en">Learn it by using it.</span><span lang="zh-CN">打开就能上手。</span></h2></div>
-      <p><span lang="en">Everything below is interactive. Sample changes reset when the page reloads.</span><span lang="zh-CN">下方界面可以直接操作，刷新页面后模拟数据会自动重置。</span></p>
+      <div><p class="eyebrow">Live product demo</p><h2 id="demoTitle"><span lang="en">Try the workspace you both share.</span><span lang="zh-CN">现在体验你们共用的工作区。</span></h2></div>
+      <p><span lang="en">Use the same interface that gives people control and Agents precise context. Nothing connects to a real machine.</span><span lang="zh-CN">在同一界面中，让用户保有控制、让 Agent 获得精确上下文；所有内容均为模拟数据，不会连接真实机器。</span></p>
     </div>
 
     <div class="demo-shell" id="demoShell" data-demo-theme="dark">
@@ -620,7 +649,7 @@
   </section>
 
   <section class="feature-section" aria-labelledby="featureTitle">
-    <div class="section-heading"><div><p class="eyebrow">Built for real workflows</p><h2 id="featureTitle"><span lang="en">Fast where SSH tools are usually fragmented.</span><span lang="zh-CN">把分散的 SSH 工作流真正合到一起。</span></h2></div></div>
+    <div class="section-heading"><div><p class="eyebrow">Built for human + Agent workflows</p><h2 id="featureTitle"><span lang="en">One source of truth for intent, context, and evidence.</span><span lang="zh-CN">让意图、上下文和执行结果拥有同一个事实源。</span></h2></div></div>
     <div class="feature-grid">
       <article class="feature-card"><span class="feature-number">01 / ORGANIZE</span><h3><span lang="en">Find the right host instantly</span><span lang="zh-CN">瞬间找到正确主机</span></h3><p><span lang="en">Use reusable tags for projects, environments, roles, or clients. Filter and edit them from the connection list or host sidebar.</span><span lang="zh-CN">按项目、环境、角色或客户建立标签，并直接从连接列表或主机侧栏筛选和编辑。</span></p></article>
       <article class="feature-card"><span class="feature-number">02 / BROWSE</span><h3><span lang="en">Reference files without a shell</span><span lang="zh-CN">无需终端即可引用文件</span></h3><p><span lang="en">Browse remote directories read-only and copy precise host:path references that people and AI agents can understand.</span><span lang="zh-CN">以只读方式浏览远程目录，并复制人和 AI Agent 都能理解的精确 host:path 引用。</span></p></article>
