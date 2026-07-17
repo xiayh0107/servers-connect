@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import re
 import shlex
 import shutil
@@ -15,6 +16,7 @@ from typing import Any, Sequence
 from .db import Database, NotFoundError
 from .paths import runtime_dir
 from .ssh_config import render_config
+from .validation import validate_remote_path
 
 
 class SSHError(RuntimeError):
@@ -25,6 +27,18 @@ PROMPT_REDACTIONS = [
     (re.compile(r"(?i)(password|passphrase)(\s*[:=]\s*)\S+"), r"\1\2[REDACTED]"),
     (re.compile(r"(?i)(token|secret|cookie)(\s*[:=]\s*)\S+"), r"\1\2[REDACTED]"),
 ]
+
+SFTP_WORKING_DIRECTORY_PREFIX = "Remote working directory: "
+SFTP_LISTING_RE = re.compile(
+    r"^(?P<permissions>[bcdlps-][rwxStTs-]{9}[+@.]?)\s+"
+    r"\S+\s+(?P<owner>\S+)\s+(?P<group>\S+)\s+(?P<size>\d+)\s+"
+    r"(?P<month>\S+)\s+(?P<day>\d{1,2})\s+(?P<when>\S+)\s(?P<name>.*)$"
+)
+SFTP_OPERATION_ERROR_RE = re.compile(
+    r"^(?:realpath |remote (?:opendir|readdir|stat)|stat remote:|Couldn't |Can't )",
+    re.MULTILINE,
+)
+MAX_DIRECTORY_ENTRIES = 5000
 
 
 def redact(text: str) -> str:
@@ -54,9 +68,16 @@ def classify_error(stderr: str, returncode: int) -> str:
 
 
 class SSHRunner:
-    def __init__(self, database: Database, *, ssh_binary: str | None = None) -> None:
+    def __init__(
+        self,
+        database: Database,
+        *,
+        ssh_binary: str | None = None,
+        sftp_binary: str | None = None,
+    ) -> None:
         self.database = database
         self.ssh_binary = ssh_binary or shutil.which("ssh") or "ssh"
+        self.sftp_binary = sftp_binary or shutil.which("sftp") or "sftp"
 
     def _credential_descriptor(self, server: dict[str, Any]) -> dict[str, Any] | None:
         if not server.get("credential_id"):
@@ -170,6 +191,188 @@ class SSHRunner:
             )
         command.append(server["alias"])
         return command
+
+    def _sftp_command(self, server: dict[str, Any], *, timeout: int, reuse: int) -> list[str]:
+        config = render_config(self.database)
+        command = [
+            self.sftp_binary,
+            "-q",
+            "-F",
+            str(config),
+            "-o",
+            f"ConnectTimeout={timeout}",
+            "-o",
+            "ConnectionAttempts=1",
+            "-o",
+            "GSSAPIAuthentication=no",
+            "-o",
+            "ServerAliveInterval=15",
+            "-o",
+            "ServerAliveCountMax=2",
+            "-o",
+            "LogLevel=ERROR",
+            "-o",
+            "StrictHostKeyChecking=yes",
+            "-o",
+            "NumberOfPasswordPrompts=1",
+            "-o",
+            "BatchMode=no",
+        ]
+        if reuse > 0 and os.name != "nt":
+            command.extend(
+                [
+                    "-o",
+                    "ControlMaster=auto",
+                    "-o",
+                    f"ControlPersist={reuse}",
+                    "-o",
+                    f"ControlPath={runtime_dir() / 'cm-%C'}",
+                ]
+            )
+        command.append(server["alias"])
+        return command
+
+    @staticmethod
+    def _sftp_path(path: str) -> str:
+        """Quote one literal path for OpenSSH sftp's command parser."""
+        escaped = path.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+
+    @classmethod
+    def _directory_batch(cls, path: str) -> str:
+        if path == "~":
+            changes = ["@cd"]
+        elif path.startswith("~/"):
+            changes = ["@cd", f"@cd {cls._sftp_path(path[2:])}"]
+        else:
+            changes = [f"@cd {cls._sftp_path(path)}"]
+        return "\n".join([*changes, "@pwd", "@ls -lan", "@quit", ""])
+
+    @staticmethod
+    def _parse_directory_listing(stdout: str) -> tuple[str, list[dict[str, Any]], int]:
+        current_directory = ""
+        entries: list[dict[str, Any]] = []
+        unparsed = 0
+        for line in stdout.splitlines():
+            if line.startswith(SFTP_WORKING_DIRECTORY_PREFIX):
+                current_directory = line.removeprefix(SFTP_WORKING_DIRECTORY_PREFIX)
+                continue
+            match = SFTP_LISTING_RE.match(line)
+            if not match:
+                if line.strip():
+                    unparsed += 1
+                continue
+            values = match.groupdict()
+            name = values["name"]
+            if name in {".", ".."}:
+                continue
+            permissions = values["permissions"][:10]
+            kind = {
+                "d": "directory",
+                "l": "symlink",
+                "-": "file",
+            }.get(permissions[0], "special")
+            entries.append(
+                {
+                    "name": name,
+                    "type": kind,
+                    "size": int(values["size"]),
+                    "modified": f'{values["month"]} {values["day"]} {values["when"]}',
+                    "permissions": permissions,
+                    "owner": values["owner"],
+                    "group": values["group"],
+                    "hidden": name.startswith("."),
+                }
+            )
+        if not current_directory:
+            raise SSHError("SFTP did not report the remote working directory")
+        for entry in entries:
+            entry["path"] = posixpath.join(current_directory, entry["name"])
+        entries.sort(key=lambda item: (item["type"] != "directory", item["name"].casefold()))
+        return current_directory, entries, unparsed
+
+    def list_directory(
+        self,
+        identifier: str,
+        path: str | None = None,
+        *,
+        timeout: int = 12,
+        reuse: int = 300,
+    ) -> dict[str, Any]:
+        """List one remote directory through the OpenSSH SFTP subsystem."""
+        remote_path = validate_remote_path(path)
+        server = self.database.get_server(identifier)
+        command = self._sftp_command(server, timeout=timeout, reuse=reuse)
+        start = time.monotonic()
+        try:
+            result = subprocess.run(
+                command,
+                input=self._directory_batch(remote_path),
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                env=self._environment(server),
+                timeout=timeout + 5,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            latency = round((time.monotonic() - start) * 1000)
+            self.database.record_test(
+                server["id"],
+                status="failed",
+                latency_ms=latency,
+                error_code="timeout",
+                message=f"remote directory listing exceeded {timeout + 5} seconds",
+            )
+            raise SSHError(f"remote directory listing exceeded {timeout + 5} seconds") from exc
+        except OSError as exc:
+            latency = round((time.monotonic() - start) * 1000)
+            self.database.record_test(
+                server["id"],
+                status="failed",
+                latency_ms=latency,
+                error_code="ssh-not-found",
+                message="sftp is unavailable; install the OpenSSH client and retry",
+            )
+            raise SSHError("sftp is unavailable; install the OpenSSH client and retry") from exc
+        latency = round((time.monotonic() - start) * 1000)
+        diagnostics = redact(result.stderr.strip())
+        operation_failed = bool(SFTP_OPERATION_ERROR_RE.search(diagnostics))
+        if result.returncode != 0:
+            self.database.record_test(
+                server["id"],
+                status="failed",
+                latency_ms=latency,
+                error_code=classify_error(result.stderr, result.returncode),
+                message=diagnostics or f"SFTP exited with status {result.returncode}",
+            )
+            raise SSHError(diagnostics or f"SFTP exited with status {result.returncode}")
+        connection = self.database.record_test(
+            server["id"],
+            status="ok",
+            latency_ms=latency,
+            error_code=None,
+            message="SFTP connection succeeded",
+        )
+        if operation_failed:
+            raise SSHError(diagnostics or "remote directory operation failed")
+        current_directory, entries, unparsed = self._parse_directory_listing(result.stdout)
+        total = len(entries)
+        visible_entries = entries[:MAX_DIRECTORY_ENTRIES]
+        normalized = current_directory.rstrip("/") or "/"
+        parent = None if normalized == "/" else posixpath.dirname(normalized) or "/"
+        return {
+            "alias": server["alias"],
+            "path": normalized,
+            "parent": parent,
+            "entries": visible_entries,
+            "total": total,
+            "truncated": total > len(visible_entries),
+            "unparsed": unparsed,
+            "latency_ms": latency,
+            "connection_checked_at": connection["last_test_at"],
+        }
 
     def test(self, identifier: str, *, timeout: int = 8) -> dict[str, Any]:
         server = self.database.get_server(identifier)

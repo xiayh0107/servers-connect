@@ -12,7 +12,7 @@ serverctl doctor [--json]
 ```
 
 `doctor` checks: serverctl version, platform (and whether connection reuse
-is available), database path, ssh / ssh-keygen presence and client version,
+is available), database path, ssh / sftp / ssh-keygen presence and client version,
 original and managed config paths, vault backend safety, and the Python
 dependencies needed by the UI. Exit code is `0` only if every check passes.
 
@@ -34,9 +34,10 @@ serverctl ui [--port PORT] [--no-open --url-file PATH]
 serverctl server list [--json]
 serverctl server show ALIAS [--json]
 serverctl server add ALIAS --hostname HOST --username USER [--port PORT]
-    [--credential LABEL|ID] [--proxy-jump ALIAS ...] [--notes TEXT]
+    [--credential LABEL|ID] [--proxy-jump ALIAS ...] [--tag TAG ...] [--notes TEXT]
 serverctl server edit ALIAS [--new-alias A] [--hostname H] [--username U]
-    [--port P] [--credential LABEL|'none'] [--proxy-jump ALIAS ...] [--notes TEXT]
+    [--port P] [--credential LABEL|'none'] [--proxy-jump ALIAS ...]
+    [--tag TAG ... | --clear-tags] [--notes TEXT]
 serverctl server remove ALIAS [--yes]
 serverctl server import [--config PATH] [--apply] [--overwrite] [--json]
 serverctl server test ALIAS [--timeout SECONDS] [--json]
@@ -49,6 +50,8 @@ Notes:
 - `--proxy-jump` may repeat to build an ordered hop chain; self-jumps and
   cycles are rejected. Passing `--proxy-jump` during `edit` replaces the
   whole chain.
+- `--tag` may repeat to assign project, environment, or role tags. On
+  `edit`, supplied tags replace the existing set; `--clear-tags` removes all.
 - `import` without `--apply` is always a preview. Conflicting aliases are
   skipped unless `--overwrite`.
 - `test` runs a real `ssh` handshake (`NumberOfPasswordPrompts=1`,

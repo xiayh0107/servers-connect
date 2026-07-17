@@ -9,6 +9,9 @@ from typing import Iterable
 ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 KINDS = {"password", "key", "agent"}
+MAX_REMOTE_PATH_LENGTH = 4096
+MAX_SERVER_TAGS = 20
+MAX_SERVER_TAG_LENGTH = 40
 
 
 class ValidationError(ValueError):
@@ -74,6 +77,39 @@ def validate_key_path(value: str) -> str:
     return str(path)
 
 
+def validate_remote_path(value: str | None) -> str:
+    """Validate a path before it is placed in an SFTP command stream.
+
+    Remote paths are deliberately not stripped: leading and trailing spaces
+    are valid filename characters. Empty input means the remote home directory.
+    """
+    if value is None or value == "":
+        return "~"
+    if len(value) > MAX_REMOTE_PATH_LENGTH:
+        raise ValidationError(f"remote path must be at most {MAX_REMOTE_PATH_LENGTH} characters")
+    if CONTROL_RE.search(value):
+        raise ValidationError("remote path must not contain control characters")
+    return value
+
+
+def validate_server_tags(values: Iterable[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values or []:
+        value = str(raw_value).strip()
+        if not value or len(value) > MAX_SERVER_TAG_LENGTH or CONTROL_RE.search(value) or "," in value:
+            raise ValidationError(
+                f"server tags must be 1-{MAX_SERVER_TAG_LENGTH} printable characters without commas"
+            )
+        key = value.casefold()
+        if key not in seen:
+            normalized.append(value)
+            seen.add(key)
+        if len(normalized) > MAX_SERVER_TAGS:
+            raise ValidationError(f"a server can have at most {MAX_SERVER_TAGS} tags")
+    return normalized
+
+
 def validate_proxy_jumps(alias: str, jumps: Iterable[str]) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
@@ -86,4 +122,3 @@ def validate_proxy_jumps(alias: str, jumps: Iterable[str]) -> list[str]:
             normalized.append(item)
             seen.add(key)
     return normalized
-

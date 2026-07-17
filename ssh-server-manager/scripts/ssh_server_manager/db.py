@@ -20,11 +20,13 @@ from .validation import (
     validate_label,
     validate_port,
     validate_proxy_jumps,
+    validate_server_tags,
     validate_username,
 )
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+SERVER_CONTEXTS_SETTING = "server_contexts"
 
 
 def utc_now() -> str:
@@ -73,12 +75,13 @@ class Database:
         is_new = not self.path.exists()
         with self.connect() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, SCHEMA_VERSION):
+            if version < 0 or version > SCHEMA_VERSION:
                 raise DatabaseError(f"database schema {version} is newer than supported {SCHEMA_VERSION}")
             if version == SCHEMA_VERSION:
                 return
-            connection.executescript(
-                """
+            if version == 0:
+                connection.executescript(
+                    """
                 CREATE TABLE IF NOT EXISTS credentials (
                     id TEXT PRIMARY KEY,
                     label TEXT NOT NULL COLLATE NOCASE UNIQUE,
@@ -99,6 +102,7 @@ class Database:
                     username TEXT NOT NULL,
                     credential_id TEXT REFERENCES credentials(id) ON DELETE RESTRICT,
                     proxy_jumps TEXT NOT NULL DEFAULT '[]',
+                    tags TEXT NOT NULL DEFAULT '[]',
                     notes TEXT NOT NULL DEFAULT '',
                     source TEXT NOT NULL DEFAULT 'managed',
                     last_test_at TEXT,
@@ -128,9 +132,12 @@ class Database:
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_servers_credential ON servers(credential_id);
-                PRAGMA user_version = 1;
+                PRAGMA user_version = 2;
                 """
-            )
+                )
+            elif version == 1:
+                connection.execute("ALTER TABLE servers ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+                connection.execute("PRAGMA user_version = 2")
         if is_new and os.name != "nt":
             self.path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
@@ -159,6 +166,7 @@ class Database:
             "credential_label": row["credential_label"] if "credential_label" in row.keys() else None,
             "credential_kind": row["credential_kind"] if "credential_kind" in row.keys() else None,
             "proxy_jumps": json.loads(row["proxy_jumps"] or "[]"),
+            "tags": json.loads(row["tags"] or "[]"),
             "notes": row["notes"],
             "source": row["source"],
             "last_test_at": row["last_test_at"],
@@ -257,6 +265,190 @@ class Database:
             FROM servers s LEFT JOIN credentials c ON c.id = s.credential_id
         """
 
+    @staticmethod
+    def _context_name(value: str) -> str:
+        return validate_server_tags([value])[0]
+
+    def _read_context_registry(self, connection: sqlite3.Connection) -> list[str]:
+        row = connection.execute(
+            "SELECT value FROM settings WHERE key = ?", (SERVER_CONTEXTS_SETTING,)
+        ).fetchone()
+        if not row:
+            return []
+        try:
+            values = json.loads(row["value"])
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise DatabaseError("saved server contexts are invalid") from exc
+        if not isinstance(values, list):
+            raise DatabaseError("saved server contexts are invalid")
+        contexts: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            name = self._context_name(str(value))
+            if name.casefold() not in seen:
+                contexts.append(name)
+                seen.add(name.casefold())
+        return contexts
+
+    def _write_context_registry(self, connection: sqlite3.Connection, contexts: list[str]) -> None:
+        connection.execute(
+            """
+            INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            (SERVER_CONTEXTS_SETTING, json.dumps(contexts, ensure_ascii=False), utc_now()),
+        )
+
+    def _register_contexts(self, connection: sqlite3.Connection, names: list[str]) -> None:
+        contexts = self._read_context_registry(connection)
+        seen = {name.casefold() for name in contexts}
+        for name in names:
+            if name.casefold() not in seen:
+                contexts.append(name)
+                seen.add(name.casefold())
+        self._write_context_registry(connection, contexts)
+
+    def list_server_contexts(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            contexts = self._read_context_registry(connection)
+            rows = connection.execute("SELECT tags FROM servers").fetchall()
+        names = {name.casefold(): name for name in contexts}
+        counts: dict[str, int] = {key: 0 for key in names}
+        for row in rows:
+            server_keys: set[str] = set()
+            for tag in json.loads(row["tags"] or "[]"):
+                name = self._context_name(str(tag))
+                key = name.casefold()
+                names.setdefault(key, name)
+                server_keys.add(key)
+            for key in server_keys:
+                counts[key] = counts.get(key, 0) + 1
+        return [
+            {"name": names[key], "count": counts.get(key, 0)}
+            for key in sorted(names, key=lambda item: names[item].casefold())
+        ]
+
+    def create_server_context(
+        self, name: str, *, server_ids: list[str] | None = None
+    ) -> dict[str, Any]:
+        name = self._context_name(name)
+        with self.transaction() as connection:
+            contexts = self._read_context_registry(connection)
+            if name.casefold() in {item.casefold() for item in contexts}:
+                raise ConflictError(f"server context already exists: {name}")
+            rows = connection.execute("SELECT id, tags FROM servers").fetchall()
+            if any(name.casefold() in {str(tag).casefold() for tag in json.loads(row["tags"] or "[]")} for row in rows):
+                raise ConflictError(f"server context already exists: {name}")
+
+            selected = {str(identifier) for identifier in (server_ids or [])}
+            known = {row["id"] for row in rows}
+            missing = selected - known
+            if missing:
+                raise NotFoundError(f"server not found: {sorted(missing)[0]}")
+
+            now = utc_now()
+            for row in rows:
+                if row["id"] not in selected:
+                    continue
+                tags = [str(tag) for tag in json.loads(row["tags"] or "[]")]
+                normalized = validate_server_tags([*tags, name])
+                connection.execute(
+                    "UPDATE servers SET tags = ?, updated_at = ? WHERE id = ?",
+                    (json.dumps(normalized, ensure_ascii=False), now, row["id"]),
+                )
+            contexts.append(name)
+            self._write_context_registry(connection, contexts)
+        return {"name": name, "count": len(selected)}
+
+    def update_server_context(
+        self,
+        name: str,
+        *,
+        new_name: str | None = None,
+        server_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        requested = self._context_name(name)
+        renamed = self._context_name(new_name) if new_name is not None else None
+        with self.transaction() as connection:
+            rows = connection.execute("SELECT id, tags FROM servers").fetchall()
+            contexts = self._read_context_registry(connection)
+            available = {item.casefold(): item for item in contexts}
+            for row in rows:
+                for tag in json.loads(row["tags"] or "[]"):
+                    available.setdefault(str(tag).casefold(), str(tag))
+            old_key = requested.casefold()
+            if old_key not in available:
+                raise NotFoundError(f"server context not found: {requested}")
+            current_name = available[old_key]
+            target_name = renamed or current_name
+            target_key = target_name.casefold()
+            if target_key != old_key and target_key in available:
+                raise ConflictError(f"server context already exists: {target_name}")
+
+            selected: set[str] | None = None
+            if server_ids is not None:
+                selected = {str(identifier) for identifier in server_ids}
+                known = {row["id"] for row in rows}
+                missing = selected - known
+                if missing:
+                    raise NotFoundError(f"server not found: {sorted(missing)[0]}")
+
+            assigned = 0
+            now = utc_now()
+            for row in rows:
+                tags = [str(tag) for tag in json.loads(row["tags"] or "[]")]
+                rewritten = [target_name if tag.casefold() == old_key else tag for tag in tags]
+                if selected is not None:
+                    has_target = any(tag.casefold() == target_key for tag in rewritten)
+                    if row["id"] not in selected:
+                        rewritten = [tag for tag in rewritten if tag.casefold() != target_key]
+                    elif not has_target:
+                        rewritten.append(target_name)
+                normalized = validate_server_tags(rewritten)
+                if any(tag.casefold() == target_key for tag in normalized):
+                    assigned += 1
+                if normalized != tags:
+                    connection.execute(
+                        "UPDATE servers SET tags = ?, updated_at = ? WHERE id = ?",
+                        (json.dumps(normalized, ensure_ascii=False), now, row["id"]),
+                    )
+
+            registry: list[str] = []
+            seen: set[str] = set()
+            for item in [*contexts, *available.values()]:
+                value = target_name if item.casefold() == old_key else item
+                if value.casefold() not in seen:
+                    registry.append(value)
+                    seen.add(value.casefold())
+            self._write_context_registry(connection, registry)
+        return {"name": target_name, "count": assigned}
+
+    def delete_server_context(self, name: str) -> dict[str, Any]:
+        requested = self._context_name(name)
+        key = requested.casefold()
+        removed_from = 0
+        with self.transaction() as connection:
+            rows = connection.execute("SELECT id, tags FROM servers").fetchall()
+            contexts = self._read_context_registry(connection)
+            exists = key in {item.casefold() for item in contexts}
+            now = utc_now()
+            for row in rows:
+                tags = [str(tag) for tag in json.loads(row["tags"] or "[]")]
+                rewritten = [tag for tag in tags if tag.casefold() != key]
+                if rewritten != tags:
+                    exists = True
+                    removed_from += 1
+                    connection.execute(
+                        "UPDATE servers SET tags = ?, updated_at = ? WHERE id = ?",
+                        (json.dumps(rewritten, ensure_ascii=False), now, row["id"]),
+                    )
+            if not exists:
+                raise NotFoundError(f"server context not found: {requested}")
+            self._write_context_registry(
+                connection, [item for item in contexts if item.casefold() != key]
+            )
+        return {"name": requested, "removed_from": removed_from}
+
     def list_servers(self) -> list[dict[str, Any]]:
         with self.connect() as connection:
             rows = connection.execute(self._server_query() + " ORDER BY s.alias COLLATE NOCASE").fetchall()
@@ -283,6 +475,7 @@ class Database:
             "username": validate_username(str(payload["username"])),
             "credential_id": credential_id,
             "proxy_jumps": validate_proxy_jumps(alias, payload.get("proxy_jumps", [])),
+            "tags": validate_server_tags(payload.get("tags", [])),
             "notes": str(payload.get("notes", "")),
             "source": str(payload.get("source", "managed")),
         }
@@ -322,8 +515,8 @@ class Database:
                 connection.execute(
                     """
                     INSERT INTO servers
-                    (id, alias, hostname, port, username, credential_id, proxy_jumps, notes, source, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, alias, hostname, port, username, credential_id, proxy_jumps, tags, notes, source, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         identifier,
@@ -333,12 +526,14 @@ class Database:
                         normalized["username"],
                         normalized["credential_id"],
                         json.dumps(normalized["proxy_jumps"]),
+                        json.dumps(normalized["tags"], ensure_ascii=False),
                         normalized["notes"],
                         normalized["source"],
                         now,
                         now,
                     ),
                 )
+                self._register_contexts(connection, normalized["tags"])
         except sqlite3.IntegrityError as exc:
             raise ConflictError(f"server alias already exists: {normalized['alias']}") from exc
         return self.get_server(identifier)
@@ -352,7 +547,7 @@ class Database:
                 connection.execute(
                     """
                     UPDATE servers SET alias = ?, hostname = ?, port = ?, username = ?, credential_id = ?,
-                        proxy_jumps = ?, notes = ?, source = ?, updated_at = ? WHERE id = ?
+                        proxy_jumps = ?, tags = ?, notes = ?, source = ?, updated_at = ? WHERE id = ?
                     """,
                     (
                         normalized["alias"],
@@ -361,6 +556,7 @@ class Database:
                         normalized["username"],
                         normalized["credential_id"],
                         json.dumps(normalized["proxy_jumps"]),
+                        json.dumps(normalized["tags"], ensure_ascii=False),
                         normalized["notes"],
                         normalized["source"],
                         utc_now(),
@@ -380,6 +576,7 @@ class Database:
                                 "UPDATE servers SET proxy_jumps = ?, updated_at = ? WHERE id = ?",
                                 (json.dumps(rewritten), utc_now(), row["id"]),
                             )
+                self._register_contexts(connection, normalized["tags"])
         except sqlite3.IntegrityError as exc:
             raise ConflictError(f"server alias already exists: {normalized['alias']}") from exc
         return self.get_server(current["id"])

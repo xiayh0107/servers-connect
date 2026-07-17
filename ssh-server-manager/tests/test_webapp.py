@@ -11,6 +11,7 @@ pytest.importorskip("argon2")
 from fastapi.testclient import TestClient
 
 from ssh_server_manager.db import Database
+from ssh_server_manager.ssh_runner import SSHRunner
 from ssh_server_manager.vault import MemoryVault
 from ssh_server_manager.webapp import UIError, _select_loopback_port, create_app, run_ui
 
@@ -26,6 +27,8 @@ def test_local_ui_session_crud_and_master_reveal(tmp_path, monkeypatch):
     with TestClient(app, base_url="http://localhost:8765") as client:
         response = client.get("/?token=launch")
         assert response.status_code == 200
+        assert client.get("/assets/contexts.js").status_code == 200
+        assert client.get("/assets/contexts.css").status_code == 200
         bootstrap = client.get("/api/bootstrap").json()
         headers = {"X-CSRF-Token": bootstrap["csrf"], "Origin": "http://localhost:8765"}
 
@@ -37,6 +40,45 @@ def test_local_ui_session_crud_and_master_reveal(tmp_path, monkeypatch):
         assert created.status_code == 200
         credential_id = created.json()["id"]
         assert client.post(f"/api/credentials/{credential_id}/reveal", headers=headers).status_code == 400
+
+        server = client.post(
+            "/api/servers",
+            headers=headers,
+            json={
+                "alias": "demo",
+                "hostname": "demo.example",
+                "port": 22,
+                "username": "alice",
+                "credential_id": credential_id,
+                "tags": ["Project A", "production"],
+            },
+        )
+        assert server.status_code == 200
+        assert server.json()["tags"] == ["Project A", "production"]
+
+        contexts = client.get("/api/bootstrap").json()["contexts"]
+        assert contexts == [
+            {"name": "production", "count": 1},
+            {"name": "Project A", "count": 1},
+        ]
+        created_context = client.post(
+            "/api/contexts",
+            headers=headers,
+            json={"name": "Client B", "server_ids": [server.json()["id"]]},
+        )
+        assert created_context.json() == {"name": "Client B", "count": 1}
+        assert database.get_server("demo")["tags"] == ["Project A", "production", "Client B"]
+        assigned = client.put(
+            "/api/contexts",
+            headers=headers,
+            json={"name": "Client B", "new_name": "Client work", "server_ids": [server.json()["id"]]},
+        )
+        assert assigned.json() == {"name": "Client work", "count": 1}
+        assert database.get_server("demo")["tags"] == ["Project A", "production", "Client work"]
+        assert client.request(
+            "DELETE", "/api/contexts", headers=headers, json={"name": "Client work"}
+        ).json()["removed_from"] == 1
+        assert database.get_server("demo")["tags"] == ["Project A", "production"]
 
         assert client.post(
             "/api/auth/master/enroll", headers=headers, json={"password": "long-enough-master"}
@@ -93,3 +135,47 @@ def test_ui_auto_port_and_busy_port_error():
         occupied.listen(1)
         with pytest.raises(UIError, match="already in use"):
             _select_loopback_port(occupied.getsockname()[1])
+
+
+def test_ui_lists_remote_files_for_an_authenticated_browser_session(tmp_path, monkeypatch):
+    database = Database(tmp_path / "manager.db")
+    server = database.create_server(alias="box", hostname="box.example", port=22, username="alice")
+    app = create_app(database, launch_token="launch", port=8765)
+
+    observed = {}
+
+    def fake_list_directory(self, identifier, path=None):
+        observed.update(identifier=identifier, path=path)
+        return {
+            "alias": "box",
+            "path": "/home/alice",
+            "parent": "/home",
+            "entries": [
+                {
+                    "name": "src",
+                    "path": "/home/alice/src",
+                    "type": "directory",
+                    "size": 4096,
+                    "modified": "Jul 16 12:04",
+                    "permissions": "drwxr-xr-x",
+                    "owner": "alice",
+                    "group": "users",
+                    "hidden": False,
+                }
+            ],
+            "total": 1,
+            "truncated": False,
+            "unparsed": 0,
+            "latency_ms": 42,
+            "connection_checked_at": "2026-07-16T12:00:00+00:00",
+        }
+
+    monkeypatch.setattr(SSHRunner, "list_directory", fake_list_directory)
+    with TestClient(app, base_url="http://localhost:8765") as client:
+        assert client.get("/?token=launch").status_code == 200
+        response = client.get(f"/api/servers/{server['id']}/files", params={"path": "~/project"})
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()["entries"][0]["name"] == "src"
+    assert observed == {"identifier": server["id"], "path": "~/project"}

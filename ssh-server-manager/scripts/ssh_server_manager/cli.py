@@ -45,7 +45,8 @@ def format_item(item: Any) -> str:
     if "hostname" in item:
         credential = item.get("credential_label") or "OpenSSH default"
         jumps = ",".join(item.get("proxy_jumps", [])) or "-"
-        return f"{item['alias']:<22} {item['username']}@{item['hostname']}:{item['port']}  auth={credential}  jump={jumps}"
+        tags = ",".join(item.get("tags", [])) or "-"
+        return f"{item['alias']:<22} {item['username']}@{item['hostname']}:{item['port']}  auth={credential}  jump={jumps}  tags={tags}"
     if "kind" in item:
         detail = item.get("key_path") or ("stored" if item.get("has_secret") else "not stored")
         return f"{item['label']:<22} {item['kind']:<8} {detail}"
@@ -93,6 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     server_add.add_argument("--port", type=int, default=22)
     server_add.add_argument("--credential")
     server_add.add_argument("--proxy-jump", action="append", default=[])
+    server_add.add_argument("--tag", action="append", default=[], help="project/context tag; repeat as needed")
     server_add.add_argument("--notes", default="")
     add_json_option(server_add)
 
@@ -104,6 +106,9 @@ def build_parser() -> argparse.ArgumentParser:
     server_edit.add_argument("--port", type=int)
     server_edit.add_argument("--credential", help="credential label/id, or 'none'")
     server_edit.add_argument("--proxy-jump", action="append")
+    edit_tags = server_edit.add_mutually_exclusive_group()
+    edit_tags.add_argument("--tag", action="append", help="replace project/context tags; repeat as needed")
+    edit_tags.add_argument("--clear-tags", action="store_true")
     server_edit.add_argument("--notes")
     add_json_option(server_edit)
 
@@ -228,6 +233,7 @@ def run_doctor(database: Database) -> dict[str, Any]:
         },
         "database": {"ok": True, "path": str(database_path())},
         "ssh": {"ok": bool(ssh_path), "path": ssh_path, "client": ssh_client_version(ssh_path)},
+        "sftp": {"ok": bool(shutil.which("sftp")), "path": shutil.which("sftp")},
         "ssh_keygen": {"ok": bool(shutil.which("ssh-keygen")), "path": shutil.which("ssh-keygen")},
         "original_config": {"ok": True, "path": str(original_ssh_config_path())},
         "managed_config": {"ok": True, "path": str(managed_ssh_config_path())},
@@ -275,6 +281,7 @@ def handle(args: argparse.Namespace) -> int:
                 username=args.username,
                 credential_id=resolve_credential(database, args.credential),
                 proxy_jumps=args.proxy_jump,
+                tags=args.tag,
                 notes=args.notes,
             )
             render_config(database)
@@ -295,6 +302,10 @@ def handle(args: argparse.Namespace) -> int:
                 changes["credential_id"] = resolve_credential(database, args.credential)
             if args.proxy_jump is not None:
                 changes["proxy_jumps"] = args.proxy_jump
+            if args.clear_tags:
+                changes["tags"] = []
+            elif args.tag is not None:
+                changes["tags"] = args.tag
             result = database.update_server(args.alias, **changes)
             render_config(database)
             emit(result, as_json=args.json)

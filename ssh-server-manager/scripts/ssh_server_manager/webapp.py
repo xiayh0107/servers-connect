@@ -17,7 +17,7 @@ from .importer import apply_import, preview_import
 from .paths import asset_dir, managed_ssh_config_path
 from .service import CredentialService
 from .ssh_config import SSHConfigError, render_config
-from .ssh_runner import SSHRunner
+from .ssh_runner import SSHError, SSHRunner
 from .validation import ValidationError
 from .vault import VaultError, get_vault
 
@@ -158,8 +158,17 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
     @app.exception_handler(DatabaseError)
     @app.exception_handler(VaultError)
     @app.exception_handler(SSHConfigError)
+    @app.exception_handler(SSHError)
     async def expected_error(_request: Request, exc: Exception):
-        status = 404 if isinstance(exc, NotFoundError) else 409 if isinstance(exc, ConflictError) else 400
+        status = (
+            404
+            if isinstance(exc, NotFoundError)
+            else 409
+            if isinstance(exc, ConflictError)
+            else 502
+            if isinstance(exc, SSHError)
+            else 400
+        )
         return JSONResponse({"ok": False, "error": exc.__class__.__name__, "message": str(exc)}, status_code=status)
 
     def browser_session(request: Request) -> tuple[str, BrowserSession]:
@@ -203,7 +212,7 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
 
     @app.get("/assets/{filename}")
     async def assets(filename: str, _session=Depends(browser_session)):
-        if filename not in {"app.js", "styles.css"}:
+        if filename not in {"app.js", "styles.css", "contexts.js", "contexts.css"}:
             raise HTTPException(status_code=404)
         return FileResponse(asset_dir() / filename)
 
@@ -214,9 +223,34 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
             "csrf": session.csrf,
             "servers": database.list_servers(),
             "credentials": database.list_credentials(),
+            "contexts": database.list_server_contexts(),
             "auth": state.auth.status(),
             "managed_config": str(managed_ssh_config_path()),
         }
+
+    @app.post("/api/contexts")
+    async def add_context(payload: dict[str, Any] = Body(...), _session=Depends(csrf_session)):
+        server_ids = payload.get("server_ids")
+        if server_ids is not None and not isinstance(server_ids, list):
+            raise ValidationError("server_ids must be a list")
+        return database.create_server_context(
+            str(payload.get("name", "")), server_ids=server_ids
+        )
+
+    @app.put("/api/contexts")
+    async def update_context(payload: dict[str, Any] = Body(...), _session=Depends(csrf_session)):
+        server_ids = payload.get("server_ids")
+        if server_ids is not None and not isinstance(server_ids, list):
+            raise ValidationError("server_ids must be a list")
+        return database.update_server_context(
+            str(payload.get("name", "")),
+            new_name=str(payload["new_name"]) if "new_name" in payload else None,
+            server_ids=server_ids,
+        )
+
+    @app.delete("/api/contexts")
+    async def remove_context(payload: dict[str, Any] = Body(...), _session=Depends(csrf_session)):
+        return database.delete_server_context(str(payload.get("name", "")))
 
     @app.post("/api/servers")
     async def add_server(payload: dict[str, Any] = Body(...), _session=Depends(csrf_session)):
@@ -239,6 +273,14 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
     @app.post("/api/servers/{identifier}/test")
     async def test_server(identifier: str, _session=Depends(csrf_session)):
         return await asyncio.to_thread(SSHRunner(database).test, identifier)
+
+    @app.get("/api/servers/{identifier}/files")
+    async def list_server_files(
+        identifier: str,
+        path: str | None = None,
+        _session=Depends(browser_session),
+    ):
+        return await asyncio.to_thread(SSHRunner(database).list_directory, identifier, path)
 
     @app.post("/api/import/preview")
     async def import_preview(payload: dict[str, Any] = Body(default={}), _session=Depends(csrf_session)):

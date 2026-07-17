@@ -8,9 +8,10 @@ ecosystem). Ordered by expected impact.
    `pipx install ssh-server-manager` is live on PyPI, and the
    Trusted-Publishing workflow (`.github/workflows/publish.yml`) automates
    future releases. Still open: a Homebrew tap and winget manifest.
-2. **File transfer helpers** — `serverctl cp ALIAS:remote local` /
-   `serverctl get` wrapping scp/sftp with the same vault auth; the most
-   cited feature gap versus every GUI competitor.
+2. **Remote file workspace and transfer helpers** — the local UI now has a
+   read-only SFTP directory browser with Agent-friendly path references.
+   Still open: `serverctl cp ALIAS:remote local` / `serverctl get` plus
+   explicit upload and download actions using the same vault auth.
 3. **Port forwarding profiles** — saved `-L/-R/-D` tunnels per server
    (`serverctl tunnel open db1-local`), with status and teardown.
 4. **Audit log** — local, append-only record of secret reveals and

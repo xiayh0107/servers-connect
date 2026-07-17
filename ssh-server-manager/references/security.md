@@ -8,6 +8,7 @@
 - Require WebAuthn user verification before revealing a secret. When WebAuthn is unavailable, require the locally enrolled Argon2id master password.
 - Make reveal grants single-use and short-lived. Mark reveal responses `Cache-Control: no-store` and clear rendered secrets from the DOM after 15 seconds.
 - Allow connections and tests to consume a vault secret without returning it to the caller. UI reveal authentication protects plaintext display, not ordinary SSH use.
+- Keep the web file browser read-only. Use OpenSSH SFTP with literal quoted paths, reject path control characters, and return metadata rather than file contents.
 - Require normal OpenSSH known-host validation. Never silently accept or discard host keys.
 - Redact password-like prompts, vault values, launch tokens, session cookies, and CSRF tokens from diagnostics.
 - Treat same-user local code as inside the OS account trust boundary. The UI authentication layer is an additional disclosure gate, not a replacement for OS account security.

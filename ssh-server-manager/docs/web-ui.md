@@ -23,11 +23,39 @@ to get a new one. Sessions last 12 hours.
 
 ## What you can do
 
-- **Servers** — add, edit, remove; ordered ProxyJump chains; live
-  connection tests with latency and classified errors.
+- **Servers** — add, edit, remove; assign reusable project/environment tags;
+  manage ordered ProxyJump chains; run individual or selected-host connection
+  tests with latency and classified errors. The inventory keeps host, endpoint,
+  tags, status, and actions as its five primary columns; credential and jump
+  details stay under the endpoint instead of widening the table.
+- **Files** — choose a server and browse its remote home or another directory
+  over SFTP; use breadcrumbs, show/hide dotfiles, and copy an
+  `ALIAS:/absolute/path` reference for an agent. Visible file references can be
+  copied in one batch. Modification values use one visual format, and access
+  bits include owner/group/others labels and a full explanatory tooltip. This
+  browser is read-only.
+- **Tags** — tag a host by project, environment, role, or any other useful
+  dimension, then use the global tag selector to scope both the workspace and
+  connection inventory to that subset. The last selection is stored on this
+  device. **Tags** is a dedicated library for inline creation, rename, deletion,
+  usage counts, and host previews. In **Connections**, select one or more hosts
+  and open the single **Edit tags** picker: checked, mixed, and empty states
+  show current membership, and clicking an item adds or removes it. Search for
+  an existing tag or type a new name and choose **Create** to create and assign
+  it in one operation. The same picker opens from every Tags table cell. Tags
+  remain clickable filters. In the server editor, tags
+  are searchable chips: Enter adds a typed value, Backspace removes the last
+  chip, and suggestions reuse existing tags. The Files sidebar also shows each
+  host's first tag and remaining count; click that summary to open the
+  same add/remove/create picker without leaving the workspace.
+- **Themes** — follow the operating-system appearance or explicitly choose the
+  light, dark, or high-contrast token set. No theme assets or external fonts
+  are downloaded.
 - **Credentials** — create password / key / agent credentials, edit or
-  replace secrets, see which servers use them. Secret input fields post
-  directly to the loopback API; values are never rendered back.
+  replace secrets, copy referenced key paths, and see which servers use them.
+  Vault and reveal-protection status live together above the credential list.
+  Secret input fields post directly to the loopback API; values are never
+  rendered back.
 - **Import** — preview your `~/.ssh/config` and apply selected aliases.
 - **Reveal** — display a stored password/passphrase, gated as below.
 
@@ -45,6 +73,37 @@ on `localhost` without HTTPS) and/or enroll a master password as fallback.
 
 Ordinary operations — connecting, testing, executing — never require
 reveal: they consume vault secrets without returning them.
+
+Remote file browsing follows the same rule. It uses the managed OpenSSH
+configuration, normal host-key verification, ProxyJump chain, and AskPass
+credential flow. The browser returns directory metadata only; it does not read
+file contents or provide remote write actions.
+
+Status indicators are deliberately time-aware. Green means an SSH test or SFTP
+operation succeeded within the last two minutes, and the label includes how
+recently it was verified. Older results become an amber “Last reachable” state;
+they never remain indefinitely green. Failed connection attempts immediately
+replace the previous result. The UI avoids automatically probing every host,
+which would be slow and could trigger many authentication prompts.
+
+## Performance baseline
+
+The local UI deliberately stays framework-free and self-contained: its first
+view loads one stylesheet and one deferred JavaScript file, uses system fonts,
+and makes no CDN or third-party network requests. Automated tests keep those
+initial assets below 100 KB uncompressed and 25 KB compressed. Tag
+management, connection bulk actions, and the chip picker are separate
+dependency-free assets loaded only when one of those controls is opened (below
+48 KB uncompressed / 11 KB compressed together).
+
+Opening the UI does not initiate an SSH connection. Remote work begins only
+after a host is selected. Directory filtering and sorting happen locally, while
+large results render in batches of 250 rows so a directory with thousands of
+entries does not create thousands of DOM nodes at once. Motion is limited to a
+lightweight loading pulse and is disabled by the reduced-motion preference.
+
+See [ui-ux-research.md](ui-ux-research.md) for the evidence and task-model
+audit behind the host and tag interaction.
 
 ## If something misbehaves
 

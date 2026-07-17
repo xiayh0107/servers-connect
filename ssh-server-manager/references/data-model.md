@@ -2,7 +2,22 @@
 
 ## Connection profiles
 
-A connection profile contains one case-insensitively unique alias, hostname, port, username, optional credential ID, ordered ProxyJump aliases, notes, source metadata, and the most recent test result. Create another alias when the same endpoint needs another account.
+A connection profile contains one case-insensitively unique alias, hostname,
+port, username, optional credential ID, ordered ProxyJump aliases, project or
+scenario tags, notes, source metadata, and the most recent test result. Tags are
+case-insensitively deduplicated; one profile may belong to multiple contexts.
+Create another alias when the same endpoint needs another account.
+
+Context names also have a small registry in the `settings` table. This keeps an
+empty context available after its last host is unassigned. Creating or updating
+a tagged connection registers any new names. Rename, deletion, and bulk host
+assignment rewrite the registry and all affected connection tags in one SQLite
+transaction, so an invalid host assignment rolls the complete change back.
+
+Connection status is a timestamped observation, not a persistent online flag.
+Successful SFTP browsing and explicit SSH tests both update it. The UI treats a
+successful result as fresh for two minutes and then presents it as historical;
+it does not probe every stored host in the background.
 
 Reject whitespace, shell metacharacters, and OpenSSH wildcard characters in managed aliases. Reject invalid ports, self-jumps, and managed ProxyJump cycles.
 
@@ -23,4 +38,3 @@ Render managed entries first and include the original user config last so explic
 ## Import
 
 Follow Include files, enumerate literal Host aliases, and resolve each alias with `ssh -G`. Copy imports into the database; do not keep them synchronized automatically. Preview additions, unchanged entries, and conflicts. Skip conflicts unless overwrite is explicit.
-

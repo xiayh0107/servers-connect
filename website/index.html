@@ -1,181 +1,649 @@
-<title>SSH Server Manager — local-first SSH access</title>
-<meta name="description" content="A local SSH server and credential manager built for people and AI agents.">
+<meta charset="utf-8">
+<title>SSH Server Manager — local-first SSH workspace</title>
+<meta name="description" content="Organize SSH hosts, credentials, tags, and remote files locally. Try the interactive SSH Server Manager demo with sample data.">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#070c14">
 <style>
   :root {
-    --bg: #faf9f6;
-    --panel: #ffffff;
-    --ink: #171717;
-    --muted: #666963;
-    --faint: #949892;
-    --line: #e3e4e0;
-    --soft: #f4f4f1;
-    --black: #111111;
-    --green: #237a57;
-    color-scheme: light;
+    --page: #070c14;
+    --page-soft: #0a111d;
+    --panel: #0e1725;
+    --panel-strong: #111d2e;
+    --ink: #f3f6fb;
+    --muted: #9aa8bd;
+    --faint: #687990;
+    --line: #1d2a3d;
+    --accent: #8794ff;
+    --accent-strong: #aab3ff;
+    --accent-soft: rgba(106, 120, 255, .16);
+    --green: #4ad6a0;
+    --amber: #efbd51;
+    --red: #ff747c;
+    color-scheme: dark;
   }
 
   * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
   body {
-    margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    margin: 0;
+    min-width: 320px;
+    background:
+      radial-gradient(circle at 50% -20%, rgba(88, 106, 255, .12), transparent 32rem),
+      var(--page);
+    color: var(--ink);
+    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
-  button, a { font: inherit; }
-  a { color: inherit; text-underline-offset: 3px; }
-  button { cursor: pointer; }
-  :focus-visible { outline: 2px solid var(--black); outline-offset: 3px; }
+  button, input, select { color: inherit; font: inherit; }
+  button, select { cursor: pointer; }
+  a { color: inherit; text-decoration: none; }
+  [hidden] { display: none !important; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   body [lang="zh-CN"] { display: none; }
   html[data-lang="zh"] body [lang="zh-CN"] { display: revert; }
   html[data-lang="zh"] body [lang="en"] { display: none; }
 
-  .page {
-    width: min(1120px, calc(100% - 48px)); min-height: calc(100vh - 58px); margin: 0 auto;
-    display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(340px, .85fr); gap: 72px; align-items: center;
-    padding: 46px 0 34px;
+  .site-nav,
+  .hero,
+  .demo-section,
+  .feature-section,
+  .final-cta,
+  .site-footer {
+    width: min(1460px, calc(100% - 56px));
+    margin-inline: auto;
   }
-  .intro { min-width: 0; }
-  .brand-row { display: flex; align-items: center; gap: 13px; margin-bottom: 22px; }
-  .mark {
-    width: 42px; height: 42px; display: inline-flex; align-items: center; justify-content: center;
-    border: 3px solid var(--ink); border-radius: 11px; font: 800 15px ui-monospace, SFMono-Regular, Menlo, monospace;
+  .site-nav {
+    height: 72px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, .06);
   }
-  h1 { margin: 0; font-size: clamp(29px, 3.4vw, 42px); line-height: 1; letter-spacing: -.04em; }
-  .badge { padding: 4px 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); font-size: 13px; }
-  .description { max-width: 600px; margin: 0 0 28px; color: #4f5350; font-size: clamp(16px, 1.7vw, 19px); line-height: 1.55; }
-  .product-shot { margin: 0; max-width: 650px; }
-  .product-shot img {
-    width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 12px;
-    box-shadow: 0 18px 50px -38px rgba(25, 35, 31, .35);
+  .site-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .site-mark,
+  .demo-mark {
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(135, 148, 255, .42);
+    background: linear-gradient(145deg, rgba(135, 148, 255, .24), rgba(135, 148, 255, .08));
+    color: var(--accent-strong);
+    font: 800 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
-  .product-shot figcaption { margin-top: 9px; color: var(--faint); font-size: 12px; }
-
-  .start-card {
-    min-height: 610px; display: flex; flex-direction: column; overflow: hidden;
-    border: 1px solid var(--line); border-radius: 15px; background: var(--panel);
-    box-shadow: 0 18px 45px -34px rgba(20, 30, 26, .32);
+  .site-mark { width: 38px; height: 38px; border-radius: 10px; }
+  .site-brand strong { display: block; font-size: 14px; letter-spacing: -.01em; }
+  .site-brand small { display: block; margin-top: 2px; color: var(--faint); font-size: 10px; }
+  .version-badge {
+    padding: 4px 7px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    color: var(--muted);
+    font-size: 10px;
   }
-  .card-main { flex: 1; display: flex; flex-direction: column; align-items: center; padding: 42px 34px 28px; text-align: center; }
-  .card-main h2 { margin: 0; font-size: 22px; letter-spacing: -.02em; }
-  .terminal-mark {
-    width: 82px; height: 82px; margin: auto 0 20px; display: grid; place-items: center;
-    border-radius: 18px; background: var(--soft); color: var(--black); font: 750 25px ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-  .card-main h3 { margin: 0 0 8px; font-size: 19px; }
-  .card-main p { max-width: 29ch; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
-  .proof { margin-top: auto; display: flex; gap: 12px; color: var(--faint); font-size: 12px; }
-  .proof span + span::before { content: "·"; margin-right: 12px; }
-  .agent-entry {
-    min-height: 68px; display: flex; align-items: center; justify-content: center; gap: 12px;
-    border: 0; background: var(--black); color: white; font-weight: 650; font-size: 16px;
-  }
-  .agent-entry:hover { background: #2a2a2a; }
-  .arrow { font-size: 23px; font-weight: 300; transition: transform .18s ease; }
-  .agent-entry:hover .arrow { transform: translateX(4px); }
-
-  footer {
-    width: min(1120px, calc(100% - 48px)); height: 58px; margin: 0 auto;
-    display: flex; align-items: center; justify-content: space-between; gap: 20px;
-    color: var(--faint); font-size: 12px;
-  }
-  .footer-links { display: flex; align-items: center; gap: 18px; }
-  .footer-links a { text-decoration: none; }
-  .footer-links a:hover { color: var(--ink); }
+  .site-actions { display: flex; align-items: center; gap: 22px; color: var(--muted); font-size: 12px; }
+  .site-actions a:hover, .lang-button:hover { color: var(--ink); }
   .lang-button { padding: 0; border: 0; background: none; color: inherit; }
-  .lang-button:hover { color: var(--ink); }
+  .button {
+    min-height: 42px;
+    padding: 0 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: var(--panel);
+    color: var(--ink);
+    font-weight: 720;
+    font-size: 12px;
+  }
+  .button:hover { border-color: #34455f; background: var(--panel-strong); }
+  .button.primary { border-color: transparent; background: var(--accent); color: #0b1020; }
+  .button.primary:hover { background: #9da8ff; }
+  .button.small { min-height: 34px; padding-inline: 12px; font-size: 11px; }
+
+  .hero {
+    padding: 70px 0 46px;
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(310px, .65fr);
+    gap: 64px;
+    align-items: end;
+  }
+  .eyebrow {
+    margin: 0 0 16px;
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 850;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+  }
+  .hero h1 {
+    max-width: 880px;
+    margin: 0;
+    font-size: clamp(42px, 6vw, 82px);
+    line-height: .98;
+    letter-spacing: -.055em;
+  }
+  .hero h1 .muted-phrase { color: #8e9bb0; }
+  .hero-description {
+    max-width: 760px;
+    margin: 24px 0 30px;
+    color: var(--muted);
+    font-size: clamp(16px, 1.7vw, 20px);
+    line-height: 1.6;
+  }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .hero-proof {
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(14, 23, 37, .72);
+  }
+  .hero-proof > span { color: var(--faint); font-size: 10px; letter-spacing: .13em; text-transform: uppercase; }
+  .hero-proof strong { display: block; margin: 14px 0 8px; font-size: 19px; line-height: 1.35; }
+  .hero-proof p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+  .proof-row { margin-top: 22px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .proof-row div { padding: 11px; border-radius: 9px; background: #0a1320; }
+  .proof-row b { display: block; font-size: 16px; }
+  .proof-row small { color: var(--faint); font-size: 9px; }
+
+  .demo-section { padding: 28px 0 80px; }
+  .section-heading {
+    margin-bottom: 18px;
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 30px;
+  }
+  .section-heading h2 { margin: 0; font-size: clamp(25px, 3vw, 38px); letter-spacing: -.035em; }
+  .section-heading p { max-width: 480px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; text-align: right; }
+  .demo-shell {
+    --d-bg: #091321;
+    --d-sidebar: #07101b;
+    --d-panel: #0d1929;
+    --d-panel-soft: #101e31;
+    --d-control: #132137;
+    --d-ink: #f3f6fb;
+    --d-muted: #93a1b6;
+    --d-faint: #60718b;
+    --d-line: #1d2d44;
+    --d-hover: #12223a;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid #27364d;
+    border-radius: 18px;
+    background: var(--d-bg);
+    box-shadow: 0 38px 100px -52px rgba(0, 0, 0, .9);
+    color: var(--d-ink);
+  }
+  .demo-shell[data-demo-theme="light"] {
+    --d-bg: #f4f6fa;
+    --d-sidebar: #eef1f6;
+    --d-panel: #fff;
+    --d-panel-soft: #f7f8fb;
+    --d-control: #e8ecf3;
+    --d-ink: #192233;
+    --d-muted: #59657a;
+    --d-faint: #8590a2;
+    --d-line: #d8dee9;
+    --d-hover: #edf1f8;
+  }
+  .demo-windowbar {
+    height: 38px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--d-line);
+    background: var(--d-panel);
+    color: var(--d-faint);
+    font-size: 9px;
+  }
+  .window-dots { display: flex; gap: 5px; }
+  .window-dots i { width: 6px; height: 6px; border-radius: 50%; background: #4a5a71; }
+  .demo-address {
+    min-width: 0;
+    flex: 1;
+    text-align: center;
+    font: 9px ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .sample-pill { display: inline-flex; align-items: center; gap: 6px; color: var(--d-muted); }
+  .sample-pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+  .demo-theme-button { padding: 3px 7px; border: 0; border-radius: 5px; background: var(--d-control); color: var(--d-muted); font-size: 9px; }
+  .demo-app { min-height: 690px; display: grid; grid-template-columns: 236px minmax(0, 1fr); background: var(--d-bg); }
+  .demo-sidebar {
+    min-width: 0;
+    padding: 18px 12px 14px;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--d-line);
+    background: var(--d-sidebar);
+  }
+  .demo-brand { padding: 0 6px 17px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--d-line); }
+  .demo-mark { width: 32px; height: 32px; border-radius: 8px; font-size: 11px; }
+  .demo-brand strong { display: block; font-size: 11px; }
+  .demo-brand small { display: block; margin-top: 2px; color: var(--d-faint); font-size: 8px; }
+  .demo-nav { padding: 12px 0; display: grid; gap: 3px; border-bottom: 1px solid var(--d-line); }
+  .demo-nav button {
+    width: 100%; min-height: 34px; padding: 0 9px;
+    display: flex; align-items: center; gap: 9px;
+    border: 0; border-radius: 7px; background: transparent; color: var(--d-muted);
+    text-align: left; font-size: 9px; font-weight: 700;
+  }
+  .demo-nav button:hover { background: var(--d-hover); color: var(--d-ink); }
+  .demo-nav button.active { background: var(--accent-soft); color: var(--accent-strong); }
+  .nav-glyph { width: 15px; color: currentColor; text-align: center; font: 800 10px ui-monospace, monospace; }
+  .demo-nav b { margin-left: auto; min-width: 18px; padding: 2px 5px; border-radius: 10px; background: var(--d-control); color: var(--d-muted); font-size: 8px; text-align: center; }
+  .sidebar-heading { padding: 13px 7px 7px; display: flex; align-items: center; justify-content: space-between; color: var(--d-faint); font-size: 8px; font-weight: 850; letter-spacing: .13em; text-transform: uppercase; }
+  .demo-hosts { max-height: 350px; overflow: auto; display: grid; gap: 2px; }
+  .demo-host-button {
+    width: 100%; min-width: 0; padding: 7px;
+    display: grid; grid-template-columns: 7px minmax(0, 1fr); gap: 8px; align-items: center;
+    border: 0; border-radius: 7px; background: transparent; color: var(--d-ink); text-align: left;
+  }
+  .demo-host-button:hover, .demo-host-button.active { background: var(--d-hover); }
+  .demo-host-button.active { box-shadow: inset 2px 0 var(--accent); }
+  .demo-host-button strong, .demo-host-button small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .demo-host-button strong { font-size: 9px; }
+  .demo-host-button small { margin-top: 3px; color: var(--d-faint); font: 7px ui-monospace, monospace; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--d-faint); box-shadow: 0 0 0 3px rgba(111, 127, 153, .12); }
+  .status-dot.reachable { background: var(--green); }
+  .status-dot.unreachable { background: var(--red); }
+  .status-dot.idle { background: var(--amber); }
+  .demo-tags { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 7px; }
+  .sidebar-tag {
+    padding: 4px 7px; border: 1px solid var(--d-line); border-radius: 6px;
+    background: transparent; color: var(--d-muted); font-size: 7px;
+  }
+  .sidebar-tag:hover, .sidebar-tag.active { border-color: rgba(135, 148, 255, .55); background: var(--accent-soft); color: var(--accent-strong); }
+  .demo-session { margin-top: auto; padding: 12px 7px 0; display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--d-line); }
+  .demo-session strong { display: block; font-size: 8px; }
+  .demo-session small { display: block; margin-top: 2px; color: var(--d-faint); font-size: 7px; }
+  .demo-main { min-width: 0; display: flex; flex-direction: column; }
+  .demo-header {
+    min-height: 88px;
+    padding: 17px 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    border-bottom: 1px solid var(--d-line);
+    background: var(--d-bg);
+  }
+  .demo-header .eyebrow { margin-bottom: 6px; font-size: 7px; }
+  .demo-header h2 { margin: 0; font-size: 22px; letter-spacing: -.035em; }
+  .demo-header p { margin: 5px 0 0; color: var(--d-muted); font-size: 9px; }
+  .demo-header-actions { display: flex; align-items: center; gap: 7px; }
+  .demo-select,
+  .demo-input,
+  .demo-control {
+    height: 34px;
+    border: 1px solid var(--d-line);
+    border-radius: 7px;
+    background: var(--d-panel);
+    color: var(--d-muted);
+    font-size: 9px;
+  }
+  .demo-select { min-width: 130px; padding: 0 28px 0 10px; }
+  .demo-input { width: 100%; padding: 0 11px; outline: none; }
+  .demo-input:focus { border-color: var(--accent); }
+  .demo-control { padding: 0 11px; font-weight: 750; }
+  .demo-control:hover { border-color: #42536d; color: var(--d-ink); }
+  .demo-control.accent { border-color: transparent; background: var(--accent); color: #0c1224; }
+  .demo-panel { min-height: 0; flex: 1; padding: 18px 20px 22px; }
+  .demo-stats { margin-bottom: 12px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .demo-stat { padding: 11px 12px; border: 1px solid var(--d-line); border-radius: 8px; background: var(--d-panel); }
+  .demo-stat small { display: block; color: var(--d-faint); font-size: 7px; text-transform: uppercase; letter-spacing: .08em; }
+  .demo-stat strong { display: block; margin-top: 5px; font-size: 17px; }
+  .connection-toolbar {
+    margin-bottom: 10px; padding: 7px;
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--d-line); border-radius: 8px; background: var(--d-panel);
+  }
+  .connection-toolbar label { min-width: 180px; flex: 1; }
+  .shown-count { color: var(--d-faint); font-size: 8px; white-space: nowrap; }
+  .batch-actions { display: flex; align-items: center; gap: 6px; }
+  .batch-actions strong { color: var(--accent-strong); font-size: 8px; }
+  .demo-table-wrap { overflow: auto; border: 1px solid var(--d-line); border-radius: 9px; background: var(--d-panel); }
+  .demo-table { width: 100%; min-width: 900px; border-collapse: collapse; table-layout: fixed; }
+  .demo-table th {
+    height: 34px; padding: 7px 9px; border-bottom: 1px solid var(--d-line); background: var(--d-panel-soft);
+    color: var(--d-faint); font-size: 7px; letter-spacing: .1em; text-align: left; text-transform: uppercase;
+  }
+  .demo-table td { height: 58px; padding: 8px 9px; border-bottom: 1px solid var(--d-line); color: var(--d-muted); font-size: 8px; vertical-align: middle; }
+  .demo-table tbody tr:last-child td { border-bottom: 0; }
+  .demo-table tbody tr:hover { background: var(--d-hover); }
+  .connection-table th:first-child, .connection-table td:first-child { width: 36px; text-align: center; }
+  .connection-table th:nth-child(2) { width: 18%; }
+  .connection-table th:nth-child(3) { width: 19%; }
+  .connection-table th:nth-child(4) { width: 19%; }
+  .connection-table th:nth-child(5) { width: 16%; }
+  .connection-table th:nth-child(6) { width: 14%; }
+  .connection-table th:last-child { width: 92px; }
+  .demo-check { width: 13px; height: 13px; accent-color: var(--accent); }
+  .alias-button { padding: 0; border: 0; background: none; color: inherit; text-align: left; }
+  .alias-button strong, .alias-button small, .cell-stack strong, .cell-stack small { display: block; }
+  .alias-button strong, .cell-stack strong { color: var(--d-ink); font-size: 9px; }
+  .alias-button small, .cell-stack small { margin-top: 4px; color: var(--d-faint); font-size: 7px; }
+  .endpoint { font: 8px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .tag-stack { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag-chip, .add-tag {
+    padding: 3px 6px; border: 1px solid rgba(135, 148, 255, .34); border-radius: 6px;
+    background: var(--accent-soft); color: var(--accent-strong); font-size: 7px;
+  }
+  .tag-chip:hover { border-color: var(--accent); }
+  .add-tag { border-style: dashed; background: transparent; color: var(--d-muted); }
+  .status-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border-radius: 20px; font-size: 7px; font-weight: 760; }
+  .status-pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .status-pill.reachable { background: rgba(52, 199, 142, .13); color: var(--green); }
+  .status-pill.unreachable { background: rgba(255, 95, 104, .13); color: var(--red); }
+  .status-pill.idle { background: rgba(235, 181, 68, .14); color: var(--amber); }
+  .browse-button { min-height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent-strong); font-size: 8px; font-weight: 760; }
+  .browse-button:hover { background: rgba(106, 120, 255, .26); }
+  .empty-table { padding: 32px; color: var(--d-muted); text-align: center; font-size: 9px; }
+
+  .host-banner { margin-bottom: 12px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 15px; border: 1px solid var(--d-line); border-radius: 9px; background: var(--d-panel); }
+  .host-banner-main { display: flex; align-items: center; gap: 10px; }
+  .host-icon { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 8px; background: var(--accent-soft); color: var(--accent-strong); font: 800 10px ui-monospace, monospace; }
+  .host-banner strong, .host-banner small { display: block; }
+  .host-banner strong { font-size: 10px; }
+  .host-banner small { margin-top: 3px; color: var(--d-faint); font: 7px ui-monospace, monospace; }
+  .file-toolbar { margin-bottom: 10px; display: grid; grid-template-columns: auto minmax(180px, 1fr) auto; gap: 7px; }
+  .path-display { padding: 0 11px; display: flex; align-items: center; border: 1px solid var(--d-line); border-radius: 7px; background: var(--d-panel); color: var(--d-muted); font: 8px ui-monospace, monospace; }
+  .file-name { display: flex; align-items: center; gap: 8px; }
+  .file-glyph { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 5px; background: var(--d-control); color: var(--d-muted); font-size: 9px; }
+  .file-glyph.folder { color: var(--amber); }
+  .file-button { padding: 0; border: 0; background: none; color: var(--d-ink); font-size: 8px; font-weight: 700; text-align: left; }
+  .file-copy { padding: 4px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--d-faint); font-size: 7px; }
+  .file-copy:hover { background: var(--d-control); color: var(--d-ink); }
+
+  .tag-create-bar { margin-bottom: 12px; padding: 10px; display: flex; gap: 7px; border: 1px solid var(--d-line); border-radius: 9px; background: var(--d-panel); }
+  .tag-create-bar .demo-input { flex: 1; }
+  .tag-library { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+  .tag-card { padding: 13px; border: 1px solid var(--d-line); border-radius: 9px; background: var(--d-panel); }
+  .tag-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .tag-card-head strong { font-size: 10px; }
+  .tag-card-head span { padding: 3px 6px; border-radius: 10px; background: var(--d-control); color: var(--d-muted); font-size: 7px; }
+  .tag-card p { min-height: 28px; margin: 9px 0 11px; color: var(--d-faint); font-size: 8px; line-height: 1.5; }
+  .tag-host-preview { margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag-host-preview span { padding: 3px 5px; border-radius: 4px; background: var(--d-panel-soft); color: var(--d-muted); font-size: 7px; }
+  .tag-view-button { padding: 0; border: 0; background: none; color: var(--accent-strong); font-size: 8px; font-weight: 750; }
+  .security-note { margin-bottom: 12px; padding: 13px; display: flex; gap: 11px; border: 1px solid rgba(135, 148, 255, .25); border-radius: 9px; background: var(--accent-soft); }
+  .security-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: rgba(135, 148, 255, .16); color: var(--accent-strong); font-size: 12px; }
+  .security-note strong { display: block; font-size: 9px; }
+  .security-note p { margin: 4px 0 0; color: var(--d-muted); font-size: 8px; line-height: 1.5; }
+
+  .tag-picker {
+    z-index: 20;
+    position: absolute;
+    width: 280px;
+    max-height: 360px;
+    overflow: auto;
+    padding: 10px;
+    border: 1px solid #3a4b66;
+    border-radius: 10px;
+    background: var(--d-panel);
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .38);
+  }
+  .tag-picker-head { margin-bottom: 8px; display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+  .tag-picker-head strong { display: block; font-size: 10px; }
+  .tag-picker-head small { display: block; margin-top: 3px; color: var(--d-faint); font-size: 7px; }
+  .picker-close { padding: 0 3px; border: 0; background: none; color: var(--d-faint); font-size: 15px; }
+  .tag-options { display: grid; gap: 3px; }
+  .tag-option { width: 100%; padding: 7px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 6px; background: transparent; color: var(--d-muted); text-align: left; font-size: 8px; }
+  .tag-option:hover { background: var(--d-hover); }
+  .tag-option i { width: 14px; height: 14px; display: grid; place-items: center; border: 1px solid var(--d-line); border-radius: 4px; color: var(--accent-strong); font-style: normal; font-size: 8px; }
+  .tag-option.all i, .tag-option.some i { border-color: var(--accent); background: var(--accent-soft); }
+  .picker-create { margin-top: 8px; padding-top: 8px; display: flex; gap: 5px; border-top: 1px solid var(--d-line); }
+  .picker-create .demo-input { min-width: 0; height: 31px; }
+
+  .demo-toast {
+    z-index: 30;
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    max-width: 300px;
+    padding: 9px 12px;
+    border: 1px solid #38506a;
+    border-radius: 8px;
+    background: #102032;
+    color: #dfe7f3;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, .3);
+    font-size: 8px;
+  }
+
+  .feature-section { padding: 12px 0 90px; }
+  .feature-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .feature-card { min-height: 200px; padding: 22px; border: 1px solid var(--line); border-radius: 13px; background: var(--page-soft); }
+  .feature-number { color: var(--accent); font: 800 10px ui-monospace, monospace; }
+  .feature-card h3 { margin: 46px 0 10px; font-size: 18px; }
+  .feature-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
+  .final-cta { margin-bottom: 70px; padding: 34px; display: flex; align-items: center; justify-content: space-between; gap: 30px; border: 1px solid rgba(135, 148, 255, .28); border-radius: 16px; background: linear-gradient(120deg, rgba(100, 116, 255, .14), rgba(14, 23, 37, .72)); }
+  .final-cta h2 { margin: 0; font-size: clamp(23px, 3vw, 38px); letter-spacing: -.035em; }
+  .final-cta p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+  .site-footer { min-height: 72px; padding: 22px 0; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid rgba(255, 255, 255, .06); color: var(--faint); font-size: 10px; }
+  .footer-links { display: flex; align-items: center; gap: 18px; }
+  .footer-links a:hover { color: var(--ink); }
 
   dialog {
-    width: min(680px, calc(100% - 32px)); padding: 0; border: 0; border-radius: 14px;
-    color: var(--ink); background: var(--panel); box-shadow: 0 28px 90px rgba(0, 0, 0, .22);
+    width: min(680px, calc(100% - 32px));
+    padding: 0;
+    border: 1px solid #2b3b52;
+    border-radius: 14px;
+    background: #0d1725;
+    color: var(--ink);
+    box-shadow: 0 30px 100px rgba(0, 0, 0, .6);
   }
-  dialog::backdrop { background: rgba(19, 20, 19, .45); }
-  .dialog-content { padding: 28px; }
+  dialog::backdrop { background: rgba(3, 7, 12, .75); }
+  .dialog-content { padding: 26px; }
   .dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
-  .dialog-head h2 { margin: 0 0 5px; font-size: 22px; }
-  .dialog-head p { margin: 0; color: var(--muted); font-size: 14px; }
-  .close-button { padding: 0 4px; border: 0; background: none; color: var(--faint); font-size: 26px; line-height: 1; }
-  .close-button:hover { color: var(--ink); }
-  .prompt {
-    margin: 24px 0; padding: 18px 20px; border-radius: 10px; background: var(--soft); color: #4b4f4c;
-    font: 15px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere;
-  }
-  .copy-button {
-    width: 100%; min-height: 50px; border: 0; border-radius: 8px; background: var(--black); color: white;
-    font-weight: 700; font-size: 16px;
-  }
-  .copy-button:hover { background: #2a2a2a; }
+  .dialog-head h2 { margin: 0 0 6px; font-size: 22px; }
+  .dialog-head p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+  .close-button { padding: 0 4px; border: 0; background: none; color: var(--faint); font-size: 25px; line-height: 1; }
+  .prompt { margin: 22px 0; padding: 17px; border: 1px solid var(--line); border-radius: 9px; background: #09121e; color: #bec9d9; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+  .copy-button { width: 100%; }
   .copy-button.copied { background: var(--green); }
 
-  @media (max-width: 880px) {
-    .page { grid-template-columns: 1fr; gap: 34px; padding-top: 36px; }
-    .product-shot { max-width: none; }
-    .start-card { min-height: 500px; }
-    .card-main { min-height: 430px; }
-    footer { height: auto; padding: 28px 0; }
+  @media (max-width: 1080px) {
+    .hero { grid-template-columns: 1fr; gap: 28px; }
+    .hero-proof { max-width: 650px; }
+    .demo-app { grid-template-columns: 205px minmax(0, 1fr); }
+    .demo-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tag-library { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
-  @media (max-width: 560px) {
-    .page, footer { width: min(100% - 28px, 1120px); }
-    .brand-row { flex-wrap: wrap; }
-    .description { font-size: 16px; }
-    .start-card { min-height: 460px; }
-    .card-main { min-height: 390px; padding: 30px 22px 24px; }
-    footer { align-items: flex-start; flex-direction: column; gap: 14px; }
-    .footer-links { flex-wrap: wrap; }
-    .dialog-content { padding: 22px; }
+  @media (max-width: 820px) {
+    .site-nav, .hero, .demo-section, .feature-section, .final-cta, .site-footer { width: min(100% - 28px, 1460px); }
+    .site-actions > a { display: none; }
+    .hero { padding-top: 48px; }
+    .section-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+    .section-heading p { text-align: left; }
+    .demo-app { min-height: 760px; grid-template-columns: 1fr; }
+    .demo-sidebar { display: block; padding: 10px; border-right: 0; border-bottom: 1px solid var(--d-line); }
+    .demo-brand, .demo-session, .sidebar-heading.tags-heading, .demo-tags { display: none; }
+    .demo-nav { padding: 0 0 8px; grid-template-columns: repeat(4, 1fr); border-bottom: 0; }
+    .demo-nav button { justify-content: center; }
+    .demo-nav b { display: none; }
+    .demo-hosts { max-height: none; display: flex; overflow-x: auto; gap: 5px; }
+    .demo-host-button { min-width: 145px; }
+    .demo-header { min-height: 82px; padding: 14px; }
+    .demo-panel { padding: 12px; }
+    .tag-library { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .feature-grid { grid-template-columns: 1fr; }
+    .feature-card { min-height: 150px; }
+    .feature-card h3 { margin-top: 28px; }
   }
+  @media (max-width: 580px) {
+    .site-nav { height: 64px; }
+    .site-brand small, .version-badge { display: none; }
+    .site-actions { gap: 12px; }
+    .site-actions .button { min-height: 36px; padding-inline: 10px; }
+    .hero { padding: 40px 0 28px; }
+    .hero h1 { font-size: 43px; }
+    .hero-description { font-size: 15px; }
+    .hero-proof { display: none; }
+    .demo-section { padding-top: 12px; }
+    .demo-windowbar { padding-inline: 9px; }
+    .demo-address { text-align: left; }
+    .sample-pill span { display: none; }
+    .demo-nav button { padding-inline: 4px; gap: 4px; font-size: 7px; }
+    .demo-header { align-items: flex-start; flex-direction: column; }
+    .demo-header-actions { width: 100%; }
+    .demo-select { flex: 1; min-width: 0; }
+    .demo-stats { display: none; }
+    .connection-toolbar { align-items: stretch; flex-direction: column; }
+    .batch-actions { flex-wrap: wrap; }
+    .file-toolbar { grid-template-columns: auto minmax(0, 1fr); }
+    .file-toolbar .copy-directory { display: none; }
+    .tag-library { grid-template-columns: 1fr; }
+    .tag-create-bar { flex-direction: column; }
+    .final-cta { padding: 25px; align-items: flex-start; flex-direction: column; }
+    .site-footer { align-items: flex-start; flex-direction: column; }
+    .tag-picker { width: min(280px, calc(100% - 20px)); }
+  }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 </style>
 
-<main class="page">
-  <div class="intro">
-    <div class="brand-row">
-      <span class="mark">$_</span>
-      <h1>SSH Server Manager</h1>
-      <span class="badge"><span lang="en">Open source</span><span lang="zh-CN">开源</span></span>
-    </div>
-    <p class="description">
-      <span lang="en">A local SSH server and credential manager for people and AI agents. Your connections stay organized, while passwords remain inside the operating-system keychain.</span>
-      <span lang="zh-CN">为你和 AI 智能体打造的本地 SSH 服务器与凭据管理器。连接井然有序，密码始终留在操作系统钥匙串中。</span>
-    </p>
-    <figure class="product-shot">
-      <img src="assets/ssh-server-manager-ui.png" width="1440" height="1100" alt="SSH Server Manager local dashboard with fictional demo servers">
-      <figcaption><span lang="en">The real local dashboard, shown with fictional servers.</span><span lang="zh-CN">真实本地管理界面，截图使用虚构服务器。</span></figcaption>
-    </figure>
-  </div>
+<header class="site-nav">
+  <a class="site-brand" href="#top" aria-label="SSH Server Manager home">
+    <span class="site-mark">&gt;_</span>
+    <span><strong>SSH Server Manager</strong><small>Local control plane</small></span>
+    <span class="version-badge">v0.3.0</span>
+  </a>
+  <nav class="site-actions" aria-label="Primary navigation">
+    <a href="#demo"><span lang="en">Live demo</span><span lang="zh-CN">在线体验</span></a>
+    <a href="https://github.com/xiayh0107/servers-connect/tree/main/ssh-server-manager/docs">Docs</a>
+    <a href="https://github.com/xiayh0107/servers-connect">GitHub</a>
+    <button class="lang-button" id="langToggle" type="button">中文</button>
+    <button class="button primary small open-agent-dialog" type="button"><span lang="en">Install with Agent</span><span lang="zh-CN">用 Agent 安装</span></button>
+  </nav>
+</header>
 
-  <aside class="start-card">
-    <div class="card-main">
-      <h2><span lang="en">Your local SSH control plane</span><span lang="zh-CN">你的本地 SSH 控制台</span></h2>
-      <div class="terminal-mark">&gt;_</div>
-      <h3><span lang="en">Ready on your machine</span><span lang="zh-CN">在你的电脑上运行</span></h3>
-      <p><span lang="en">No cloud account. No plaintext secrets. Works with macOS, Linux, and Windows.</span><span lang="zh-CN">无需云账户，没有明文秘密，支持 macOS、Linux 和 Windows。</span></p>
-      <div class="proof"><span>Local only</span><span>OS keychain</span><span>MIT</span></div>
+<main id="top">
+  <section class="hero">
+    <div>
+      <p class="eyebrow"><span lang="en">Local-first SSH control plane</span><span lang="zh-CN">本地优先的 SSH 控制台</span></p>
+      <h1><span lang="en">Your hosts, files, and credentials. <span class="muted-phrase">One fast workspace.</span></span><span lang="zh-CN">主机、文件与凭据，<span class="muted-phrase">尽在一个高速工作区。</span></span></h1>
+      <p class="hero-description"><span lang="en">Organize every SSH endpoint with tags, browse remote files without opening a shell, and let AI agents work safely—while secrets stay in your operating-system keychain.</span><span lang="zh-CN">用标签整理所有 SSH 端点，无需打开终端即可浏览远程文件，并让 AI Agent 安全协作——秘密始终留在操作系统钥匙串中。</span></p>
+      <div class="hero-actions">
+        <button class="button primary" id="focusDemo" type="button"><span lang="en">Try the product</span><span lang="zh-CN">立即体验产品</span> <span aria-hidden="true">↓</span></button>
+        <button class="button open-agent-dialog" type="button"><span lang="en">Connect your Agent</span><span lang="zh-CN">Agent 一键接入</span></button>
+      </div>
     </div>
-    <button class="agent-entry" id="openAgentDialog" type="button">
-      <span lang="en">Connect your Agent</span><span lang="zh-CN">Agent 一键接入</span><span class="arrow">→</span>
-    </button>
-  </aside>
+    <aside class="hero-proof">
+      <span><span lang="en">Safe interactive preview</span><span lang="zh-CN">安全的交互预览</span></span>
+      <strong><span lang="en">This is the product UI, powered by fictional data.</span><span lang="zh-CN">这就是产品界面，数据全部为模拟内容。</span></strong>
+      <p><span lang="en">Click hosts, filter tags, edit assignments, and browse files. Nothing connects to a real machine.</span><span lang="zh-CN">可以选择主机、筛选标签、编辑分组和浏览文件，不会连接任何真实机器。</span></p>
+      <div class="proof-row"><div><b>11</b><small>demo hosts</small></div><div><b>4</b><small>workspaces</small></div><div><b>0</b><small>real secrets</small></div></div>
+    </aside>
+  </section>
+
+  <section class="demo-section" id="demo" aria-labelledby="demoTitle">
+    <div class="section-heading">
+      <div><p class="eyebrow">Live product demo</p><h2 id="demoTitle"><span lang="en">Learn it by using it.</span><span lang="zh-CN">打开就能上手。</span></h2></div>
+      <p><span lang="en">Everything below is interactive. Sample changes reset when the page reloads.</span><span lang="zh-CN">下方界面可以直接操作，刷新页面后模拟数据会自动重置。</span></p>
+    </div>
+
+    <div class="demo-shell" id="demoShell" data-demo-theme="dark">
+      <div class="demo-windowbar">
+        <span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="demo-address">ssh-manager.local / sample workspace</span>
+        <span class="sample-pill"><i></i><span>Sample data</span></span>
+        <button class="demo-theme-button" id="demoThemeButton" type="button" aria-label="Switch demo theme">Light</button>
+      </div>
+      <div class="demo-app">
+        <aside class="demo-sidebar">
+          <div class="demo-brand"><span class="demo-mark">&gt;_</span><span><strong>SSH Manager</strong><small>Local control plane</small></span></div>
+          <nav class="demo-nav" aria-label="Demo views">
+            <button type="button" data-demo-view="workspace"><span class="nav-glyph">□</span>Workspace</button>
+            <button type="button" data-demo-view="connections" class="active"><span class="nav-glyph">═</span>Connections <b id="demoHostCount">0</b></button>
+            <button type="button" data-demo-view="tags"><span class="nav-glyph">◇</span>Tags <b id="demoTagCount">0</b></button>
+            <button type="button" data-demo-view="credentials"><span class="nav-glyph">⌁</span>Credentials <b>3</b></button>
+          </nav>
+          <div class="sidebar-heading"><span>Hosts</span><span id="sidebarShownCount"></span></div>
+          <div class="demo-hosts" id="demoHostList"></div>
+          <div class="sidebar-heading tags-heading"><span>Tags</span></div>
+          <div class="demo-tags" id="demoSidebarTags"></div>
+          <div class="demo-session"><span class="status-dot reachable"></span><span><strong>Local session</strong><small>Sample mode · ready</small></span></div>
+        </aside>
+
+        <div class="demo-main">
+          <header class="demo-header">
+            <div><p class="eyebrow" id="demoViewEyebrow">Connection inventory</p><h2 id="demoViewTitle">Connections</h2><p id="demoViewDescription">Manage endpoints, credentials, and jump hosts.</p></div>
+            <div class="demo-header-actions">
+              <select class="demo-select" id="demoTagFilter" aria-label="Filter demo hosts by tag"><option value="*">All hosts</option></select>
+              <button class="demo-control" id="resetDemo" type="button">Reset demo</button>
+            </div>
+          </header>
+
+          <section class="demo-panel" data-demo-panel="connections">
+            <div class="demo-stats">
+              <article class="demo-stat"><small>Total hosts</small><strong id="statTotal">0</strong></article>
+              <article class="demo-stat"><small>Reachable</small><strong id="statReachable">0</strong></article>
+              <article class="demo-stat"><small>Credentials</small><strong>3</strong></article>
+              <article class="demo-stat"><small>Tags</small><strong id="statTags">0</strong></article>
+            </div>
+            <div class="connection-toolbar">
+              <label><input class="demo-input" id="demoSearch" type="search" autocomplete="off" placeholder="Search alias, endpoint, or tag…" aria-label="Search demo connections"></label>
+              <span class="shown-count" id="demoShown"></span>
+              <div class="batch-actions" id="batchActions" hidden><strong id="selectedCount"></strong><button class="demo-control" id="bulkEditTags" type="button">Edit tags</button><button class="demo-control" id="clearSelection" type="button">Clear</button></div>
+            </div>
+            <div class="demo-table-wrap">
+              <table class="demo-table connection-table">
+                <thead><tr><th><input class="demo-check" id="selectVisible" type="checkbox" aria-label="Select visible demo hosts"></th><th>Alias</th><th>Endpoint</th><th>Tags</th><th>Credential</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
+                <tbody id="demoConnectionRows"></tbody>
+              </table>
+              <div class="empty-table" id="demoConnectionsEmpty" hidden>No hosts match this view.</div>
+            </div>
+          </section>
+
+          <section class="demo-panel" data-demo-panel="workspace" hidden>
+            <div class="host-banner" id="workspaceHostBanner"></div>
+            <div class="file-toolbar"><button class="demo-control" id="fileUp" type="button">↑ Up</button><div class="path-display" id="demoPath">/</div><button class="demo-control copy-directory" id="copyDirectory" type="button">Copy reference</button></div>
+            <div class="demo-table-wrap"><table class="demo-table"><thead><tr><th style="width:45%">Name</th><th>Size</th><th>Modified</th><th>Access</th><th></th></tr></thead><tbody id="demoFileRows"></tbody></table></div>
+          </section>
+
+          <section class="demo-panel" data-demo-panel="tags" hidden>
+            <form class="tag-create-bar" id="tagCreateForm"><input class="demo-input" id="newTagName" maxlength="24" autocomplete="off" placeholder="Create a project, environment, or role tag…" aria-label="New demo tag"><button class="demo-control accent" type="submit">Create tag</button></form>
+            <div class="tag-library" id="demoTagLibrary"></div>
+          </section>
+
+          <section class="demo-panel" data-demo-panel="credentials" hidden>
+            <div class="security-note"><span class="security-icon">⌁</span><div><strong>Credentials are encrypted and never shared.</strong><p>This demo contains names only. The real app stores passwords and passphrases in your operating-system vault.</p></div></div>
+            <div class="demo-table-wrap"><table class="demo-table"><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Secret state</th><th>Used by</th><th>Last used</th></tr></thead><tbody><tr><td><span class="cell-stack"><strong>deploy-key</strong><small>Production access</small></span></td><td>Private key</td><td><span class="status-pill reachable">Ready</span></td><td>Vault protected</td><td>3 hosts</td><td>Just now</td></tr><tr><td><span class="cell-stack"><strong>lab-agent</strong><small>Local ssh-agent</small></span></td><td>OpenSSH</td><td><span class="status-pill reachable">Ready</span></td><td>No stored secret</td><td>4 hosts</td><td>12m ago</td></tr><tr><td><span class="cell-stack"><strong>client-password</strong><small>Client staging</small></span></td><td>Password</td><td><span class="status-pill idle">Locked</span></td><td>Vault protected</td><td>2 hosts</td><td>2h ago</td></tr></tbody></table></div>
+          </section>
+        </div>
+      </div>
+      <div class="tag-picker" id="demoTagPicker" role="dialog" aria-label="Edit demo host tags" hidden></div>
+      <div class="demo-toast" id="demoToast" role="status" aria-live="polite" hidden></div>
+    </div>
+  </section>
+
+  <section class="feature-section" aria-labelledby="featureTitle">
+    <div class="section-heading"><div><p class="eyebrow">Built for real workflows</p><h2 id="featureTitle"><span lang="en">Fast where SSH tools are usually fragmented.</span><span lang="zh-CN">把分散的 SSH 工作流真正合到一起。</span></h2></div></div>
+    <div class="feature-grid">
+      <article class="feature-card"><span class="feature-number">01 / ORGANIZE</span><h3><span lang="en">Find the right host instantly</span><span lang="zh-CN">瞬间找到正确主机</span></h3><p><span lang="en">Use reusable tags for projects, environments, roles, or clients. Filter and edit them from the connection list or host sidebar.</span><span lang="zh-CN">按项目、环境、角色或客户建立标签，并直接从连接列表或主机侧栏筛选和编辑。</span></p></article>
+      <article class="feature-card"><span class="feature-number">02 / BROWSE</span><h3><span lang="en">Reference files without a shell</span><span lang="zh-CN">无需终端即可引用文件</span></h3><p><span lang="en">Browse remote directories read-only and copy precise host:path references that people and AI agents can understand.</span><span lang="zh-CN">以只读方式浏览远程目录，并复制人和 AI Agent 都能理解的精确 host:path 引用。</span></p></article>
+      <article class="feature-card"><span class="feature-number">03 / PROTECT</span><h3><span lang="en">Keep secrets outside the browser</span><span lang="zh-CN">让秘密远离浏览器</span></h3><p><span lang="en">Passwords and passphrases stay in the operating-system vault. The local UI and agent-safe CLI reference them without exposing values.</span><span lang="zh-CN">密码和口令保留在操作系统保险库中，本地 UI 与 Agent 安全 CLI 只引用、不暴露。</span></p></article>
+    </div>
+  </section>
+
+  <section class="final-cta">
+    <div><h2><span lang="en">Move from sample hosts to your own.</span><span lang="zh-CN">现在，把模拟主机换成你的真实环境。</span></h2><p><span lang="en">Open source, local only, and ready for macOS, Linux, and Windows.</span><span lang="zh-CN">开源、本地运行，支持 macOS、Linux 与 Windows。</span></p></div>
+    <button class="button primary open-agent-dialog" type="button"><span lang="en">Install with your Agent</span><span lang="zh-CN">让 Agent 帮我安装</span> <span aria-hidden="true">→</span></button>
+  </section>
 </main>
 
-<footer>
-  <span>SSH Server Manager · MIT</span>
-  <div class="footer-links">
-    <a href="https://github.com/xiayh0107/servers-connect">GitHub</a>
-    <a href="https://github.com/xiayh0107/servers-connect/tree/main/ssh-server-manager/docs">Docs</a>
-    <a href="https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/security.md">Security</a>
-    <button class="lang-button" id="langToggle" type="button">中文</button>
-  </div>
+<footer class="site-footer">
+  <span>SSH Server Manager · v0.3.0 · MIT</span>
+  <div class="footer-links"><a href="https://github.com/xiayh0107/servers-connect">GitHub</a><a href="https://github.com/xiayh0107/servers-connect/tree/main/ssh-server-manager/docs">Docs</a><a href="https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/security.md">Security</a></div>
 </footer>
 
 <dialog id="agentDialog" aria-labelledby="agentDialogTitle">
   <div class="dialog-content">
-    <div class="dialog-head">
-      <div>
-        <h2 id="agentDialogTitle"><span lang="en">Connect your Agent</span><span lang="zh-CN">Agent 一键接入</span></h2>
-        <p><span lang="en">Send this prompt to your Agent. It will install and verify the tool for you.</span><span lang="zh-CN">将下面的提示词发送给 Agent，它会帮你完成安装和检查。</span></p>
-      </div>
-      <button class="close-button" id="closeAgentDialog" type="button" aria-label="Close">×</button>
-    </div>
+    <div class="dialog-head"><div><h2 id="agentDialogTitle"><span lang="en">Connect your Agent</span><span lang="zh-CN">Agent 一键接入</span></h2><p><span lang="en">Send this prompt to your Agent. It will install and verify the tool for you.</span><span lang="zh-CN">将下面的提示词发送给 Agent，它会帮你完成安装和检查。</span></p></div><button class="close-button" id="closeAgentDialog" type="button" aria-label="Close">×</button></div>
     <div class="prompt" id="agentInstallCommand"><span lang="en">Read https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md and follow it to install and configure SSH Server Manager for me. When finished, run serverctl doctor and report the results.</span><span lang="zh-CN">请阅读 https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md，按照文档为我安装并配置 SSH Server Manager。完成后运行 serverctl doctor，并告诉我检查结果。</span></div>
-    <button class="copy-button" id="copyAgentCommand" type="button"><span lang="en">Copy prompt</span><span lang="zh-CN">复制提示词</span></button>
+    <button class="button primary copy-button" id="copyAgentCommand" type="button"><span lang="en">Copy prompt</span><span lang="zh-CN">复制提示词</span></button>
   </div>
 </dialog>
 
@@ -183,51 +651,257 @@
   (function () {
     var root = document.documentElement;
     var langButton = document.getElementById("langToggle");
-    var dialog = document.getElementById("agentDialog");
-    var openButton = document.getElementById("openAgentDialog");
-    var closeButton = document.getElementById("closeAgentDialog");
+    var agentDialog = document.getElementById("agentDialog");
     var copyButton = document.getElementById("copyAgentCommand");
+    var demoShell = document.getElementById("demoShell");
+    var demoTagPicker = document.getElementById("demoTagPicker");
+    var demoToast = document.getElementById("demoToast");
+    var toastTimer = 0;
     var storedLanguage = null;
     try { storedLanguage = localStorage.getItem("ssm-lang"); } catch (error) {}
     var useChinese = storedLanguage ? storedLanguage === "zh" : /^zh/i.test(navigator.language || "");
 
+    var initialHosts = [
+      { id: "atlas-prod", alias: "atlas-prod", username: "deploy", hostname: "10.24.8.12", note: "Production API", tags: ["prod", "api"], credential: "deploy-key", status: "reachable", meta: "82 ms" },
+      { id: "gpu-lab-01", alias: "gpu-lab-01", username: "research", hostname: "192.168.4.21", note: "A100 research node", tags: ["gpu", "lab"], credential: "lab-agent", status: "reachable", meta: "118 ms" },
+      { id: "client-staging", alias: "client-staging", username: "ubuntu", hostname: "172.18.0.34", note: "Client preview", tags: ["staging", "client-a"], credential: "client-password", status: "unreachable", meta: "2h ago" },
+      { id: "bastion-east", alias: "bastion-east", username: "ops", hostname: "10.20.0.5", note: "East jump host", tags: ["prod", "ops"], credential: "deploy-key", status: "reachable", meta: "64 ms" },
+      { id: "docs-runner", alias: "docs-runner", username: "runner", hostname: "10.30.12.8", note: "Documentation builds", tags: ["tooling"], credential: "lab-agent", status: "idle", meta: "Not checked" },
+      { id: "archive-node", alias: "archive-node", username: "backup", hostname: "10.11.4.90", note: "Nightly archives", tags: ["ops"], credential: "lab-agent", status: "idle", meta: "Not checked" },
+      { id: "edge-cache-02", alias: "edge-cache-02", username: "deploy", hostname: "10.24.9.18", note: "Regional cache", tags: ["prod", "tooling"], credential: "deploy-key", status: "reachable", meta: "91 ms" },
+      { id: "login-01", alias: "login-01", username: "research", hostname: "172.16.78.132", note: "Lab login node", tags: ["lab", "ops"], credential: "lab-agent", status: "idle", meta: "Not checked" },
+      { id: "login-02", alias: "login-02", username: "research", hostname: "172.16.78.133", note: "Lab login node", tags: ["lab", "ops"], credential: "lab-agent", status: "idle", meta: "Not checked" },
+      { id: "qa-runner", alias: "qa-runner", username: "runner", hostname: "10.30.12.19", note: "Release verification", tags: ["staging", "tooling"], credential: "client-password", status: "reachable", meta: "73 ms" },
+      { id: "database-ro", alias: "database-ro", username: "analyst", hostname: "10.24.16.7", note: "Read-only reporting", tags: ["prod", "database"], credential: "deploy-key", status: "reachable", meta: "88 ms" }
+    ];
+    var hosts = [];
+    var tags = [];
+    var selectedIds = new Set();
+    var pickerHostIds = [];
+    var state = { view: "connections", hostId: "atlas-prod", filter: "*", query: "", path: "/" };
+    var viewCopy = {
+      connections: ["CONNECTION INVENTORY", "Connections", "Manage endpoints, credentials, and jump hosts."],
+      workspace: ["REMOTE WORKSPACE", "Files", "Browse remote files without opening a shell."],
+      tags: ["HOST ORGANIZATION", "Tags", "Label hosts for fast filtering by project, environment, or role."],
+      credentials: ["SECURE STORAGE", "Credentials", "Reusable authentication profiles stored securely."]
+    };
+    var fileTree = {
+      "/": [
+        { name: "projects", type: "folder", size: "—", modified: "Today 09:42", access: "rwxr-xr-x" },
+        { name: "deploy", type: "folder", size: "—", modified: "Yesterday", access: "rwxr-x---" },
+        { name: "README.md", type: "file", size: "3.2 KB", modified: "Today 08:17", access: "rw-r--r--" },
+        { name: "healthcheck.log", type: "file", size: "18 KB", modified: "12m ago", access: "rw-r-----" }
+      ],
+      "/projects": [
+        { name: "api", type: "folder", size: "—", modified: "Today 09:40", access: "rwxr-xr-x" },
+        { name: "website", type: "folder", size: "—", modified: "Yesterday", access: "rwxr-xr-x" },
+        { name: "release-notes.md", type: "file", size: "6.8 KB", modified: "Today 07:51", access: "rw-r--r--" }
+      ],
+      "/projects/api": [
+        { name: "src", type: "folder", size: "—", modified: "Today 09:38", access: "rwxr-xr-x" },
+        { name: "package.json", type: "file", size: "1.7 KB", modified: "Today 09:34", access: "rw-r--r--" },
+        { name: "Dockerfile", type: "file", size: "864 B", modified: "Yesterday", access: "rw-r--r--" },
+        { name: ".env.example", type: "file", size: "442 B", modified: "Jun 28", access: "rw-r--r--" }
+      ],
+      "/projects/website": [
+        { name: "public", type: "folder", size: "—", modified: "Yesterday", access: "rwxr-xr-x" },
+        { name: "index.html", type: "file", size: "24 KB", modified: "Yesterday", access: "rw-r--r--" }
+      ],
+      "/deploy": [
+        { name: "current", type: "folder", size: "—", modified: "Today 09:42", access: "rwxr-x---" },
+        { name: "deploy.sh", type: "file", size: "2.1 KB", modified: "May 18", access: "rwxr-x---" }
+      ]
+    };
+
+    function byId(id) { return document.getElementById(id); }
+    function escapeHtml(value) { return String(value).replace(/[&<>"']/g, function (character) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]; }); }
+    function uniqueTags() { return tags.slice().sort(function (a, b) { return a.localeCompare(b); }); }
+    function currentHost() { return hosts.find(function (host) { return host.id === state.hostId; }) || hosts[0]; }
+    function tagCount(tag) { return hosts.filter(function (host) { return host.tags.indexOf(tag) >= 0; }).length; }
+    function visibleHosts() {
+      var query = state.query.trim().toLowerCase();
+      return hosts.filter(function (host) {
+        var inTag = state.filter === "*" || host.tags.indexOf(state.filter) >= 0;
+        var matches = !query || [host.alias, host.username, host.hostname, host.note].concat(host.tags).some(function (value) { return String(value).toLowerCase().indexOf(query) >= 0; });
+        return inTag && matches;
+      });
+    }
+    function showToast(message) {
+      window.clearTimeout(toastTimer);
+      demoToast.textContent = message;
+      demoToast.hidden = false;
+      toastTimer = window.setTimeout(function () { demoToast.hidden = true; }, 1800);
+    }
     function applyLanguage() {
-      if (useChinese) {
-        root.setAttribute("data-lang", "zh"); root.lang = "zh-CN"; langButton.textContent = "EN";
-      } else {
-        root.removeAttribute("data-lang"); root.lang = "en"; langButton.textContent = "中文";
-      }
+      if (useChinese) { root.setAttribute("data-lang", "zh"); root.lang = "zh-CN"; langButton.textContent = "EN"; }
+      else { root.removeAttribute("data-lang"); root.lang = "en"; langButton.textContent = "中文"; }
     }
     function promptText() {
       var selector = useChinese ? '[lang="zh-CN"]' : '[lang="en"]';
-      return document.getElementById("agentInstallCommand").querySelector(selector).textContent.trim();
+      return byId("agentInstallCommand").querySelector(selector).textContent.trim();
     }
     function copied() {
       copyButton.classList.add("copied"); copyButton.textContent = useChinese ? "已复制" : "Copied";
-      window.setTimeout(function () {
-        copyButton.classList.remove("copied");
-        copyButton.innerHTML = '<span lang="en">Copy prompt</span><span lang="zh-CN">复制提示词</span>';
-      }, 1800);
+      window.setTimeout(function () { copyButton.classList.remove("copied"); copyButton.innerHTML = '<span lang="en">Copy prompt</span><span lang="zh-CN">复制提示词</span>'; }, 1800);
     }
     function fallbackCopy(text) {
       var helper = document.createElement("textarea");
       helper.value = text; helper.setAttribute("readonly", ""); helper.style.position = "fixed"; helper.style.opacity = "0";
       document.body.appendChild(helper); helper.select(); document.execCommand("copy"); helper.remove(); copied();
     }
+    function resetData() {
+      hosts = initialHosts.map(function (host) { return Object.assign({}, host, { tags: host.tags.slice() }); });
+      tags = ["prod", "staging", "api", "gpu", "lab", "ops", "client-a", "tooling", "database"];
+      selectedIds.clear();
+      state = { view: "connections", hostId: "atlas-prod", filter: "*", query: "", path: "/" };
+      byId("demoSearch").value = "";
+      closeTagPicker();
+      setView("connections");
+    }
+    function setView(view) {
+      state.view = view;
+      document.querySelectorAll("[data-demo-view]").forEach(function (button) { button.classList.toggle("active", button.dataset.demoView === view); });
+      document.querySelectorAll("[data-demo-panel]").forEach(function (panel) { panel.hidden = panel.dataset.demoPanel !== view; });
+      var copy = viewCopy[view];
+      byId("demoViewEyebrow").textContent = copy[0]; byId("demoViewTitle").textContent = copy[1]; byId("demoViewDescription").textContent = copy[2];
+      byId("demoTagFilter").hidden = view === "credentials" || view === "tags";
+      closeTagPicker();
+      renderAll();
+    }
+    function setFilter(tag) {
+      state.filter = tag;
+      byId("demoTagFilter").value = tag;
+      setView("connections");
+    }
+    function renderHeaderFilter() {
+      var options = ['<option value="*">All hosts (' + hosts.length + ")</option>"];
+      uniqueTags().forEach(function (tag) { options.push('<option value="' + escapeHtml(tag) + '">' + escapeHtml(tag) + " (" + tagCount(tag) + ")</option>"); });
+      byId("demoTagFilter").innerHTML = options.join(""); byId("demoTagFilter").value = state.filter;
+    }
+    function renderSidebar() {
+      byId("demoHostCount").textContent = hosts.length; byId("demoTagCount").textContent = tags.length; byId("sidebarShownCount").textContent = hosts.length;
+      byId("demoHostList").innerHTML = hosts.map(function (host) {
+        return '<button class="demo-host-button' + (state.hostId === host.id ? " active" : "") + '" type="button" data-sidebar-host="' + escapeHtml(host.id) + '"><span class="status-dot ' + host.status + '"></span><span><strong>' + escapeHtml(host.alias) + "</strong><small>" + escapeHtml(host.username + "@" + host.hostname) + "</small></span></button>";
+      }).join("");
+      byId("demoSidebarTags").innerHTML = '<button class="sidebar-tag' + (state.filter === "*" ? " active" : "") + '" type="button" data-filter-tag="*">All ' + hosts.length + "</button>" + uniqueTags().map(function (tag) {
+        return '<button class="sidebar-tag' + (state.filter === tag ? " active" : "") + '" type="button" data-filter-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + " " + tagCount(tag) + "</button>";
+      }).join("");
+    }
+    function renderConnections() {
+      var visible = visibleHosts();
+      byId("statTotal").textContent = hosts.length; byId("statReachable").textContent = hosts.filter(function (host) { return host.status === "reachable"; }).length; byId("statTags").textContent = tags.length;
+      byId("demoShown").textContent = visible.length + " shown";
+      byId("batchActions").hidden = selectedIds.size === 0; byId("selectedCount").textContent = selectedIds.size + " selected";
+      byId("demoConnectionsEmpty").hidden = visible.length > 0;
+      var allSelected = visible.length > 0 && visible.every(function (host) { return selectedIds.has(host.id); });
+      byId("selectVisible").checked = allSelected; byId("selectVisible").indeterminate = !allSelected && visible.some(function (host) { return selectedIds.has(host.id); });
+      byId("demoConnectionRows").innerHTML = visible.map(function (host) {
+        var statusLabel = host.status === "reachable" ? "Reachable" : host.status === "unreachable" ? "Unreachable" : "Not checked";
+        var tagMarkup = host.tags.map(function (tag) { return '<button class="tag-chip" type="button" data-filter-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + "</button>"; }).join("");
+        return '<tr>' +
+          '<td><input class="demo-check" type="checkbox" data-select-host="' + escapeHtml(host.id) + '" aria-label="Select ' + escapeHtml(host.alias) + '"' + (selectedIds.has(host.id) ? " checked" : "") + '></td>' +
+          '<td><button class="alias-button" type="button" data-browse-host="' + escapeHtml(host.id) + '"><strong>' + escapeHtml(host.alias) + '</strong><small>' + escapeHtml(host.note) + '</small></button></td>' +
+          '<td><span class="endpoint">' + escapeHtml(host.username + "@" + host.hostname) + '</span></td>' +
+          '<td><div class="tag-stack">' + tagMarkup + '<button class="add-tag" type="button" data-edit-host-tags="' + escapeHtml(host.id) + '">＋</button></div></td>' +
+          '<td><span class="cell-stack"><strong>' + escapeHtml(host.credential) + '</strong><small>Vault reference</small></span></td>' +
+          '<td><span class="status-pill ' + escapeHtml(host.status) + '">' + escapeHtml(statusLabel) + '</span><span class="cell-stack"><small>' + escapeHtml(host.meta) + '</small></span></td>' +
+          '<td><button class="browse-button" type="button" data-browse-host="' + escapeHtml(host.id) + '">›_ Browse</button></td>' +
+          '</tr>';
+      }).join("");
+    }
+    function renderWorkspace() {
+      var host = currentHost();
+      if (!host) return;
+      var statusLabel = host.status === "reachable" ? "Reachable" : host.status === "unreachable" ? "Unreachable" : "Not checked";
+      byId("workspaceHostBanner").innerHTML = '<div class="host-banner-main"><span class="host-icon">›_</span><span><strong>' + escapeHtml(host.alias) + '</strong><small>' + escapeHtml(host.username + "@" + host.hostname) + '</small></span></div><span class="status-pill ' + escapeHtml(host.status) + '">' + escapeHtml(statusLabel) + '</span>';
+      byId("demoPath").textContent = state.path; byId("fileUp").disabled = state.path === "/";
+      var files = fileTree[state.path] || [];
+      byId("demoFileRows").innerHTML = files.map(function (file) {
+        var nextPath = (state.path === "/" ? "" : state.path) + "/" + file.name;
+        var name = file.type === "folder" ? '<button class="file-button" type="button" data-open-path="' + escapeHtml(nextPath) + '">' + escapeHtml(file.name) + "</button>" : '<span class="file-button">' + escapeHtml(file.name) + "</span>";
+        return '<tr><td><div class="file-name"><span class="file-glyph ' + file.type + '">' + (file.type === "folder" ? "□" : "·") + "</span>" + name + "</div></td><td>" + file.size + "</td><td>" + file.modified + '</td><td><span class="endpoint">' + file.access + '</span></td><td><button class="file-copy" type="button" data-copy-path="' + escapeHtml(nextPath) + '">Copy</button></td></tr>';
+      }).join("");
+    }
+    function renderTags() {
+      byId("demoTagLibrary").innerHTML = uniqueTags().map(function (tag) {
+        var assigned = hosts.filter(function (host) { return host.tags.indexOf(tag) >= 0; });
+        return '<article class="tag-card"><div class="tag-card-head"><strong>' + escapeHtml(tag) + "</strong><span>" + assigned.length + ' hosts</span></div><p>Reusable host tag for filtering and bulk organization.</p><div class="tag-host-preview">' + assigned.slice(0, 3).map(function (host) { return "<span>" + escapeHtml(host.alias) + "</span>"; }).join("") + (assigned.length > 3 ? "<span>+" + (assigned.length - 3) + "</span>" : "") + '</div><button class="tag-view-button" type="button" data-filter-tag="' + escapeHtml(tag) + '">View matching hosts →</button></article>';
+      }).join("");
+    }
+    function renderAll() { renderHeaderFilter(); renderSidebar(); renderConnections(); renderWorkspace(); renderTags(); }
 
-    langButton.addEventListener("click", function () {
-      useChinese = !useChinese;
-      try { localStorage.setItem("ssm-lang", useChinese ? "zh" : "en"); } catch (error) {}
-      applyLanguage();
+    function openTagPicker(ids, anchor) {
+      pickerHostIds = ids.slice();
+      renderTagPicker(); demoTagPicker.hidden = false;
+      window.requestAnimationFrame(function () {
+        var shellRect = demoShell.getBoundingClientRect(); var anchorRect = anchor.getBoundingClientRect();
+        var left = Math.max(10, Math.min(anchorRect.left - shellRect.left, shellRect.width - demoTagPicker.offsetWidth - 10));
+        var top = anchorRect.bottom - shellRect.top + 6;
+        if (top + demoTagPicker.offsetHeight > shellRect.height - 8) top = Math.max(44, anchorRect.top - shellRect.top - demoTagPicker.offsetHeight - 6);
+        demoTagPicker.style.left = left + "px"; demoTagPicker.style.top = top + "px";
+        demoTagPicker.querySelector(".tag-option, input")?.focus();
+      });
+    }
+    function closeTagPicker() { demoTagPicker.hidden = true; pickerHostIds = []; }
+    function renderTagPicker() {
+      var pickedHosts = hosts.filter(function (host) { return pickerHostIds.indexOf(host.id) >= 0; });
+      var options = uniqueTags().map(function (tag) {
+        var count = pickedHosts.filter(function (host) { return host.tags.indexOf(tag) >= 0; }).length;
+        var mode = count === pickedHosts.length ? "all" : count ? "some" : "none";
+        return '<button class="tag-option ' + mode + '" type="button" data-picker-tag="' + escapeHtml(tag) + '"><i>' + (mode === "all" ? "✓" : mode === "some" ? "−" : "") + "</i><span>" + escapeHtml(tag) + "</span></button>";
+      }).join("");
+      demoTagPicker.innerHTML = '<div class="tag-picker-head"><span><strong>Tags for ' + pickedHosts.length + " host" + (pickedHosts.length === 1 ? "" : "s") + '</strong><small>Click to add or remove</small></span><button class="picker-close" type="button" aria-label="Close tag picker">×</button></div><div class="tag-options">' + options + '</div><form class="picker-create" id="pickerCreateForm"><input class="demo-input" id="pickerTagName" maxlength="24" autocomplete="off" placeholder="Create a tag…" aria-label="Create a demo tag"><button class="demo-control accent" type="submit">Add</button></form>';
+    }
+    function togglePickerTag(tag) {
+      var pickedHosts = hosts.filter(function (host) { return pickerHostIds.indexOf(host.id) >= 0; });
+      var remove = pickedHosts.length > 0 && pickedHosts.every(function (host) { return host.tags.indexOf(tag) >= 0; });
+      pickedHosts.forEach(function (host) {
+        var index = host.tags.indexOf(tag);
+        if (remove && index >= 0) host.tags.splice(index, 1);
+        if (!remove && index < 0) host.tags.push(tag);
+      });
+      renderAll(); renderTagPicker(); showToast((remove ? "Removed “" : "Added “") + tag + (remove ? "”" : "”") + (pickedHosts.length > 1 ? " for selected hosts" : ""));
+    }
+    function createTag(name, assignToPicker) {
+      var clean = name.trim().replace(/\s+/g, "-").toLowerCase();
+      if (!clean) return;
+      if (tags.indexOf(clean) < 0) tags.push(clean);
+      if (assignToPicker) hosts.filter(function (host) { return pickerHostIds.indexOf(host.id) >= 0; }).forEach(function (host) { if (host.tags.indexOf(clean) < 0) host.tags.push(clean); });
+      renderAll(); if (assignToPicker) renderTagPicker(); showToast("Created tag “" + clean + "”");
+    }
+
+    langButton.addEventListener("click", function () { useChinese = !useChinese; try { localStorage.setItem("ssm-lang", useChinese ? "zh" : "en"); } catch (error) {} applyLanguage(); });
+    document.querySelectorAll(".open-agent-dialog").forEach(function (button) { button.addEventListener("click", function () { agentDialog.showModal(); }); });
+    byId("closeAgentDialog").addEventListener("click", function () { agentDialog.close(); });
+    copyButton.addEventListener("click", function () { var text = promptText(); if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(copied, function () { fallbackCopy(text); }); else fallbackCopy(text); });
+    byId("focusDemo").addEventListener("click", function () { byId("demo").scrollIntoView({ behavior: "smooth", block: "start" }); window.setTimeout(function () { byId("demoSearch").focus(); }, 450); });
+    byId("demoThemeButton").addEventListener("click", function () { var light = demoShell.dataset.demoTheme !== "light"; demoShell.dataset.demoTheme = light ? "light" : "dark"; this.textContent = light ? "Dark" : "Light"; });
+    byId("resetDemo").addEventListener("click", function () { resetData(); showToast("Sample data reset"); });
+    document.querySelector(".demo-nav").addEventListener("click", function (event) { var button = event.target.closest("[data-demo-view]"); if (button) setView(button.dataset.demoView); });
+    byId("demoHostList").addEventListener("click", function (event) { var button = event.target.closest("[data-sidebar-host]"); if (button) { state.hostId = button.dataset.sidebarHost; state.path = "/"; setView("workspace"); } });
+    byId("demoSidebarTags").addEventListener("click", function (event) { var button = event.target.closest("[data-filter-tag]"); if (button) setFilter(button.dataset.filterTag); });
+    byId("demoTagFilter").addEventListener("change", function () { state.filter = this.value; renderAll(); });
+    byId("demoSearch").addEventListener("input", function () { state.query = this.value; renderConnections(); });
+    byId("selectVisible").addEventListener("change", function () { visibleHosts().forEach(function (host) { if (byId("selectVisible").checked) selectedIds.add(host.id); else selectedIds.delete(host.id); }); renderConnections(); });
+    byId("clearSelection").addEventListener("click", function () { selectedIds.clear(); renderConnections(); });
+    byId("bulkEditTags").addEventListener("click", function () { openTagPicker(Array.from(selectedIds), this); });
+    byId("demoConnectionRows").addEventListener("change", function (event) { var input = event.target.closest("[data-select-host]"); if (input) { if (input.checked) selectedIds.add(input.dataset.selectHost); else selectedIds.delete(input.dataset.selectHost); renderConnections(); } });
+    byId("demoConnectionRows").addEventListener("click", function (event) {
+      var browse = event.target.closest("[data-browse-host]"); var edit = event.target.closest("[data-edit-host-tags]"); var filter = event.target.closest("[data-filter-tag]");
+      if (browse) { state.hostId = browse.dataset.browseHost; state.path = "/"; setView("workspace"); }
+      else if (edit) openTagPicker([edit.dataset.editHostTags], edit);
+      else if (filter) setFilter(filter.dataset.filterTag);
     });
-    openButton.addEventListener("click", function () { dialog.showModal(); });
-    closeButton.addEventListener("click", function () { dialog.close(); });
-    copyButton.addEventListener("click", function () {
-      var text = promptText();
-      if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(text).then(copied, function () { fallbackCopy(text); });
-      } else { fallbackCopy(text); }
-    });
-    applyLanguage();
+    byId("fileUp").addEventListener("click", function () { if (state.path !== "/") { var parts = state.path.split("/").filter(Boolean); parts.pop(); state.path = parts.length ? "/" + parts.join("/") : "/"; renderWorkspace(); } });
+    byId("demoFileRows").addEventListener("click", function (event) { var open = event.target.closest("[data-open-path]"); var copy = event.target.closest("[data-copy-path]"); if (open) { state.path = open.dataset.openPath; renderWorkspace(); } else if (copy) showToast("Copied “" + currentHost().alias + ":" + copy.dataset.copyPath + "”"); });
+    byId("copyDirectory").addEventListener("click", function () { showToast("Copied “" + currentHost().alias + ":" + state.path + "”"); });
+    byId("tagCreateForm").addEventListener("submit", function (event) { event.preventDefault(); createTag(byId("newTagName").value, false); byId("newTagName").value = ""; });
+    byId("demoTagLibrary").addEventListener("click", function (event) { var button = event.target.closest("[data-filter-tag]"); if (button) setFilter(button.dataset.filterTag); });
+    demoTagPicker.addEventListener("click", function (event) { var option = event.target.closest("[data-picker-tag]"); if (event.target.closest(".picker-close")) closeTagPicker(); else if (option) togglePickerTag(option.dataset.pickerTag); });
+    demoTagPicker.addEventListener("submit", function (event) { if (event.target.id === "pickerCreateForm") { event.preventDefault(); createTag(byId("pickerTagName").value, true); byId("pickerTagName").value = ""; } });
+    document.addEventListener("pointerdown", function (event) { if (!demoTagPicker.hidden && !demoTagPicker.contains(event.target) && !event.target.closest("[data-edit-host-tags], #bulkEditTags")) closeTagPicker(); }, true);
+    document.addEventListener("keydown", function (event) { if (event.key === "Escape" && !demoTagPicker.hidden) closeTagPicker(); });
+
+    applyLanguage(); resetData();
   })();
 </script>

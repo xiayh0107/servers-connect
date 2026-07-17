@@ -56,6 +56,20 @@ cat artifact.tar.gz | ./scripts/serverctl exec ALIAS --stdin-binary -- sh -c 'ca
 
 Keep streamed data out of logs and do not use this path for credentials.
 
+## Remote Files panel does not load
+
+Test the same alias first:
+
+```bash
+./scripts/serverctl server test ALIAS --json
+./scripts/serverctl doctor --json
+```
+
+The browser uses the local OpenSSH `sftp` executable and the remote SFTP
+subsystem. A successful interactive shell does not guarantee that SFTP is
+enabled. Directory permission errors are surfaced in the panel; unknown host
+keys remain a hard failure.
+
 ## SSH succeeds but a web port is unreachable
 
 First verify the service on the server itself, then verify the container or

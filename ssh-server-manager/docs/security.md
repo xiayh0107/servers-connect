@@ -38,6 +38,12 @@ What it does not defend against:
 | Passkey (WebAuthn) | Your platform authenticator (Touch ID, Windows Hello, security key) |
 | Database, rendered config | User-only file permissions; contain **no** secret values |
 
+The remote Files panel is deliberately read-only. It invokes the OpenSSH SFTP
+subsystem through the same rendered config and AskPass boundary as other
+connections, rejects control characters in paths, quotes paths as literal SFTP
+arguments, and returns directory metadata rather than file contents. Remote
+write operations are not exposed by the web API.
+
 Unsafe keyring backends (null, plaintext file, `keyrings.alt`) are rejected
 as a hard error — the tool refuses to run rather than degrade to plaintext.
 

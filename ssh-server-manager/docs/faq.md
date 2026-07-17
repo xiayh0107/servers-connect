@@ -56,6 +56,19 @@ Use a browser with WebAuthn platform-authenticator support (Safari, Chrome,
 Edge) on `localhost`, not an IP address. Enroll the master password as a
 fallback factor.
 
+**The Files panel cannot open a directory.**
+Run `serverctl server test ALIAS --json` first. The browser requires the
+OpenSSH `sftp` client locally and an enabled SFTP subsystem on the remote host.
+It also honors normal directory permissions and refuses unknown or changed host
+keys. An SSH shell can therefore work while browsing still fails if SFTP is
+disabled by the server administrator.
+
+**Why did a green host become amber?**
+Green is reserved for a connection verified within the last two minutes.
+After that, the result becomes historical and shows “Last reachable” with its
+age. Click **Test**, or browse the host over SFTP, to collect a new result. The
+manager intentionally does not poll every host in the background.
+
 ## Data & migration
 
 **Where is everything stored?**

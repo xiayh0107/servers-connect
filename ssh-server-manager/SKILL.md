@@ -39,6 +39,7 @@ selection.
 - To import OpenSSH aliases, preview with `serverctl server import`, then apply with `serverctl server import --apply`.
 - To add or update secrets, prefer the local UI. When using the CLI, let `getpass` prompt locally; never pass a password as an argument or environment variable.
 - To diagnose access, run `serverctl server test <alias> --json` before connecting.
+- To browse a host's files visually, run `serverctl ui`, choose the host under **Files**, and start from its remote home directory.
 - To open a shell, run `serverctl connect <alias>`.
 - To execute a remote command, run `serverctl exec <alias> -- <command>`; add `--stdin` when piping UTF-8 text.
 - To execute one compound POSIX command string, use `serverctl exec <alias> --shell -- 'command && command'`; this avoids accidentally sending the whole string as an executable name.
@@ -53,6 +54,7 @@ selection.
 5. Preview imports and destructive operations. Do not overwrite an existing alias unless the user explicitly requests it.
 6. Use connection profiles for separate accounts on the same endpoint; keep one username and one default credential per alias.
 7. Treat UI launch tokens like credentials: keep them in the local browser or an explicitly requested mode-600 file, never in terminal output, logs, screenshots, or chat.
+8. Keep remote file browsing read-only unless the user explicitly requests a separate file mutation or transfer workflow.
 
 ## Managed data
 

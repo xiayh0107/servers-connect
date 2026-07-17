@@ -70,8 +70,8 @@ browser with a one-time tokenized URL.
 
 ## Features
 
-- **Connection profiles** — alias, host, port, user, notes, ordered
-  ProxyJump chains (with cycle detection).
+- **Connection profiles** — alias, host, port, user, project/scenario tags,
+  notes, ordered ProxyJump chains (with cycle detection).
 - **Three credential kinds** — vault-backed passwords, private keys with
   optional vault-backed passphrases, and ssh-agent/OpenSSH defaults.
   Credentials are reusable across servers and protected against deletion
@@ -89,10 +89,14 @@ browser with a one-time tokenized URL.
   for ControlMaster connection sharing (macOS/Linux), and `--json` for
   machine-readable results.
 - **Local web UI** — manage servers and credentials, test connections,
-  import config, and reveal a stored secret after passkey or master-password
-  re-authentication.
+  create/rename/delete tags and bulk-assign searchable hosts, choose
+  system/light/dark themes, import config, browse remote directories read-only
+  over SFTP, copy file references for an agent, and reveal a stored secret
+  after passkey or master-password re-authentication. Connection status expires
+  instead of staying green.
 - **Diagnostics** — `serverctl doctor` checks ssh availability and version,
-  vault backend safety, database and config paths, and Python dependencies.
+  SFTP availability, vault backend safety, database and config paths, and
+  Python dependencies.
 
 ## Platform support
 
