@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.1 — 2026-07-17
+
 ### Fixed
 - Windows: `serverctl ui --status`/`--stop` no longer reports a terminated UI
   process as still running when another process holds a handle to it —
