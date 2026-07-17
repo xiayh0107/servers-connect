@@ -429,12 +429,21 @@ def _pid_alive(pid: int) -> bool:
     if os.name == "nt":
         import ctypes
 
+        # OpenProcess succeeds on a terminated process while any handle to it
+        # is still held, so opening alone cannot distinguish alive from dead;
+        # ask whether the process object is signaled (i.e. has exited).
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        SYNCHRONIZE = 0x00100000
+        WAIT_TIMEOUT = 0x102
+        handle = ctypes.windll.kernel32.OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, False, pid
+        )
         if not handle:
             return False
-        ctypes.windll.kernel32.CloseHandle(handle)
-        return True
+        try:
+            return ctypes.windll.kernel32.WaitForSingleObject(handle, 0) == WAIT_TIMEOUT
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+- Windows: `serverctl ui --status`/`--stop` no longer reports a terminated UI
+  process as still running when another process holds a handle to it —
+  liveness is now checked with `WaitForSingleObject` instead of assuming a
+  successful `OpenProcess` means the process is alive.
+
 ## 0.4.0 — 2026-07-17
 
 ### Added
