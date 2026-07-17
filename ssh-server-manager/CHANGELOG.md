@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 0.4.0 — 2026-07-17
+
+### Added
+- `serverctl ui --status` and `serverctl ui --stop`: the UI records its pid
+  and port in a private runtime state file, so a background instance can be
+  inspected and shut down (including `--url-file` cleanup) without manual
+  pid bookkeeping. Stale records are detected and removed automatically.
+- Agent-experience guidance in SKILL.md: how to respond when the user asks to
+  "connect" (hand the command to the human terminal, proxy follow-ups through
+  `exec`), concise inventory summaries, no option menus, and UI lifecycle
+  rules.
+
+### Changed
+- `serverctl connect` now fails fast with a clear message and exit code `2`
+  when run without a terminal (pipes, agent tool calls, cron) instead of
+  starting an interactive session that can never receive input.
+
 ## 0.3.0 — 2026-07-17
 
 ### Added

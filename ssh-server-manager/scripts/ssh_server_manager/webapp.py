@@ -2,19 +2,21 @@ import asyncio
 import json
 import os
 import secrets
+import signal
 import socket
 import stat
 import threading
 import time
 import webbrowser
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .auth import AuthenticationError, RevealAuth
 from .db import ConflictError, Database, DatabaseError, NotFoundError
 from .importer import apply_import, preview_import
-from .paths import asset_dir, managed_ssh_config_path
+from .paths import asset_dir, managed_ssh_config_path, runtime_dir
 from .service import CredentialService
 from .ssh_config import SSHConfigError, render_config
 from .ssh_runner import SSHError, SSHRunner
@@ -389,6 +391,129 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
     return app
 
 
+def _ui_state_path() -> Path:
+    """The runtime record for the managed UI process (private mode-700 dir)."""
+    return runtime_dir() / "ui-state.json"
+
+
+def _read_ui_state() -> dict[str, Any] | None:
+    try:
+        raw = json.loads(_ui_state_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(raw, dict) or not isinstance(raw.get("pid"), int) or not isinstance(raw.get("port"), int):
+        return None
+    return raw
+
+
+def _write_ui_state(state: dict[str, Any]) -> None:
+    descriptor = os.open(_ui_state_path(), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump(state, handle)
+
+
+def _clear_ui_state(expected_pid: int | None = None) -> None:
+    if expected_pid is not None:
+        state = _read_ui_state()
+        if state is None or state["pid"] != expected_pid:
+            return
+    try:
+        _ui_state_path().unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _pid_alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _serving_on_port(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(1.0)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def ui_status() -> dict[str, Any]:
+    """Report the UI process recorded by the most recent ``serverctl ui`` run."""
+    state = _read_ui_state()
+    if state is None:
+        return {"running": False, "message": "no managed UI process is recorded"}
+    # Require the recorded pid AND its loopback port so a recycled pid is not
+    # mistaken for the UI.
+    if not _pid_alive(state["pid"]) or not _serving_on_port(state["port"]):
+        _clear_ui_state(state["pid"])
+        return {"running": False, "message": "the recorded UI process is gone; removed the stale record"}
+    return {
+        "running": True,
+        "pid": state["pid"],
+        "port": state["port"],
+        "started_at": state.get("started_at"),
+    }
+
+
+def ui_stop(*, timeout: float = 5.0) -> dict[str, Any]:
+    """Stop the UI process recorded by the most recent ``serverctl ui`` run."""
+    state = _read_ui_state()
+    status = ui_status()
+    if not status["running"]:
+        return {**status, "stopped": False}
+    pid = status["pid"]
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        return {
+            "stopped": False,
+            "running": True,
+            "pid": pid,
+            "port": status["port"],
+            "message": "not permitted to signal the recorded UI process",
+        }
+    deadline = time.monotonic() + timeout
+    while _pid_alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    if _pid_alive(pid) and hasattr(signal, "SIGKILL"):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        time.sleep(0.2)
+    if _pid_alive(pid):
+        return {
+            "stopped": False,
+            "running": True,
+            "pid": pid,
+            "port": status["port"],
+            "message": f"the UI process did not exit within {timeout:.0f} seconds",
+        }
+    _clear_ui_state(pid)
+    url_file = state.get("url_file") if state else None
+    if url_file:
+        try:
+            Path(url_file).unlink(missing_ok=True)
+        except OSError:
+            pass
+    return {"stopped": True, "running": False, "pid": pid, "port": status["port"]}
+
+
 def run_ui(
     *, database: Database, port: int = 0, open_browser: bool = True, url_file: Path | None = None
 ) -> None:
@@ -401,6 +526,7 @@ def run_ui(
     actual_port = _select_loopback_port(port)
     launch_token = secrets.token_urlsafe(32)
     url = f"http://localhost:{actual_port}/?token={launch_token}"
+    written: Path | None = None
     if url_file is not None:
         written = _write_private_url(url_file, url)
         print(f"SSH Server Manager launch URL written to {written}", flush=True)
@@ -409,9 +535,18 @@ def run_ui(
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
     app = create_app(database, launch_token=launch_token, port=actual_port, launch_url_file=url_file)
+    _write_ui_state(
+        {
+            "pid": os.getpid(),
+            "port": actual_port,
+            "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "url_file": str(written) if written is not None else None,
+        }
+    )
     try:
         uvicorn.run(app, host="127.0.0.1", port=actual_port, log_level="warning", access_log=False)
     finally:
+        _clear_ui_state(os.getpid())
         if url_file is not None:
             try:
                 url_file.unlink(missing_ok=True)

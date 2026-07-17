@@ -20,6 +20,8 @@ dependencies needed by the UI. Exit code is `0` only if every check passes.
 
 ```
 serverctl ui [--port PORT] [--no-open --url-file PATH]
+serverctl ui --status [--json]
+serverctl ui --stop [--json]
 ```
 
 - Default `--port 0` picks a free loopback port and opens your browser with
@@ -27,6 +29,11 @@ serverctl ui [--port PORT] [--no-open --url-file PATH]
 - `--no-open` requires `--url-file`; the URL is written to a mode-600 file
   that is deleted once the token is used or the server stops.
 - If an explicit port is busy the command fails fast; retry with `--port 0`.
+- `--status` reports the UI process started by the most recent `serverctl ui`
+  (pid, port, start time). Exit code `0` while it runs, `1` otherwise; stale
+  records are cleaned up automatically.
+- `--stop` terminates that process and deletes its `--url-file` if one was
+  written. It is idempotent: exit code `0` whenever no UI is left running.
 
 ## Servers
 
@@ -92,6 +99,9 @@ serverctl exec ALIAS [--shell] [--stdin | --stdin-binary]
     [--timeout SECONDS] [--reuse SECONDS] [--json] -- COMMAND [ARG ...]
 ```
 
+- `connect` opens an interactive shell and requires a real terminal. Without
+  a TTY (pipes, agent tool calls, cron) it fails fast with exit code `2` and
+  points to `exec` instead of hanging.
 - Everything after `--` is the remote command. Without `--shell`, each
   argument is quoted for a POSIX remote shell — write
   `exec web1 -- ls -la /var/log`, not a single string.

@@ -45,7 +45,11 @@ The skill instructs the agent to:
   (`authentication-failed`, `host-key-untrusted`, `timeout`, …) to
   diagnose failures;
 - route secret entry to the local UI or hidden `getpass` prompts, both of
-  which happen outside the model's context.
+  which happen outside the model's context;
+- keep interactive shells in the human's terminal: when asked to "connect",
+  the agent hands you the `serverctl connect <alias>` command and runs
+  follow-up commands on that host through `serverctl exec` on your behalf,
+  instead of trying to hold a TTY it does not have.
 
 ## Patterns for agent automation
 
@@ -67,6 +71,10 @@ cat check.sh | serverctl exec web1 --stdin -- sh -s
 
 # several commands in a row without re-auth (macOS/Linux)
 serverctl exec web1 --reuse 300 --json -- uptime
+
+# UI lifecycle without pid bookkeeping
+serverctl ui --status --json
+serverctl ui --stop --json
 ```
 
 Exit codes are meaningful (`exec` mirrors the remote command; `test` and

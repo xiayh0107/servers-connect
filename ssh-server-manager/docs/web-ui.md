@@ -16,6 +16,8 @@ tokenized URL.
 | Normal use | `serverctl ui` |
 | Fixed port | `serverctl ui --port 8422` |
 | Browser can't be auto-opened (e.g. remote desktop) | `serverctl ui --no-open --url-file /path/to/private-url` then open the URL from that mode-600 file yourself |
+| Check whether the UI is running | `serverctl ui --status` |
+| Stop a UI left running in the background | `serverctl ui --stop` |
 
 The launch token is single-use: once a browser session is established, the
 URL stops working (and the `--url-file` is deleted). Restart `serverctl ui`

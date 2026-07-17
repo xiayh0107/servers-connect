@@ -6,6 +6,8 @@
 ./scripts/bootstrap
 ./scripts/serverctl doctor [--json]
 ./scripts/serverctl ui [--port PORT] [--no-open --url-file PATH]
+./scripts/serverctl ui --status [--json]
+./scripts/serverctl ui --stop [--json]
 ```
 
 The default `--port 0` selects an available loopback port and opens the browser.
@@ -13,6 +15,11 @@ When `--no-open` is used, `--url-file` is required; the file is created with
 mode `600` and contains the one-time tokenized URL. The token is never printed.
 If an explicitly requested port is occupied, retry with `--port 0` or choose a
 different port.
+
+`ui --status` reports the managed UI process (pid, port, start time) and exits
+`0` while it runs. `ui --stop` terminates it and deletes its `--url-file`; the
+command is idempotent, so use it to clean up when the user is done with the UI
+instead of tracking pids by hand.
 
 ## Servers
 
@@ -50,6 +57,10 @@ Secret input uses a local hidden prompt. There is deliberately no CLI command th
 ./scripts/serverctl exec ALIAS [--stdin|--stdin-binary] [--reuse SECONDS] [--shell] [--json] -- COMMAND [ARG ...]
 ./scripts/serverctl config render [--json]
 ```
+
+`connect` opens an interactive shell and is meant for a human terminal, not
+for agent tool calls (see SKILL.md). Without a TTY it fails fast with exit
+code `2` and a pointer to `exec`.
 
 `exec` quotes command arguments for a POSIX remote shell. `--shell` accepts
 exactly one command string and runs it through remote `sh -lc`; use it for

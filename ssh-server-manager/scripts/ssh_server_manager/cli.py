@@ -78,6 +78,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="write the one-time URL to a mode-600 local file (required with --no-open)",
     )
+    ui_action = ui.add_mutually_exclusive_group()
+    ui_action.add_argument("--status", action="store_true", help="report the managed UI process instead of launching")
+    ui_action.add_argument("--stop", action="store_true", help="stop the managed UI process and clean up its URL file")
+    add_json_option(ui)
 
     server = commands.add_parser("server", help="manage connection profiles")
     server_commands = server.add_subparsers(dest="server_command", required=True)
@@ -259,8 +263,16 @@ def handle(args: argparse.Namespace) -> int:
         emit(result, as_json=args.json)
         return 0 if result["ok"] else 1
     if args.command == "ui":
-        from .webapp import run_ui
+        from .webapp import run_ui, ui_status, ui_stop
 
+        if args.status:
+            result = ui_status()
+            emit(result, as_json=args.json)
+            return 0 if result["running"] else 1
+        if args.stop:
+            result = ui_stop()
+            emit(result, as_json=args.json)
+            return 0 if not result["running"] else 1
         run_ui(
             database=database,
             port=args.port,
@@ -361,6 +373,12 @@ def handle(args: argparse.Namespace) -> int:
         emit(result, as_json=args.json)
         return 0
     if args.command == "connect":
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            raise SSHError(
+                "connect opens an interactive shell and requires a terminal (TTY); "
+                "run this command directly in your own terminal, or use "
+                "'serverctl exec ALIAS -- COMMAND' to run commands non-interactively"
+            )
         return SSHRunner(database).connect(args.alias, timeout=args.timeout)
     if args.command == "exec":
         if args.reuse > 0 and os.name == "nt":

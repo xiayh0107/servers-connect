@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import os
 import socket
+import subprocess
+import sys
+import threading
 
 import pytest
 
@@ -13,7 +16,16 @@ from fastapi.testclient import TestClient
 from ssh_server_manager.db import Database
 from ssh_server_manager.ssh_runner import SSHRunner
 from ssh_server_manager.vault import MemoryVault
-from ssh_server_manager.webapp import UIError, _select_loopback_port, create_app, run_ui
+from ssh_server_manager.webapp import (
+    UIError,
+    _read_ui_state,
+    _select_loopback_port,
+    _write_ui_state,
+    create_app,
+    run_ui,
+    ui_status,
+    ui_stop,
+)
 
 
 def test_local_ui_session_crud_and_master_reveal(tmp_path, monkeypatch):
@@ -125,6 +137,81 @@ def test_ui_removes_url_file_after_token_is_consumed(tmp_path):
     with TestClient(app, base_url="http://localhost:8765") as client:
         assert client.get("/?token=launch").status_code == 200
     assert not url_file.exists()
+
+
+def test_ui_records_runtime_state_and_clears_it_on_exit(tmp_path, monkeypatch):
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    database = Database(tmp_path / "manager.db")
+    observed = {}
+
+    def fake_run(*args, **kwargs):
+        observed["state"] = _read_ui_state()
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+
+    run_ui(database=database, port=0, open_browser=False, url_file=tmp_path / "launch-url")
+
+    assert observed["state"]["pid"] == os.getpid()
+    assert observed["state"]["port"] > 0
+    assert observed["state"]["url_file"] == str(tmp_path / "launch-url")
+    assert _read_ui_state() is None
+
+
+def test_ui_status_and_stop_without_a_recorded_process(tmp_path, monkeypatch):
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+    status = ui_status()
+    assert status["running"] is False
+
+    result = ui_stop()
+    assert result["running"] is False
+    assert result["stopped"] is False
+
+
+def test_ui_status_removes_a_stale_record(tmp_path, monkeypatch):
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    dead = subprocess.Popen([sys.executable, "-c", "pass"])
+    dead.wait(timeout=10)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        closed_port = probe.getsockname()[1]
+    _write_ui_state({"pid": dead.pid, "port": closed_port, "url_file": None})
+
+    status = ui_status()
+    assert status["running"] is False
+    assert _read_ui_state() is None
+
+
+def test_ui_stop_terminates_the_recorded_process(tmp_path, monkeypatch):
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    url_file = tmp_path / "launch-url"
+    url_file.write_text("http://localhost:1/?token=x\n", encoding="utf-8")
+    script = (
+        "import socket, time\n"
+        "listener = socket.socket()\n"
+        "listener.bind(('127.0.0.1', 0))\n"
+        "listener.listen(1)\n"
+        "print(listener.getsockname()[1], flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE, text=True)
+    try:
+        port = int(proc.stdout.readline())
+        _write_ui_state({"pid": proc.pid, "port": port, "url_file": str(url_file)})
+        # Reap the child as soon as it dies so _pid_alive does not see a zombie;
+        # a real ui_stop runs in a separate process where this cannot happen.
+        threading.Thread(target=proc.wait, daemon=True).start()
+
+        result = ui_stop()
+
+        assert result["stopped"] is True
+        assert result["pid"] == proc.pid
+        assert not url_file.exists()
+        assert _read_ui_state() is None
+        assert ui_status()["running"] is False
+    finally:
+        proc.kill()
+        proc.stdout.close()
 
 
 def test_ui_auto_port_and_busy_port_error():

@@ -1,6 +1,6 @@
 ---
 name: ssh-server-manager
-description: Manage multiple SSH connection profiles and secure credentials through a cross-platform CLI and local web UI. Use when Codex needs to add, import, list, edit, test, connect to, or run commands on SSH servers; manage password, private-key, or ssh-agent authentication; work with ProxyJump hosts; inspect SSH connection failures; or open the local server-management UI.
+description: Manage multiple SSH connection profiles and secure credentials through a cross-platform CLI and local web UI. Use when an AI agent needs to add, import, list, edit, test, connect to, or run commands on SSH servers; manage password, private-key, or ssh-agent authentication; work with ProxyJump hosts; inspect SSH connection failures; or open the local server-management UI.
 ---
 
 # SSH Server Manager
@@ -40,10 +40,49 @@ selection.
 - To add or update secrets, prefer the local UI. When using the CLI, let `getpass` prompt locally; never pass a password as an argument or environment variable.
 - To diagnose access, run `serverctl server test <alias> --json` before connecting.
 - To browse a host's files visually, run `serverctl ui`, choose the host under **Files**, and start from its remote home directory.
-- To open a shell, run `serverctl connect <alias>`.
+- To open a live shell, hand `serverctl connect <alias>` to the user's own terminal — see **When the user says "connect"** below. Do not run `connect` from an agent tool call.
 - To execute a remote command, run `serverctl exec <alias> -- <command>`; add `--stdin` when piping UTF-8 text.
 - To execute one compound POSIX command string, use `serverctl exec <alias> --shell -- 'command && command'`; this avoids accidentally sending the whole string as an executable name.
 - To manage hosts or reveal a stored password locally, run `serverctl ui`. The UI requires reauthentication before revealing a secret.
+
+## When the user says "connect"
+
+`serverctl connect` opens a real interactive SSH shell and needs a TTY that
+stays attached to the user's keyboard. Agent tool-execution environments run
+one command at a time without one, so never run `connect` yourself and never
+run a `server test` first just to stall — respond in seconds, not minutes:
+
+1. Check the host's `last_test` in `server list --json`. Only run
+   `serverctl server test <alias> --json --timeout 10` when there is no recent
+   successful result.
+2. Reply briefly: give the exact absolute `serverctl connect <alias>` command
+   for the user to paste into their own terminal, and say you can instead run
+   commands on that host directly.
+3. Treat the host as the active context: interpret follow-up requests
+   ("check the load", "what's in /var/log") as `serverctl exec <alias> -- …`
+   calls and report the results. Use `--reuse 300` when several commands will
+   run in a row.
+
+Keep the whole explanation to two or three sentences. Do not present a
+numbered menu of connection modes.
+
+## Interaction style
+
+- Answer inventory questions from one `serverctl server list --json` call.
+  Lead with a one-line summary (total hosts, how many tested ok, failed,
+  untested), then a compact table with only alias, host:port, user, and last
+  test status. Keep per-field detail, speculation about causes, and raw JSON
+  for follow-up questions.
+- Run only the commands the user's request needs. Do not add unrequested
+  tests, doctor runs, or fleet-wide sweeps; offer them as a next step instead.
+- End with at most one suggested next step, phrased concretely. Never end
+  with a numbered menu of options — a short reply like "sure" or "let me see"
+  then forces a guess about which item the user meant.
+- The UI is the heavyweight path: it starts a persistent local process.
+  Launch it only when the user explicitly asks for the UI or a workflow needs
+  it (entering a secret, revealing a password). Check whether one is already
+  running with `serverctl ui --status`, and when the user is done, clean up
+  with `serverctl ui --stop` (it also removes the `--url-file`).
 
 ## Safety rules
 

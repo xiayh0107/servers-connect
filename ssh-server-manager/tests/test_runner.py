@@ -26,6 +26,18 @@ def test_test_classifies_auth_failure(tmp_path, monkeypatch):
     assert result["error_code"] == "authentication-failed"
 
 
+def test_connect_without_a_tty_fails_fast_with_guidance(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path))
+    from ssh_server_manager.cli import main
+
+    exit_code = main(["connect", "box"])
+
+    assert exit_code == 2
+    stderr = capsys.readouterr().err
+    assert "requires a terminal" in stderr
+    assert "serverctl exec" in stderr
+
+
 def test_exec_options_are_valid_before_remote_separator():
     parser = build_parser()
     args = parser.parse_args(["exec", "box", "--stdin-binary", "--reuse", "600", "--shell"])
