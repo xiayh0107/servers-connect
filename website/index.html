@@ -222,7 +222,9 @@
   }
   .sample-pill { display: inline-flex; align-items: center; gap: 6px; color: var(--d-muted); }
   .sample-pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
-  .demo-theme-button { padding: 3px 7px; border: 0; border-radius: 5px; background: var(--d-control); color: var(--d-muted); font-size: 9px; }
+  .demo-theme-button, .demo-accent-button { padding: 3px 7px; border: 0; border-radius: 5px; background: var(--d-control); color: var(--d-muted); font-size: 9px; }
+  .demo-accent-button { display: inline-flex; align-items: center; gap: 5px; }
+  .demo-accent-button i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
   .demo-app { min-height: 690px; display: grid; grid-template-columns: 236px minmax(0, 1fr); background: var(--d-bg); }
   .demo-sidebar {
     min-width: 0;
@@ -346,6 +348,17 @@
   }
   .tag-chip:hover { border-color: var(--accent); }
   .add-tag { border-style: dashed; background: transparent; color: var(--d-muted); }
+  .tg-0 { --tg: 86, 162, 237; }
+  .tg-1 { --tg: 240, 181, 77; }
+  .tg-2 { --tg: 87, 213, 155; }
+  .tg-3 { --tg: 239, 109, 118; }
+  .tg-4 { --tg: 154, 118, 230; }
+  .tg-5 { --tg: 135, 148, 255; }
+  .sidebar-tag[class*="tg-"], .tag-chip[class*="tg-"] { border-color: rgba(var(--tg), .5); background: rgba(var(--tg), .13); color: rgb(var(--tg)); }
+  .sidebar-tag[class*="tg-"].active { border-color: rgb(var(--tg)); background: rgba(var(--tg), .26); color: rgb(var(--tg)); }
+  .tag-chip[class*="tg-"]:hover { border-color: rgb(var(--tg)); }
+  .demo-shell[data-demo-theme="light"] .sidebar-tag[class*="tg-"], .demo-shell[data-demo-theme="light"] .tag-chip[class*="tg-"], .demo-shell[data-demo-theme="light"] .tag-dot { filter: saturate(1.15) brightness(.74); }
+  .tag-dot { flex: 0 0 auto; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: rgb(var(--tg, 86, 162, 237)); }
   .status-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border-radius: 20px; font-size: 7px; font-weight: 760; }
   .status-pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
   .status-pill.reachable { background: rgba(52, 199, 142, .13); color: var(--green); }
@@ -578,7 +591,7 @@
         <span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span>
         <span class="demo-address">ssh-manager.local / sample workspace</span>
         <span class="sample-pill"><i></i><span>Sample data</span></span>
-        <button class="demo-theme-button" id="demoThemeButton" type="button" aria-label="Switch demo theme">Light</button>
+        <button class="demo-accent-button" id="demoAccentButton" type="button" aria-label="Switch accent color"><i></i><span>Indigo</span></button><button class="demo-theme-button" id="demoThemeButton" type="button" aria-label="Switch demo theme">Light</button>
       </div>
       <div class="demo-app">
         <aside class="demo-sidebar">
@@ -651,7 +664,7 @@
   <section class="feature-section" aria-labelledby="featureTitle">
     <div class="section-heading"><div><p class="eyebrow">Built for human + Agent workflows</p><h2 id="featureTitle"><span lang="en">One source of truth for intent, context, and evidence.</span><span lang="zh-CN">让意图、上下文和执行结果拥有同一个事实源。</span></h2></div></div>
     <div class="feature-grid">
-      <article class="feature-card"><span class="feature-number">01 / ORGANIZE</span><h3><span lang="en">Find the right host instantly</span><span lang="zh-CN">瞬间找到正确主机</span></h3><p><span lang="en">Use reusable tags for projects, environments, roles, or clients. Filter and edit them from the connection list or host sidebar.</span><span lang="zh-CN">按项目、环境、角色或客户建立标签，并直接从连接列表或主机侧栏筛选和编辑。</span></p></article>
+      <article class="feature-card"><span class="feature-number">01 / ORGANIZE</span><h3><span lang="en">Find the right host instantly</span><span lang="zh-CN">瞬间找到正确主机</span></h3><p><span lang="en">Use reusable tags for projects, environments, roles, or clients. Every tag keeps one colour across sidebar, tables, and pickers.</span><span lang="zh-CN">按项目、环境、角色或客户建立标签，每个标签在侧栏、表格与选择器中保持同一颜色。</span></p></article>
       <article class="feature-card"><span class="feature-number">02 / BROWSE</span><h3><span lang="en">Reference files without a shell</span><span lang="zh-CN">无需终端即可引用文件</span></h3><p><span lang="en">Browse remote directories read-only and copy precise host:path references that people and AI agents can understand.</span><span lang="zh-CN">以只读方式浏览远程目录，并复制人和 AI Agent 都能理解的精确 host:path 引用。</span></p></article>
       <article class="feature-card"><span class="feature-number">03 / PROTECT</span><h3><span lang="en">Keep secrets outside the browser</span><span lang="zh-CN">让秘密远离浏览器</span></h3><p><span lang="en">Passwords and passphrases stay in the operating-system vault. The local UI and agent-safe CLI reference them without exposing values.</span><span lang="zh-CN">密码和口令保留在操作系统保险库中，本地 UI 与 Agent 安全 CLI 只引用、不暴露。</span></p></article>
     </div>
@@ -745,6 +758,7 @@
     function byId(id) { return document.getElementById(id); }
     function escapeHtml(value) { return String(value).replace(/[&<>"']/g, function (character) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]; }); }
     function uniqueTags() { return tags.slice().sort(function (a, b) { return a.localeCompare(b); }); }
+    function tagHue(tag) { var index = uniqueTags().indexOf(tag); return " tg-" + (index < 0 ? 0 : index % 6); }
     function currentHost() { return hosts.find(function (host) { return host.id === state.hostId; }) || hosts[0]; }
     function tagCount(tag) { return hosts.filter(function (host) { return host.tags.indexOf(tag) >= 0; }).length; }
     function visibleHosts() {
@@ -813,7 +827,7 @@
         return '<button class="demo-host-button' + (state.hostId === host.id ? " active" : "") + '" type="button" data-sidebar-host="' + escapeHtml(host.id) + '"><span class="status-dot ' + host.status + '"></span><span><strong>' + escapeHtml(host.alias) + "</strong><small>" + escapeHtml(host.username + "@" + host.hostname) + "</small></span></button>";
       }).join("");
       byId("demoSidebarTags").innerHTML = '<button class="sidebar-tag' + (state.filter === "*" ? " active" : "") + '" type="button" data-filter-tag="*">All ' + hosts.length + "</button>" + uniqueTags().map(function (tag) {
-        return '<button class="sidebar-tag' + (state.filter === tag ? " active" : "") + '" type="button" data-filter-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + " " + tagCount(tag) + "</button>";
+        return '<button class="sidebar-tag' + tagHue(tag) + (state.filter === tag ? " active" : "") + '" type="button" data-filter-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + " " + tagCount(tag) + "</button>";
       }).join("");
     }
     function renderConnections() {
@@ -826,7 +840,7 @@
       byId("selectVisible").checked = allSelected; byId("selectVisible").indeterminate = !allSelected && visible.some(function (host) { return selectedIds.has(host.id); });
       byId("demoConnectionRows").innerHTML = visible.map(function (host) {
         var statusLabel = host.status === "reachable" ? "Reachable" : host.status === "unreachable" ? "Unreachable" : "Not checked";
-        var tagMarkup = host.tags.map(function (tag) { return '<button class="tag-chip" type="button" data-filter-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + "</button>"; }).join("");
+        var tagMarkup = host.tags.map(function (tag) { return '<button class="tag-chip' + tagHue(tag) + '" type="button" data-filter-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + "</button>"; }).join("");
         return '<tr>' +
           '<td><input class="demo-check" type="checkbox" data-select-host="' + escapeHtml(host.id) + '" aria-label="Select ' + escapeHtml(host.alias) + '"' + (selectedIds.has(host.id) ? " checked" : "") + '></td>' +
           '<td><button class="alias-button" type="button" data-browse-host="' + escapeHtml(host.id) + '"><strong>' + escapeHtml(host.alias) + '</strong><small>' + escapeHtml(host.note) + '</small></button></td>' +
@@ -854,7 +868,7 @@
     function renderTags() {
       byId("demoTagLibrary").innerHTML = uniqueTags().map(function (tag) {
         var assigned = hosts.filter(function (host) { return host.tags.indexOf(tag) >= 0; });
-        return '<article class="tag-card"><div class="tag-card-head"><strong>' + escapeHtml(tag) + "</strong><span>" + assigned.length + ' hosts</span></div><p>Reusable host tag for filtering and bulk organization.</p><div class="tag-host-preview">' + assigned.slice(0, 3).map(function (host) { return "<span>" + escapeHtml(host.alias) + "</span>"; }).join("") + (assigned.length > 3 ? "<span>+" + (assigned.length - 3) + "</span>" : "") + '</div><button class="tag-view-button" type="button" data-filter-tag="' + escapeHtml(tag) + '">View matching hosts →</button></article>';
+        return '<article class="tag-card"><div class="tag-card-head"><i class="tag-dot' + tagHue(tag) + '"></i><strong>' + escapeHtml(tag) + "</strong><span>" + assigned.length + ' hosts</span></div><p>Reusable host tag for filtering and bulk organization.</p><div class="tag-host-preview">' + assigned.slice(0, 3).map(function (host) { return "<span>" + escapeHtml(host.alias) + "</span>"; }).join("") + (assigned.length > 3 ? "<span>+" + (assigned.length - 3) + "</span>" : "") + '</div><button class="tag-view-button" type="button" data-filter-tag="' + escapeHtml(tag) + '">View matching hosts →</button></article>';
       }).join("");
     }
     function renderAll() { renderHeaderFilter(); renderSidebar(); renderConnections(); renderWorkspace(); renderTags(); }
@@ -905,6 +919,17 @@
     copyButton.addEventListener("click", function () { var text = promptText(); if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(copied, function () { fallbackCopy(text); }); else fallbackCopy(text); });
     byId("focusDemo").addEventListener("click", function () { byId("demo").scrollIntoView({ behavior: "smooth", block: "start" }); window.setTimeout(function () { byId("demoSearch").focus(); }, 450); });
     byId("demoThemeButton").addEventListener("click", function () { var light = demoShell.dataset.demoTheme !== "light"; demoShell.dataset.demoTheme = light ? "light" : "dark"; this.textContent = light ? "Dark" : "Light"; });
+    var demoAccents = [["Indigo", "#8794ff", "#aab3ff", "rgba(106, 120, 255, .16)"], ["Teal", "#38c8b6", "#63dccd", "rgba(56, 200, 182, .17)"], ["Emerald", "#43cd87", "#6fdfa4", "rgba(67, 205, 135, .17)"], ["Amber", "#e3aa46", "#f0c26b", "rgba(227, 170, 70, .17)"], ["Rose", "#ef7fa4", "#ff9fc0", "rgba(239, 127, 164, .17)"]];
+    var demoAccentIndex = 0;
+    byId("demoAccentButton").addEventListener("click", function () {
+      demoAccentIndex = (demoAccentIndex + 1) % demoAccents.length;
+      var accent = demoAccents[demoAccentIndex];
+      demoShell.style.setProperty("--accent", accent[1]);
+      demoShell.style.setProperty("--accent-strong", accent[2]);
+      demoShell.style.setProperty("--accent-soft", accent[3]);
+      this.querySelector("span").textContent = accent[0];
+      showToast("Accent: " + accent[0]);
+    });
     byId("resetDemo").addEventListener("click", function () { resetData(); showToast("Sample data reset"); });
     document.querySelector(".demo-nav").addEventListener("click", function (event) { var button = event.target.closest("[data-demo-view]"); if (button) setView(button.dataset.demoView); });
     byId("demoHostList").addEventListener("click", function (event) { var button = event.target.closest("[data-sidebar-host]"); if (button) { state.hostId = button.dataset.sidebarHost; state.path = "/"; setView("workspace"); } });

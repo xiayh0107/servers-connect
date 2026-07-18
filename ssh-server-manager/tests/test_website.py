@@ -53,6 +53,11 @@ def test_marketing_page_is_an_interactive_product_demo():
     assert 'id="demoConnectionRows"' in WEBSITE_HTML
     assert 'id="demoFileRows"' in WEBSITE_HTML
     assert 'id="tagCreateForm"' in WEBSITE_HTML
+    # v0.5.0 visuals: per-tag categorical colors and the accent switcher
+    assert 'id="demoAccentButton"' in WEBSITE_HTML
+    assert "function tagHue" in WEBSITE_HTML
+    for hue in range(6):
+        assert f".tg-{hue}" in WEBSITE_HTML
     assert 'id="agentDialog"' in WEBSITE_HTML
 
 
