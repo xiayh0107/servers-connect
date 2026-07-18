@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Web UI asset pipeline. The files in scripts/ssh_server_manager/assets/ui are
+# COMMITTED MINIFIED; edit them via a beautify -> edit -> minify round trip:
+#
+#   scripts/build-ui beautify /tmp/ui-src     # expand committed assets for editing
+#   ...edit /tmp/ui-src/*...
+#   scripts/build-ui minify /tmp/ui-src       # minify back into assets/ui + budget report
+#
+# Verified-faithful toolchain (terser round-trips app.js byte-identically):
+#   JS:   terser --compress passes=2 --mangle
+#   CSS:  lightningcss --minify --targets "chrome >= 120"
+#   HTML: html-minifier-terser (flags below)
+#
+# WARNING: never swap in csso — it silently DELETES `@media (width<=NNNpx)`
+# range-syntax blocks (all responsive rules vanish). lightningcss needs the
+# modern targets flag or it downlevels/prefixes and bloats output.
+#
+# webapp.py injects lazy assets by string-replacing the literal
+# `<div class=app-shell>` in index.html — the minifier flags below preserve it,
+# and the minify step fails hard if the anchor ever disappears.
+# After minifying, run: .venv/bin/python -m pytest tests/test_ui_assets.py
+set -euo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+UI="$HERE/ssh_server_manager/assets/ui"
+MODE="${1:-}"
+WORK="${2:-}"
+[ -n "$MODE" ] && [ -n "$WORK" ] || { echo "usage: build-ui beautify|minify <workdir>" >&2; exit 2; }
+command -v npx >/dev/null || { echo "error: node/npx required" >&2; exit 1; }
+
+# Tracked-minified core; diagnostics/notes are committed readable and stay put.
+CSS_FILES="styles contexts themes"
+JS_FILES="app contexts"
+
+case "$MODE" in
+  beautify)
+    mkdir -p "$WORK"
+    for f in $CSS_FILES; do
+      [ -f "$UI/$f.css" ] && cp "$UI/$f.css" "$WORK/$f.css"
+    done
+    for f in $JS_FILES; do cp "$UI/$f.js" "$WORK/$f.js"; done
+    cp "$UI/index.html" "$WORK/index.html"
+    npx --yes prettier --write "$WORK"/*.css "$WORK"/*.js >/dev/null
+    # prettier rejects the omitted-closing-tag HTML style; js-beautify copes
+    npx --yes js-beautify --type html --indent-size 2 "$WORK/index.html" \
+      -o "$WORK/index.html" >/dev/null
+    echo "beautified into $WORK"
+    ;;
+  minify)
+    for f in $CSS_FILES; do
+      [ -f "$WORK/$f.css" ] || continue
+      npx --yes lightningcss-cli --minify --targets "chrome >= 120" \
+        "$WORK/$f.css" -o "$UI/$f.css"
+    done
+    for f in $JS_FILES; do
+      npx --yes terser "$WORK/$f.js" --compress passes=2 --mangle -o "$UI/$f.js"
+    done
+    npx --yes html-minifier-terser --collapse-whitespace --remove-attribute-quotes \
+      --remove-optional-tags --collapse-boolean-attributes --remove-comments \
+      --minify-css true "$WORK/index.html" -o "$UI/index.html"
+    grep -q '<div class=app-shell>' "$UI/index.html" \
+      || { echo "FATAL: '<div class=app-shell>' anchor lost — webapp.py injection breaks" >&2; exit 1; }
+    python3 - "$UI" <<'PY'
+import gzip, pathlib, sys
+ui = pathlib.Path(sys.argv[1])
+gz = lambda p: len(gzip.compress(p.read_bytes(), 9, mtime=0))
+raw = lambda p: len(p.read_bytes())
+group = lambda names: (sum(raw(ui / n) for n in names), sum(gz(ui / n) for n in names))
+# keep limits in sync with tests/test_ui_assets.py
+for label, names, lraw, lgz in (
+    ("core", ["index.html", "styles.css", "app.js"], 104_000, 26_000),
+    ("contexts", ["contexts.js", "contexts.css"], 48_000, 11_500),
+    ("diagnostics", ["diagnostics.js", "diagnostics.css"], 20_000, 8_000),
+    ("notes", ["notes.js", "notes.css"], 24_000, 9_000),
+    ("themes", ["themes.css"], 8_000, 1_800),
+):
+    r, g = group(names)
+    flag = "" if r <= lraw and g <= lgz else "  <-- OVER BUDGET"
+    print(f"{label:<12} raw {r:>6}/{lraw}  gz {g:>5}/{lgz}{flag}")
+PY
+    echo "minified into $UI — now run tests/test_ui_assets.py"
+    ;;
+  *)
+    echo "usage: build-ui beautify|minify <workdir>" >&2; exit 2
+    ;;
+esac

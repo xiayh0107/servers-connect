@@ -37,8 +37,20 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/xia
 ln -s /path/to/ssh-server-manager ~/.claude/skills/ssh-server-manager
 ```
 
+**Keeping the skill current:** the skill directories are symlinks into one
+installed copy, and agents follow whatever that copy says. Re-run the same
+one-liner to update it — the installer pulls the latest release, re-links,
+and also puts `serverctl` on PATH via `~/.local/bin`. `serverctl doctor`
+prints an `agent_skill` warning whenever a linked copy is older than the
+CLI you are running, which is the usual reason an agent falls back to
+hand-rolled `ssh`.
+
 The skill instructs the agent to:
 
+- treat `serverctl` as the only SSH path for managed hosts — no raw
+  `ssh`/`scp`/`sshpass`, no password requests in chat, no editing
+  `~/.ssh/config` — and to resolve the binary as `serverctl` on PATH,
+  `~/bin/serverctl`, or `scripts/serverctl` inside the skill directory;
 - use `--json` output for every query (`server list`, `server test`, …);
 - never request, print, or store secret values;
 - prefer `server test` before connecting, and use classified error codes
@@ -51,11 +63,21 @@ The skill instructs the agent to:
   follow-up commands on that host through `serverctl exec` on your behalf,
   instead of trying to hold a TTY it does not have.
 
+If an agent still reaches for raw `ssh` (typically because it searched for
+an `ssh-server-manager` binary, found nothing, and improvised), a one-line
+nudge like "use the ssh-server-manager skill" or "use serverctl" re-routes
+it; the skill description also carries English and Chinese trigger phrases
+so connection requests match it directly.
+
 ## Patterns for agent automation
 
 ```bash
 # structured inventory
 serverctl server list --json
+
+# server notes (local metadata only; never include secrets)
+serverctl server note web1 --text "Primary web node" --json
+serverctl server note web1 --text "Agent checked disk usage" --append --json
 
 # health check across a fleet (agent loops over aliases)
 serverctl server test web1 --json

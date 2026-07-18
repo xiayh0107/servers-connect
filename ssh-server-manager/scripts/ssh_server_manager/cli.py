@@ -5,6 +5,7 @@ import getpass
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -132,6 +133,21 @@ def build_parser() -> argparse.ArgumentParser:
     server_test.add_argument("--timeout", type=int, default=8)
     add_json_option(server_test)
 
+    server_diagnose = server_commands.add_parser(
+        "diagnose", help="run read-only profile, SSH, SFTP, and remote-system checks"
+    )
+    server_diagnose.add_argument("alias")
+    server_diagnose.add_argument("--timeout", type=int, default=8)
+    add_json_option(server_diagnose)
+
+    server_note = server_commands.add_parser("note", help="set, append, or clear a server note")
+    server_note.add_argument("alias")
+    note_action = server_note.add_mutually_exclusive_group(required=True)
+    note_action.add_argument("--text", help="note text; use --append to keep the existing note")
+    note_action.add_argument("--clear", action="store_true", help="remove the current note")
+    server_note.add_argument("--append", action="store_true", help="append text after the existing note")
+    add_json_option(server_note)
+
     credential = commands.add_parser("credential", help="manage reusable credentials")
     credential_commands = credential.add_subparsers(dest="credential_command", required=True)
     credential_list = credential_commands.add_parser("list")
@@ -224,6 +240,40 @@ def ssh_client_version(ssh_path: str | None) -> str | None:
     return (result.stderr or result.stdout).strip().splitlines()[0] if (result.stderr or result.stdout).strip() else None
 
 
+def skill_link_status(dirs: Sequence[Path] | None = None) -> dict[str, Any]:
+    """Report agent skill links whose copy of the project is older than this CLI.
+
+    A stale linked copy means agents keep following outdated SKILL.md guidance
+    (the exact failure mode behind hand-rolled ssh/sshpass attempts), so doctor
+    surfaces it with the update command. Advisory only: ok stays True.
+    """
+    if dirs is None:
+        candidates = [Path.home() / ".claude" / "skills", Path.home() / ".codex" / "skills"]
+        candidates += [Path(entry).expanduser() for entry in os.environ.get("SSM_SKILLS_DIRS", "").split() if entry]
+    else:
+        candidates = list(dirs)
+    links: list[dict[str, str]] = []
+    stale: list[dict[str, str]] = []
+    for directory in candidates:
+        marker = directory / "ssh-server-manager" / "scripts" / "ssh_server_manager" / "__init__.py"
+        try:
+            match = re.search(r'__version__\s*=\s*"([^"]+)"', marker.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        entry = {"path": str(directory / "ssh-server-manager"), "version": match.group(1) if match else "unknown"}
+        links.append(entry)
+        if entry["version"] != __version__:
+            stale.append(entry)
+    status: dict[str, Any] = {"ok": True, "linked": len(links)}
+    if stale:
+        status["stale"] = stale
+        status["message"] = (
+            f"skill copy at {stale[0]['path']} is v{stale[0]['version']} but serverctl is "
+            f"v{__version__}; re-run install.sh to update it, then restart the agent session"
+        )
+    return status
+
+
 def run_doctor(database: Database) -> dict[str, Any]:
     ssh_path = shutil.which("ssh")
     checks: dict[str, Any] = {
@@ -241,6 +291,7 @@ def run_doctor(database: Database) -> dict[str, Any]:
         "ssh_keygen": {"ok": bool(shutil.which("ssh-keygen")), "path": shutil.which("ssh-keygen")},
         "original_config": {"ok": True, "path": str(original_ssh_config_path())},
         "managed_config": {"ok": True, "path": str(managed_ssh_config_path())},
+        "agent_skill": skill_link_status(),
     }
     try:
         checks["vault"] = {"ok": True, **get_vault().diagnose()}
@@ -337,6 +388,16 @@ def handle(args: argparse.Namespace) -> int:
             result = SSHRunner(database).test(args.alias, timeout=args.timeout)
             emit(result, as_json=args.json)
             return 0 if result["ok"] else 1
+        elif args.server_command == "diagnose":
+            result = SSHRunner(database).diagnose(args.alias, timeout=args.timeout)
+            emit(result, as_json=args.json)
+            return 0 if result["overall"] != "failed" else 1
+        elif args.server_command == "note":
+            if args.append and args.text is None:
+                raise ValidationError("--append requires --text")
+            result = database.update_server_notes(args.alias, args.text or "", append=args.append)
+            emit(result, as_json=args.json)
+            return 0
         return 0
     if args.command == "credential":
         if args.credential_command == "list":

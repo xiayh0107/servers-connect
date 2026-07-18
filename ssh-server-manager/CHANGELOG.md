@@ -1,6 +1,60 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-07-18
+
+### Added
+- Web UI accent palettes: a new header picker offers seven accent colors
+  (indigo default, teal, emerald, amber, rose, violet, graphite) served from a
+  dedicated `themes.css` asset. Accents layer onto the light, dark, and
+  high-contrast themes, persist in browser storage, and the hardcoded indigo
+  tints in the sidebar and primary buttons now follow the chosen accent. The
+  core-bundle performance budget grew 100 kB → 104 kB raw (25 kB → 26 kB
+  gzipped) to account for the picker markup and accent plumbing.
+
+- `serverctl doctor` gained an `agent_skill` check: it inspects the standard
+  agent skill directories (plus `SSM_SKILLS_DIRS`) and warns — with the
+  update command — when a linked skill copy is older than the running CLI,
+  so agents stop silently following stale SKILL.md guidance.
+- The POSIX installer now links `serverctl` into `~/.local/bin` when that
+  directory exists, so humans and agents can invoke it by name, and its
+  closing message documents that re-running the installer updates an
+  existing install.
+- Troubleshooting entries for the two failure modes seen in a real agent
+  transcript: bare `ssh ALIAS` black-holed by VPN/proxy fake-IP resolvers
+  while `serverctl` works, and an agent hand-rolling ssh/sshpass instead of
+  using the manager.
+- Dev tooling: `scripts/build-ui` (beautify → edit → minify round trip for
+  the committed-minified web UI assets, with budget reporting) plus an
+  AGENTS.md section documenting the pipeline and its traps.
+
+### Fixed
+- Tag chips now reuse each tag's sidebar color everywhere a tag renders —
+  connections table, workspace host cards, tag library, host detail rows, and
+  the server editor's tag picker — instead of drawing every chip in the accent
+  color. The lazy tag-manager bundle budget grew 11 kB → 11.5 kB gzipped.
+- Web UI responsive layout: management tables now scroll inside their surface
+  instead of overflowing the viewport, summary cards and toolbars wrap on
+  narrow windows, and fixed-width tracks that caused clipped content or dead
+  whitespace between 640 px and 1180 px were replaced with fluid ones.
+
+### Changed
+- SKILL.md now front-loads agent routing: the description is trigger-phrased
+  (English and Chinese), names the `serverctl` binary with a resolution
+  order, and a new lead section forbids the observed failure paths — raw
+  `ssh`/`scp`/`sshpass` against managed hosts, asking for passwords in chat,
+  and editing `~/.ssh/config`. Driven by a real transcript where an agent
+  searched for a nonexistent `ssh-server-manager` binary, fell back to
+  `sshpass`, and asked the user for a root password.
+- Added `server note` plus UI Note actions so users and agents can set, append,
+  or clear local server notes without changing SSH settings.
+- `server diagnose` now identifies the host system across Linux
+  distributions, macOS, BSDs, and Windows OpenSSH hosts. The remote check
+  reports structured `os`, `os_id`, `os_version`, `os_family`,
+  `package_manager`, and `arch` fields (os-release ID/ID_LIKE mapping with
+  sw_vers, freebsd-version, and legacy release-file fallbacks) instead of
+  only `PRETTY_NAME`, and no longer relies on the non-portable `uname -o`.
+  Windows hosts whose default shell rejects the POSIX probe are detected via
+  a `cmd.exe /c ver` fallback instead of failing the check.
 
 ## 0.4.1 — 2026-07-17
 

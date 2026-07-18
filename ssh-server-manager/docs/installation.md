@@ -62,8 +62,11 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/xia
 The installer fetches the source (or uses the checkout it runs from —
 `./install.sh` works too), installs dependencies, symlinks the skill into
 every detected agent skills directory (`~/.claude/skills`,
-`~/.codex/skills`; extend with `SSM_SKILLS_DIRS`), and finishes with
-`serverctl doctor`. Re-running updates an existing install. See
+`~/.codex/skills`; extend with `SSM_SKILLS_DIRS`), links `serverctl` into
+`~/.local/bin` when that directory exists, and finishes with
+`serverctl doctor`. Re-running updates an existing install; `doctor`'s
+`agent_skill` check warns when a linked skill copy is older than the CLI,
+so agents never keep following stale instructions silently. See
 [ai-agents.md](ai-agents.md).
 
 ## Verify the install

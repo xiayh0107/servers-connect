@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 
 from ssh_server_manager.db import Database
@@ -24,6 +25,201 @@ def test_test_classifies_auth_failure(tmp_path, monkeypatch):
     result = SSHRunner(database, ssh_binary="ssh").test("box")
     assert result["ok"] is False
     assert result["error_code"] == "authentication-failed"
+
+
+def test_diagnose_runs_profile_ssh_sftp_and_remote_checks(tmp_path, monkeypatch):
+    database = Database(tmp_path / "manager.db")
+    database.create_server(alias="box", hostname="box.example", port=22, username="alice")
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing-config"))
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command[0])
+        if command[0] == "sftp":
+            return subprocess.CompletedProcess(
+                command, 0, stdout="Remote working directory: /home/alice\n", stderr=""
+            )
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=(
+                '__ssm_hostname=box\n__ssm_os_pretty="Ubuntu 24.04 LTS"\n'
+                "__ssm_os_id=ubuntu\n__ssm_os_version=\"24.04\"\n"
+                "__ssm_kernel_name=Linux\n__ssm_kernel=Linux 5.15 x86_64\n"
+                "__ssm_arch=x86_64\n__ssm_uptime=up 1 day\n"
+                "__ssm_load=0.10 0.20 0.30\n__ssm_cpu_cores=8\n"
+                "__ssm_cpu_model=Intel Xeon\n__ssm_memory=Mem: 16Gi 4Gi 8Gi\n"
+                "__ssm_disk=/dev/vda 100G 20G 80G 20% /\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp").diagnose("box")
+
+    assert result["overall"] == "ok"
+    assert result["summary"] == {"total": 4, "passed": 4, "failed": 0, "warnings": 0, "skipped": 0}
+    assert [check["id"] for check in result["checks"]] == ["profile", "ssh", "sftp", "remote"]
+    assert result["checks"][2]["details"]["home_directory"] == "/home/alice"
+    remote = result["checks"][3]["details"]
+    assert remote["hostname"] == "box"
+    assert remote["os"] == "Ubuntu 24.04 LTS"
+    assert remote["os_id"] == "ubuntu"
+    assert remote["os_version"] == "24.04"
+    assert remote["os_family"] == "debian"
+    assert remote["package_manager"] == "apt"
+    assert remote["arch"] == "x86_64"
+    assert remote["cpu_cores"] == "8"
+    assert remote["memory"] == "Mem: 16Gi 4Gi 8Gi"
+    assert remote["disk"].endswith("20% /")
+    assert calls == ["ssh", "sftp", "ssh"]
+
+
+def test_diagnose_identifies_windows_hosts_without_posix_shell(tmp_path, monkeypatch):
+    database = Database(tmp_path / "manager.db")
+    database.create_server(alias="winbox", hostname="win.example", port=22, username="alice")
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing-config"))
+
+    def fake_run(command, **kwargs):
+        if command[0] == "sftp":
+            return subprocess.CompletedProcess(
+                command, 0, stdout="Remote working directory: /C:/Users/alice\n", stderr=""
+            )
+        remote_command = command[-1]
+        if remote_command == "true":
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if remote_command.startswith("sh -lc"):
+            return subprocess.CompletedProcess(
+                command,
+                49,
+                stdout="",
+                stderr="'sh' is not recognized as an internal or external command",
+            )
+        if remote_command == "cmd.exe /c ver":
+            return subprocess.CompletedProcess(
+                command, 0, stdout="\nMicrosoft Windows [Version 10.0.20348.2113]\n", stderr=""
+            )
+        if remote_command == "hostname":
+            return subprocess.CompletedProcess(command, 0, stdout="WINBOX\n", stderr="")
+        raise AssertionError(f"unexpected remote command: {remote_command}")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp").diagnose("winbox")
+
+    remote = next(check for check in result["checks"] if check["id"] == "remote")
+    assert remote["status"] == "ok"
+    assert remote["details"]["os"] == "Microsoft Windows [Version 10.0.20348.2113]"
+    assert remote["details"]["os_id"] == "windows"
+    assert remote["details"]["os_family"] == "windows"
+    assert remote["details"]["os_version"] == "10.0.20348.2113"
+    assert remote["details"]["hostname"] == "WINBOX"
+
+
+def test_summarize_remote_identity_maps_distro_to_family_and_package_manager():
+    from ssh_server_manager.ssh_runner import _summarize_remote_identity
+
+    details = _summarize_remote_identity(
+        {
+            "hostname": "box",
+            "os_pretty": "openSUSE Leap 15.6",
+            "os_id": "opensuse-leap",
+            "os_version": "15.6",
+            "kernel_name": "Linux",
+            "kernel": "Linux 6.4.0 x86_64",
+            "arch": "x86_64",
+        }
+    )
+    assert details["os"] == "openSUSE Leap 15.6"
+    assert details["os_family"] == "suse"
+    assert details["package_manager"] == "zypper"
+
+
+def test_summarize_remote_identity_uses_id_like_for_unknown_derivatives():
+    from ssh_server_manager.ssh_runner import _summarize_remote_identity
+
+    details = _summarize_remote_identity(
+        {"hostname": "box", "os_id": "acmelinux", "os_like": "rhel fedora", "os_version": "9.4"}
+    )
+    assert details["os"] == "acmelinux 9.4"
+    assert details["os_family"] == "rhel"
+    assert details["package_manager"] == "dnf"
+
+
+def test_summarize_remote_identity_detects_macos_via_sw_vers():
+    from ssh_server_manager.ssh_runner import _summarize_remote_identity
+
+    details = _summarize_remote_identity(
+        {
+            "hostname": "studio",
+            "mac_product": "macOS",
+            "mac_version": "15.5",
+            "brew": "brew",
+            "kernel_name": "Darwin",
+            "kernel": "Darwin 24.5.0 arm64",
+            "arch": "arm64",
+        }
+    )
+    assert details["os"] == "macOS 15.5"
+    assert details["os_id"] == "macos"
+    assert details["os_version"] == "15.5"
+    assert details["os_family"] == "macos"
+    assert details["package_manager"] == "brew"
+    assert details["kernel"] == "Darwin 24.5.0 arm64"
+
+
+def test_summarize_remote_identity_falls_back_to_legacy_and_kernel_sources():
+    from ssh_server_manager.ssh_runner import _summarize_remote_identity
+
+    legacy = _summarize_remote_identity(
+        {"hostname": "old", "os_legacy": "CentOS release 6.10 (Final)", "kernel_name": "Linux"}
+    )
+    assert legacy["os"] == "CentOS release 6.10 (Final)"
+    assert legacy["os_family"] == "rhel"
+    assert legacy["package_manager"] == "yum"
+
+    bsd = _summarize_remote_identity(
+        {"hostname": "puffy", "kernel_name": "OpenBSD", "kernel": "OpenBSD 7.5 amd64"}
+    )
+    assert bsd["os"] == "OpenBSD"
+    assert bsd["os_family"] == "bsd"
+    assert bsd["package_manager"] == "pkg_add"
+
+
+def test_diagnose_skips_remote_checks_after_ssh_failure(tmp_path, monkeypatch):
+    database = Database(tmp_path / "manager.db")
+    database.create_server(alias="box", hostname="box.example", port=22, username="alice")
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing-config"))
+
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda command, **kwargs: subprocess.CompletedProcess(
+            command, 255, stdout="", stderr="Connection refused"
+        ),
+    )
+    result = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp").diagnose("box")
+
+    assert result["overall"] == "failed"
+    assert result["summary"]["failed"] == 1
+    assert [check["status"] for check in result["checks"]] == ["ok", "failed", "skipped", "skipped"]
+
+
+def test_cli_server_note_supports_agent_append_workflow(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path))
+    Database(tmp_path / "manager.db").create_server(
+        alias="box", hostname="box.example", port=22, username="alice"
+    )
+    from ssh_server_manager.cli import main
+
+    assert main(["server", "note", "box", "--text", "Primary compute host", "--json"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert first["notes"] == "Primary compute host"
+    assert main(["server", "note", "box", "--text", "Agent checked disk", "--append", "--json"]) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert second["notes"] == "Primary compute host\n\nAgent checked disk"
 
 
 def test_connect_without_a_tty_fails_fast_with_guidance(tmp_path, monkeypatch, capsys):

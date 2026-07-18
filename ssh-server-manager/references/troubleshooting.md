@@ -76,3 +76,32 @@ First verify the service on the server itself, then verify the container or
 process is bound to the intended interface. If localhost works but the public
 address times out, the cloud security group or upstream firewall needs to allow
 that TCP port; changing OpenSSH settings will not fix it.
+
+## Bare `ssh ALIAS` fails while `serverctl` succeeds
+
+Managed aliases live in the manager's own rendered config, not in
+`~/.ssh/config`, so plain `ssh ALIAS` treats the alias as a DNS hostname.
+Under a VPN/proxy fake-IP resolver (Clash, Surge, …) that lookup gets a
+synthetic answer such as `198.18.x.x` and the handshake is dropped — the
+failure looks like a dead server even though nothing is wrong. Use
+`serverctl connect ALIAS` (interactive) or `serverctl exec ALIAS -- CMD`
+instead; they apply the managed config and inject vault credentials
+automatically. Do not add an `Include` for the managed config to
+`~/.ssh/config`: key-based hosts would half-work, but password auth flows
+only through serverctl's AskPass, so bare ssh would still prompt.
+
+## An AI agent hand-rolls ssh/sshpass instead of using the manager
+
+Three checks, in order:
+
+1. `serverctl doctor` — the `agent_skill` line lists which agent skill
+   directories are linked and warns when a linked copy is older than the
+   running CLI. Re-run `install.sh` to update stale copies, then restart
+   the agent session so it reloads the skill text.
+2. Make sure `serverctl` resolves by name (`command -v serverctl`); the
+   installer links it into `~/.local/bin` when that directory exists.
+3. A one-line nudge — "use serverctl" or "use the ssh-server-manager
+   skill" — re-routes an agent that already started down the raw-ssh path.
+
+Never give an agent a password in chat; if a credential is missing, add it
+through `serverctl ui` so it lands in the OS vault.

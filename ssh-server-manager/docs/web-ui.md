@@ -27,7 +27,10 @@ to get a new one. Sessions last 12 hours.
 
 - **Servers** — add, edit, remove; assign reusable project/environment tags;
   manage ordered ProxyJump chains; run individual or selected-host connection
-  tests with latency and classified errors. The inventory keeps host, endpoint,
+  tests with latency and classified errors; open **Diagnostics** on a host to
+  inspect its local profile, SSH, SFTP, and remote system summary. Use **Note**
+  on a host row or the active workspace to append or edit local server notes.
+  The inventory keeps host, endpoint,
   tags, status, and actions as its five primary columns; credential and jump
   details stay under the endpoint instead of widening the table.
 - **Files** — choose a server and browse its remote home or another directory
@@ -45,14 +48,18 @@ to get a new one. Sessions last 12 hours.
   show current membership, and clicking an item adds or removes it. Search for
   an existing tag or type a new name and choose **Create** to create and assign
   it in one operation. The same picker opens from every Tags table cell. Tags
-  remain clickable filters. In the server editor, tags
+  remain clickable filters, and every tag keeps one categorical color across
+  the sidebar, tables, chips, and pickers. In the server editor, tags
   are searchable chips: Enter adds a typed value, Backspace removes the last
   chip, and suggestions reuse existing tags. The Files sidebar also shows each
   host's first tag and remaining count; click that summary to open the
   same add/remove/create picker without leaving the workspace.
 - **Themes** — follow the operating-system appearance or explicitly choose the
-  light, dark, or high-contrast token set. No theme assets or external fonts
-  are downloaded.
+  light, dark, or high-contrast token set, then pick one of seven accent
+  palettes (indigo, teal, emerald, amber, rose, violet, graphite) from the
+  header. Accent choices persist locally, adapt to every base theme, and keep
+  the high-contrast theme's yellow focus ring. No theme assets or external
+  fonts are downloaded.
 - **Credentials** — create password / key / agent credentials, edit or
   replace secrets, copy referenced key paths, and see which servers use them.
   Vault and reveal-protection status live together above the credential list.

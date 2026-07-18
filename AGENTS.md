@@ -41,6 +41,20 @@ path or signal assumptions without an `os.name` branch).
 - `scripts/ssh_server_manager/vault.py`, `askpass.py` — secret storage and
   out-of-band authentication. Read `references/security.md` before touching.
 
+## Web UI assets are committed minified
+
+`scripts/ssh_server_manager/assets/ui/` holds the shipped (minified) files —
+there is no separate source tree. Edit them only through
+`scripts/build-ui beautify <workdir>` → edit → `scripts/build-ui minify
+<workdir>`; the script pins the verified toolchain (terser round-trips the
+committed JS byte-identically, lightningcss with modern targets for CSS) and
+enforces the size budgets from `tests/test_ui_assets.py`. Two traps it
+guards against: csso silently deletes `@media (width<=NNNpx)` blocks — never
+substitute it — and `webapp.py` injects lazy assets by string-replacing the
+literal `<div class=app-shell>`, which the minify step asserts is preserved.
+Always finish with `tests/test_ui_assets.py`: it greps the minified output
+for exact tokens.
+
 ## Documentation must stay in sync
 
 Any change to the CLI surface or agent-facing behavior updates all of:

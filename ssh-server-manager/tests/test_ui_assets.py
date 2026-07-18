@@ -11,6 +11,12 @@ JAVASCRIPT = (UI_DIR / "app.js").read_text(encoding="utf-8")
 STYLES = (UI_DIR / "styles.css").read_text(encoding="utf-8")
 CONTEXT_JAVASCRIPT = (UI_DIR / "contexts.js").read_text(encoding="utf-8")
 CONTEXT_STYLES = (UI_DIR / "contexts.css").read_text(encoding="utf-8")
+DIAGNOSTICS_JAVASCRIPT = (UI_DIR / "diagnostics.js").read_text(encoding="utf-8")
+DIAGNOSTICS_STYLES = (UI_DIR / "diagnostics.css").read_text(encoding="utf-8")
+NOTES_JAVASCRIPT = (UI_DIR / "notes.js").read_text(encoding="utf-8")
+NOTES_STYLES = (UI_DIR / "notes.css").read_text(encoding="utf-8")
+THEME_STYLES = (UI_DIR / "themes.css").read_text(encoding="utf-8")
+ACCENTS = ("teal", "emerald", "amber", "rose", "violet", "graphite")
 
 
 def html_attribute_values(name: str) -> list[str]:
@@ -25,8 +31,8 @@ def test_ui_stays_dependency_free_and_inside_performance_budget():
         "app.js": JAVASCRIPT.encode(),
     }
 
-    assert sum(map(len, assets.values())) <= 100_000
-    assert sum(len(gzip.compress(value, compresslevel=9, mtime=0)) for value in assets.values()) <= 25_000
+    assert sum(map(len, assets.values())) <= 104_000
+    assert sum(len(gzip.compress(value, compresslevel=9, mtime=0)) for value in assets.values()) <= 26_000
     assert "https://" not in HTML + STYLES + JAVASCRIPT
     assert "http://" not in HTML + STYLES + JAVASCRIPT
     assert "@import" not in STYLES
@@ -38,7 +44,7 @@ def test_context_tools_are_lazy_and_small():
     assets = [CONTEXT_JAVASCRIPT.encode(), CONTEXT_STYLES.encode()]
 
     assert sum(map(len, assets)) <= 48_000
-    assert sum(len(gzip.compress(value, compresslevel=9, mtime=0)) for value in assets) <= 11_000
+    assert sum(len(gzip.compress(value, compresslevel=9, mtime=0)) for value in assets) <= 11_500
     assert 'import("/assets/contexts.js")' in JAVASCRIPT
     assert '<script src="/assets/contexts.js"' not in HTML
     assert "export function openContextManager" in CONTEXT_JAVASCRIPT
@@ -125,6 +131,7 @@ def test_workspace_first_shell_has_navigation_and_responsive_states():
         "credentialKindFilter",
         "serverTags",
         "themeSelect",
+        "accentSelect",
     }
 
     assert required_ids <= set(html_attribute_values("id"))
@@ -143,3 +150,50 @@ def test_workspace_first_shell_has_navigation_and_responsive_states():
     assert re.search(r"@media\s*\((?:max-width:\s*820px|width<=820px)\)", STYLES)
     assert re.search(r"@media\s*\((?:max-width:\s*640px|width<=640px)\)", STYLES)
     assert re.search(r"@media\s*\(prefers-reduced-motion:\s*reduce\)", STYLES)
+
+
+def test_diagnostics_assets_are_local_and_dependency_free():
+    assets = [DIAGNOSTICS_JAVASCRIPT.encode(), DIAGNOSTICS_STYLES.encode()]
+
+    assert sum(map(len, assets)) <= 20_000
+    assert sum(len(gzip.compress(value, compresslevel=9, mtime=0)) for value in assets) <= 8_000
+    assert "https://" not in DIAGNOSTICS_JAVASCRIPT + DIAGNOSTICS_STYLES
+    assert "http://" not in DIAGNOSTICS_JAVASCRIPT + DIAGNOSTICS_STYLES
+    assert "host-diagnostics" in DIAGNOSTICS_JAVASCRIPT
+    assert "/diagnose" in DIAGNOSTICS_JAVASCRIPT
+    assert "backdrop-filter" not in DIAGNOSTICS_STYLES
+
+
+def test_accent_palettes_cover_every_theme_and_stay_small():
+    encoded = THEME_STYLES.encode()
+
+    assert len(encoded) <= 8_000
+    assert len(gzip.compress(encoded, compresslevel=9, mtime=0)) <= 1_800
+    assert "https://" not in THEME_STYLES
+    assert "http://" not in THEME_STYLES
+    assert "@import" not in THEME_STYLES
+    assert "backdrop-filter" not in THEME_STYLES
+    for accent in ACCENTS:
+        assert re.search(rf':root\[data-accent=(?:"{accent}"|{accent})\]', THEME_STYLES)
+        assert re.search(rf':root\[data-theme=(?:"dark"|dark)\]\[data-accent=(?:"{accent}"|{accent})\]', THEME_STYLES)
+        assert re.search(
+            rf':root\[data-theme=(?:"contrast"|contrast)\]\[data-accent=(?:"{accent}"|{accent})\]', THEME_STYLES
+        )
+    # the contrast theme keeps its high-visibility yellow focus ring for every accent
+    assert re.search(r':root\[data-theme=(?:"contrast"|contrast)\]\[data-accent\]', THEME_STYLES)
+    assert "ssh-manager-accent" in JAVASCRIPT
+    assert "dataset.accent" in JAVASCRIPT
+    for accent in ACCENTS:
+        assert f"{accent}" in HTML
+
+
+def test_notes_assets_are_local_and_dependency_free():
+    assets = [NOTES_JAVASCRIPT.encode(), NOTES_STYLES.encode()]
+
+    assert sum(map(len, assets)) <= 24_000
+    assert sum(len(gzip.compress(value, compresslevel=9, mtime=0)) for value in assets) <= 9_000
+    assert "https://" not in NOTES_JAVASCRIPT + NOTES_STYLES
+    assert "http://" not in NOTES_JAVASCRIPT + NOTES_STYLES
+    assert "/notes" in NOTES_JAVASCRIPT
+    assert "host-note" in NOTES_JAVASCRIPT
+    assert "backdrop-filter" not in NOTES_STYLES

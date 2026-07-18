@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any, Sequence
 
-from .db import Database, NotFoundError
+from .db import Database, NotFoundError, utc_now
 from .paths import runtime_dir
 from .ssh_config import render_config
 from .validation import validate_remote_path
@@ -65,6 +65,109 @@ def classify_error(stderr: str, returncode: int) -> str:
     if returncode == 127:
         return "ssh-not-found"
     return "ssh-failed"
+
+
+# (os-release ID prefix, family, conventional package manager). Prefix matching
+# covers variants such as opensuse-leap/opensuse-tumbleweed.
+_OS_FAMILIES: tuple[tuple[str, str, str], ...] = (
+    ("ubuntu", "debian", "apt"),
+    ("debian", "debian", "apt"),
+    ("linuxmint", "debian", "apt"),
+    ("raspbian", "debian", "apt"),
+    ("pop", "debian", "apt"),
+    ("kali", "debian", "apt"),
+    ("fedora", "rhel", "dnf"),
+    ("rhel", "rhel", "dnf"),
+    ("centos", "rhel", "dnf"),
+    ("rocky", "rhel", "dnf"),
+    ("almalinux", "rhel", "dnf"),
+    ("ol", "rhel", "dnf"),
+    ("amzn", "rhel", "dnf"),
+    ("opensuse", "suse", "zypper"),
+    ("sles", "suse", "zypper"),
+    ("suse", "suse", "zypper"),
+    ("arch", "arch", "pacman"),
+    ("manjaro", "arch", "pacman"),
+    ("endeavouros", "arch", "pacman"),
+    ("alpine", "alpine", "apk"),
+    ("gentoo", "gentoo", "emerge"),
+    ("nixos", "nixos", "nix"),
+    ("void", "void", "xbps"),
+    ("openwrt", "openwrt", "opkg"),
+    ("freebsd", "bsd", "pkg"),
+    ("openbsd", "bsd", "pkg_add"),
+    ("netbsd", "bsd", "pkgin"),
+)
+
+
+def _classify_os_id(candidates: Sequence[str]) -> tuple[str, str] | None:
+    for candidate in candidates:
+        token = candidate.strip().casefold()
+        if not token:
+            continue
+        for prefix, family, manager in _OS_FAMILIES:
+            if token == prefix or token.startswith(prefix + "-"):
+                return family, manager
+    return None
+
+
+def _summarize_remote_identity(raw: dict[str, str]) -> dict[str, str]:
+    """Turn raw probe output into user-facing system-identity fields.
+
+    Sources are tried from most to least specific: sw_vers (macOS),
+    os-release (Linux and modern BSDs), freebsd-version, legacy release
+    files, and finally the kernel name.
+    """
+    details: dict[str, str] = {}
+    for key in ("hostname", "uptime", "load", "cpu_cores", "cpu_model", "memory", "disk"):
+        if raw.get(key):
+            details[key] = raw[key]
+
+    os_id = raw.get("os_id", "").strip().casefold()
+    os_version = raw.get("os_version", "")
+    kernel_name = raw.get("kernel_name", "")
+    name = ""
+    family: tuple[str, str] | None = None
+
+    if raw.get("mac_product"):
+        name = " ".join(part for part in (raw["mac_product"], raw.get("mac_version", "")) if part)
+        os_id = os_id or "macos"
+        os_version = os_version or raw.get("mac_version", "")
+        family = ("macos", "brew") if raw.get("brew") else ("macos", "")
+    elif raw.get("os_pretty") or os_id:
+        name = raw.get("os_pretty") or " ".join(part for part in (os_id, os_version) if part)
+        family = _classify_os_id([os_id, *raw.get("os_like", "").split()])
+    elif raw.get("bsd_version"):
+        name = f"FreeBSD {raw['bsd_version']}"
+        os_id = "freebsd"
+        os_version = os_version or raw["bsd_version"]
+        family = ("bsd", "pkg")
+    elif raw.get("os_legacy"):
+        name = raw["os_legacy"]
+        lowered = name.casefold()
+        if "red hat" in lowered or "centos" in lowered:
+            family = ("rhel", "yum")
+    elif kernel_name:
+        name = kernel_name
+        family = _classify_os_id([kernel_name])
+
+    if name:
+        details["os"] = name
+    if os_id:
+        details["os_id"] = os_id
+    if os_version:
+        details["os_version"] = os_version
+    if family:
+        details["os_family"] = family[0]
+        if family[1]:
+            details["package_manager"] = family[1]
+    if raw.get("kernel"):
+        details["kernel"] = raw["kernel"]
+    elif kernel_name:
+        details["kernel"] = kernel_name
+    if raw.get("arch"):
+        details["arch"] = raw["arch"]
+    return details
 
 
 class SSHRunner:
@@ -414,6 +517,287 @@ class SSHRunner:
             "message": message,
         }
 
+    def _probe_sftp(self, server: dict[str, Any], *, timeout: int) -> dict[str, Any]:
+        """Verify the SFTP subsystem and the user's home directory without listing files."""
+        command = self._sftp_command(server, timeout=timeout, reuse=0)
+        start = time.monotonic()
+        try:
+            result = subprocess.run(
+                command,
+                input="@cd\n@pwd\n@quit\n",
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                env=self._environment(server),
+                timeout=timeout + 5,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return {
+                "ok": False,
+                "latency_ms": round((time.monotonic() - start) * 1000),
+                "error_code": "timeout",
+                "message": f"SFTP probe exceeded {timeout + 5} seconds",
+            }
+        except OSError as exc:
+            return {
+                "ok": False,
+                "latency_ms": round((time.monotonic() - start) * 1000),
+                "error_code": "ssh-not-found",
+                "message": str(exc),
+            }
+
+        latency = round((time.monotonic() - start) * 1000)
+        diagnostics = redact(result.stderr.strip())
+        if result.returncode != 0:
+            return {
+                "ok": False,
+                "latency_ms": latency,
+                "error_code": classify_error(result.stderr, result.returncode),
+                "message": diagnostics or f"SFTP exited with status {result.returncode}",
+            }
+        try:
+            current_directory, _entries, _unparsed = self._parse_directory_listing(result.stdout)
+        except SSHError as exc:
+            return {
+                "ok": False,
+                "latency_ms": latency,
+                "error_code": "sftp-failed",
+                "message": str(exc),
+            }
+        if SFTP_OPERATION_ERROR_RE.search(diagnostics):
+            return {
+                "ok": False,
+                "latency_ms": latency,
+                "error_code": "sftp-failed",
+                "message": diagnostics or "SFTP home directory probe failed",
+            }
+        return {
+            "ok": True,
+            "latency_ms": latency,
+            "message": "SFTP home directory probe succeeded",
+            "details": {"home_directory": current_directory.rstrip("/") or "/"},
+        }
+
+    def _probe_remote_identity(self, server: dict[str, Any], *, timeout: int) -> dict[str, Any]:
+        """Collect a small, non-sensitive system summary through a fixed command."""
+        # Every source is optional and best-effort: os-release covers Linux and
+        # modern BSDs, sw_vers exists only on macOS, freebsd-version and the
+        # legacy release files cover older systems. uname -o is not portable
+        # (absent on older macOS/BSD), so kernel facts use -srm/-s/-m only.
+        script = (
+            "printf '__ssm_hostname='; hostname 2>/dev/null || true; printf '\\n'; "
+            "printf '__ssm_os_pretty='; sed -n \"s/^PRETTY_NAME=//p\" /etc/os-release /usr/lib/os-release 2>/dev/null | head -n 1 || true; printf '\\n'; "
+            "printf '__ssm_os_id='; sed -n \"s/^ID=//p\" /etc/os-release /usr/lib/os-release 2>/dev/null | head -n 1 || true; printf '\\n'; "
+            "printf '__ssm_os_version='; sed -n \"s/^VERSION_ID=//p\" /etc/os-release /usr/lib/os-release 2>/dev/null | head -n 1 || true; printf '\\n'; "
+            "printf '__ssm_os_like='; sed -n \"s/^ID_LIKE=//p\" /etc/os-release /usr/lib/os-release 2>/dev/null | head -n 1 || true; printf '\\n'; "
+            "printf '__ssm_os_legacy='; cat /etc/redhat-release /etc/system-release 2>/dev/null | head -n 1 || true; printf '\\n'; "
+            "printf '__ssm_mac_product='; sw_vers -productName 2>/dev/null || true; printf '\\n'; "
+            "printf '__ssm_mac_version='; sw_vers -productVersion 2>/dev/null || true; printf '\\n'; "
+            "printf '__ssm_brew='; command -v brew >/dev/null 2>&1 && printf 'brew'; printf '\\n'; "
+            "printf '__ssm_bsd_version='; freebsd-version 2>/dev/null || true; printf '\\n'; "
+            "printf '__ssm_kernel_name='; uname -s 2>/dev/null || true; printf '\\n'; "
+            "printf '__ssm_kernel='; uname -srm 2>/dev/null || true; printf '\\n'; "
+            "printf '__ssm_arch='; uname -m 2>/dev/null || true; printf '\\n'; "
+            "printf '__ssm_uptime='; uptime -p 2>/dev/null || uptime 2>/dev/null || true; printf '\\n'; "
+            "printf '__ssm_load='; cut -d\" \" -f1-3 /proc/loadavg 2>/dev/null || true; printf '\\n'; "
+            "printf '__ssm_cpu_cores='; nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || true; printf '\\n'; "
+            "printf '__ssm_cpu_model='; grep -m1 \"model name\" /proc/cpuinfo 2>/dev/null | cut -d: -f2- || true; printf '\\n'; "
+            "printf '__ssm_memory='; free -h 2>/dev/null | grep \"^Mem:\" || true; printf '\\n'; "
+            "printf '__ssm_disk='; df -hP / 2>/dev/null | tail -n 1 || true; printf '\\n'"
+        )
+        result = self.execute(
+            server["id"],
+            ["sh", "-lc", script],
+            timeout=timeout,
+            capture=True,
+        )
+        if not result["ok"]:
+            # A host without a POSIX sh (Windows OpenSSH with a cmd/powershell
+            # default shell) fails here with an unclassified error; try to
+            # identify it before reporting a failure. Connection-level errors
+            # (timeout, auth, dns, ...) are already classified and skip this.
+            if result.get("error_code") == "ssh-failed":
+                windows = self._probe_windows_identity(server, timeout=timeout)
+                if windows is not None:
+                    return windows
+            return {
+                "ok": False,
+                "latency_ms": result["latency_ms"],
+                "error_code": result.get("error_code", "ssh-failed"),
+                "message": result.get("stderr") or "Remote system probe failed",
+            }
+
+        values: dict[str, str] = {}
+        for line in str(result.get("stdout", "")).splitlines():
+            for key in (
+                "hostname",
+                "os_pretty",
+                "os_id",
+                "os_version",
+                "os_like",
+                "os_legacy",
+                "mac_product",
+                "mac_version",
+                "brew",
+                "bsd_version",
+                "kernel_name",
+                "kernel",
+                "arch",
+                "uptime",
+                "load",
+                "cpu_cores",
+                "cpu_model",
+                "memory",
+                "disk",
+            ):
+                prefix = f"__ssm_{key}="
+                if line.startswith(prefix):
+                    value = line[len(prefix) :].strip().strip('"')
+                    if value:
+                        values[key] = value
+                    break
+        if not values.get("hostname"):
+            return {
+                "ok": False,
+                "latency_ms": result["latency_ms"],
+                "error_code": "remote-probe-failed",
+                "message": "Remote system probe returned no hostname",
+            }
+        return {
+            "ok": True,
+            "latency_ms": result["latency_ms"],
+            "message": "Remote system responded",
+            "details": _summarize_remote_identity(values),
+        }
+
+    def _probe_windows_identity(self, server: dict[str, Any], *, timeout: int) -> dict[str, Any] | None:
+        """Identify a Windows host whose default shell rejected the POSIX probe."""
+        probe = self.execute(server["id"], ["cmd.exe", "/c", "ver"], timeout=timeout, capture=True)
+        stdout = " ".join(str(probe.get("stdout", "")).split())
+        if not probe["ok"] or "windows" not in stdout.casefold():
+            return None
+        details = {"os": stdout, "os_id": "windows", "os_family": "windows"}
+        version = re.search(r"version\s+([\d.]+)", stdout, re.IGNORECASE)
+        if version:
+            details["os_version"] = version.group(1)
+        hostname = self.execute(server["id"], ["hostname"], timeout=timeout, capture=True)
+        hostname_value = str(hostname.get("stdout", "")).strip()
+        if hostname["ok"] and hostname_value:
+            details["hostname"] = hostname_value
+        return {
+            "ok": True,
+            "latency_ms": probe["latency_ms"],
+            "message": "Remote system responded (Windows)",
+            "details": details,
+        }
+
+    def diagnose(self, identifier: str, *, timeout: int = 8) -> dict[str, Any]:
+        """Run a bounded, read-only host diagnosis for the CLI and web UI."""
+        server = self.database.get_server(identifier)
+        proxy_jumps = list(server.get("proxy_jumps", []))
+        missing_jumps = []
+        for jump in proxy_jumps:
+            try:
+                self.database.get_server(jump)
+            except NotFoundError:
+                missing_jumps.append(jump)
+
+        checks: list[dict[str, Any]] = [
+            {
+                "id": "profile",
+                "label": "Host profile",
+                "status": "failed" if missing_jumps else "ok",
+                "message": (
+                    f"ProxyJump alias not found: {', '.join(missing_jumps)}"
+                    if missing_jumps
+                    else "Local host profile is valid"
+                ),
+                "details": {
+                    "endpoint": f"{server['username']}@{server['hostname']}:{server['port']}",
+                    "proxy_jumps": proxy_jumps,
+                    "credential": server.get("credential_label") or "OpenSSH default / agent",
+                    "host_key_policy": "StrictHostKeyChecking=yes",
+                },
+            }
+        ]
+
+        ssh_result = self.test(server["id"], timeout=timeout)
+        checks.append(
+            {
+                "id": "ssh",
+                "label": "SSH handshake",
+                "status": "ok" if ssh_result["ok"] else "failed",
+                "message": ssh_result["message"],
+                "latency_ms": ssh_result["latency_ms"],
+                **({"error_code": ssh_result["error_code"]} if ssh_result.get("error_code") else {}),
+            }
+        )
+
+        if ssh_result["ok"]:
+            sftp_result = self._probe_sftp(server, timeout=timeout)
+            checks.append(
+                {
+                    "id": "sftp",
+                    "label": "SFTP subsystem",
+                    "status": "ok" if sftp_result["ok"] else "failed",
+                    "message": sftp_result["message"],
+                    "latency_ms": sftp_result["latency_ms"],
+                    **(
+                        {"error_code": sftp_result["error_code"]}
+                        if sftp_result.get("error_code")
+                        else {}
+                    ),
+                    **({"details": sftp_result["details"]} if sftp_result.get("details") else {}),
+                }
+            )
+            remote_result = self._probe_remote_identity(server, timeout=timeout)
+            checks.append(
+                {
+                    "id": "remote",
+                    "label": "Remote system",
+                    "status": "ok" if remote_result["ok"] else "failed",
+                    "message": remote_result["message"],
+                    "latency_ms": remote_result["latency_ms"],
+                    **(
+                        {"error_code": remote_result["error_code"]}
+                        if remote_result.get("error_code")
+                        else {}
+                    ),
+                    **({"details": remote_result["details"]} if remote_result.get("details") else {}),
+                }
+            )
+        else:
+            for check_id, label in (("sftp", "SFTP subsystem"), ("remote", "Remote system")):
+                checks.append(
+                    {
+                        "id": check_id,
+                        "label": label,
+                        "status": "skipped",
+                        "message": "Skipped because the SSH handshake failed",
+                    }
+                )
+
+        failed = sum(check["status"] == "failed" for check in checks)
+        warnings = sum(check["status"] == "warning" for check in checks)
+        skipped = sum(check["status"] == "skipped" for check in checks)
+        passed = sum(check["status"] == "ok" for check in checks)
+        overall = "failed" if failed else "warning" if warnings else "ok"
+        return {
+            "alias": server["alias"],
+            "checked_at": utc_now(),
+            "overall": overall,
+            "summary": {
+                "total": len(checks),
+                "passed": passed,
+                "failed": failed,
+                "warnings": warnings,
+                "skipped": skipped,
+            },
+            "checks": checks,
+        }
+
     def connect(self, identifier: str, *, timeout: int = 12) -> int:
         server = self.database.get_server(identifier)
         command = self._base_command(server, timeout=timeout)
@@ -437,14 +821,38 @@ class SSHRunner:
         command.append(shlex.join(list(remote_args)))
         start = time.monotonic()
         binary_input = isinstance(stdin_data, bytes)
-        result = subprocess.run(
-            command,
-            input=stdin_data,
-            text=not binary_input,
-            capture_output=capture,
-            env=self._environment(server),
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                command,
+                input=stdin_data,
+                text=not binary_input,
+                capture_output=capture,
+                env=self._environment(server),
+                timeout=timeout + 5,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            output = {
+                "alias": server["alias"],
+                "ok": False,
+                "returncode": 124,
+                "latency_ms": round((time.monotonic() - start) * 1000),
+                "error_code": "timeout",
+            }
+            if capture:
+                output.update({"stdout": "", "stderr": f"remote command exceeded {timeout + 5} seconds"})
+            return output
+        except OSError as exc:
+            output = {
+                "alias": server["alias"],
+                "ok": False,
+                "returncode": 127,
+                "latency_ms": round((time.monotonic() - start) * 1000),
+                "error_code": "ssh-not-found",
+            }
+            if capture:
+                output.update({"stdout": "", "stderr": str(exc)})
+            return output
         output = {
             "alias": server["alias"],
             "ok": result.returncode == 0,

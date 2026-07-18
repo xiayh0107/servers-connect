@@ -69,6 +69,19 @@ def test_server_context_tags_are_normalized_and_persisted(tmp_path):
         database.update_server("box", tags=[f"tag-{index}" for index in range(21)])
 
 
+def test_server_notes_can_be_set_appended_and_cleared(tmp_path):
+    database = Database(tmp_path / "manager.db")
+    database.create_server(alias="box", hostname="box.example", port=22, username="u")
+
+    assert database.update_server_notes("box", "Primary compute host")["notes"] == "Primary compute host"
+    assert database.update_server_notes("box", "Check disk before upgrades", append=True)["notes"] == (
+        "Primary compute host\n\nCheck disk before upgrades"
+    )
+    assert database.update_server_notes("box", "")["notes"] == ""
+    with pytest.raises(ValidationError, match="required"):
+        database.update_server_notes("box", "", append=True)
+
+
 def test_server_context_registry_and_bulk_membership_are_atomic(tmp_path):
     database = Database(tmp_path / "manager.db")
     one = database.create_server(

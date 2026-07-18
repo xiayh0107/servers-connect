@@ -12,6 +12,8 @@ KINDS = {"password", "key", "agent"}
 MAX_REMOTE_PATH_LENGTH = 4096
 MAX_SERVER_TAGS = 20
 MAX_SERVER_TAG_LENGTH = 40
+MAX_SERVER_NOTE_LENGTH = 10_000
+NOTE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 class ValidationError(ValueError):
@@ -107,6 +109,16 @@ def validate_server_tags(values: Iterable[str] | None) -> list[str]:
             seen.add(key)
         if len(normalized) > MAX_SERVER_TAGS:
             raise ValidationError(f"a server can have at most {MAX_SERVER_TAGS} tags")
+    return normalized
+
+
+def validate_server_note(value: str | None) -> str:
+    """Normalize one server note while allowing human-readable line breaks."""
+    normalized = str(value or "").strip()
+    if len(normalized) > MAX_SERVER_NOTE_LENGTH:
+        raise ValidationError(f"server notes must be at most {MAX_SERVER_NOTE_LENGTH} characters")
+    if NOTE_CONTROL_RE.search(normalized):
+        raise ValidationError("server notes must not contain control characters")
     return normalized
 
 

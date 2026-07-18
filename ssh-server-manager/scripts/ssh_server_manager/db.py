@@ -21,6 +21,7 @@ from .validation import (
     validate_port,
     validate_proxy_jumps,
     validate_server_tags,
+    validate_server_note,
     validate_username,
 )
 
@@ -476,7 +477,7 @@ class Database:
             "credential_id": credential_id,
             "proxy_jumps": validate_proxy_jumps(alias, payload.get("proxy_jumps", [])),
             "tags": validate_server_tags(payload.get("tags", [])),
-            "notes": str(payload.get("notes", "")),
+            "notes": validate_server_note(payload.get("notes", "")),
             "source": str(payload.get("source", "managed")),
         }
         self._validate_proxy_graph(normalized, current_id=current_id)
@@ -579,6 +580,24 @@ class Database:
                 self._register_contexts(connection, normalized["tags"])
         except sqlite3.IntegrityError as exc:
             raise ConflictError(f"server alias already exists: {normalized['alias']}") from exc
+        return self.get_server(current["id"])
+
+    def update_server_notes(self, identifier: str, text: str | None, *, append: bool = False) -> dict[str, Any]:
+        """Set or append a human-authored note without changing host settings."""
+        current = self.get_server(identifier)
+        note = validate_server_note(text)
+        if append:
+            if not note:
+                raise ValidationError("note text is required when appending")
+            combined = f"{current['notes']}\n\n{note}" if current["notes"] else note
+        else:
+            combined = note
+        combined = validate_server_note(combined)
+        with self.transaction() as connection:
+            connection.execute(
+                "UPDATE servers SET notes = ?, updated_at = ? WHERE id = ?",
+                (combined, utc_now(), current["id"]),
+            )
         return self.get_server(current["id"])
 
     def delete_server(self, identifier: str) -> dict[str, Any]:

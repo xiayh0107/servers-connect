@@ -39,8 +39,10 @@ def test_local_ui_session_crud_and_master_reveal(tmp_path, monkeypatch):
     with TestClient(app, base_url="http://localhost:8765") as client:
         response = client.get("/?token=launch")
         assert response.status_code == 200
+        assert "/assets/themes.css" in response.text
         assert client.get("/assets/contexts.js").status_code == 200
         assert client.get("/assets/contexts.css").status_code == 200
+        assert client.get("/assets/themes.css").status_code == 200
         bootstrap = client.get("/api/bootstrap").json()
         headers = {"X-CSRF-Token": bootstrap["csrf"], "Origin": "http://localhost:8765"}
 
@@ -266,3 +268,64 @@ def test_ui_lists_remote_files_for_an_authenticated_browser_session(tmp_path, mo
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["entries"][0]["name"] == "src"
     assert observed == {"identifier": server["id"], "path": "~/project"}
+
+
+def test_ui_host_diagnostics_endpoint_and_assets(tmp_path, monkeypatch):
+    database = Database(tmp_path / "manager.db")
+    server = database.create_server(alias="box", hostname="box.example", port=22, username="alice")
+    app = create_app(database, launch_token="launch", port=8765)
+    observed = {}
+
+    def fake_diagnose(self, identifier, timeout=8):
+        observed.update(identifier=identifier, timeout=timeout)
+        return {
+            "alias": "box",
+            "checked_at": "2026-07-17T12:00:00+00:00",
+            "overall": "ok",
+            "summary": {"total": 4, "passed": 4, "failed": 0, "warnings": 0, "skipped": 0},
+            "checks": [],
+        }
+
+    monkeypatch.setattr(SSHRunner, "diagnose", fake_diagnose)
+    with TestClient(app, base_url="http://localhost:8765") as client:
+        index = client.get("/?token=launch")
+        assert index.status_code == 200
+        assert "/assets/diagnostics.js" in index.text
+        assert client.get("/assets/diagnostics.js").status_code == 200
+        assert client.get("/assets/diagnostics.css").status_code == 200
+        bootstrap = client.get("/api/bootstrap").json()
+        headers = {"X-CSRF-Token": bootstrap["csrf"], "Origin": "http://localhost:8765"}
+        response = client.post(f"/api/servers/{server['id']}/diagnose", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["overall"] == "ok"
+    assert observed == {"identifier": server["id"], "timeout": 8}
+
+
+def test_ui_server_notes_endpoint_and_assets(tmp_path):
+    database = Database(tmp_path / "manager.db")
+    server = database.create_server(alias="box", hostname="box.example", port=22, username="alice")
+    app = create_app(database, launch_token="launch", port=8765)
+
+    with TestClient(app, base_url="http://localhost:8765") as client:
+        index = client.get("/?token=launch")
+        assert index.status_code == 200
+        assert "/assets/notes.js" in index.text
+        assert client.get("/assets/notes.js").status_code == 200
+        assert client.get("/assets/notes.css").status_code == 200
+        csrf = client.get("/api/bootstrap").json()["csrf"]
+        headers = {"X-CSRF-Token": csrf, "Origin": "http://localhost:8765"}
+        added = client.put(
+            f"/api/servers/{server['id']}/notes",
+            headers=headers,
+            json={"mode": "append", "text": "Keep this host for model serving"},
+        )
+        appended = client.put(
+            f"/api/servers/{server['id']}/notes",
+            headers=headers,
+            json={"mode": "append", "text": "Agent note: check GPU memory first"},
+        )
+
+    assert added.status_code == 200
+    assert appended.status_code == 200
+    assert appended.json()["notes"] == "Keep this host for model serving\n\nAgent note: check GPU memory first"

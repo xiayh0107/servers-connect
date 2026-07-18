@@ -32,9 +32,22 @@ instead of tracking pids by hand.
 ./scripts/serverctl server remove ALIAS [--yes]
 ./scripts/serverctl server import [--config PATH] [--apply] [--overwrite] [--json]
 ./scripts/serverctl server test ALIAS [--timeout SECONDS] [--json]
+./scripts/serverctl server diagnose ALIAS [--timeout SECONDS] [--json]
+./scripts/serverctl server note ALIAS (--text TEXT [--append] | --clear) [--json]
 ```
 
 An import without `--apply` is always a preview. Literal aliases are resolved with `ssh -G`; wildcard-only patterns are reported but not imported.
+
+`diagnose` identifies the host's system: its remote check reports `os`,
+`os_id`, `os_version`, `os_family`, and `package_manager` (Linux distros via
+os-release, macOS via sw_vers, BSDs, and Windows OpenSSH hosts) plus kernel,
+arch, CPU, memory, and disk. Use it before suggesting install or admin
+commands so you pick the right package manager; it is read-only and heavier
+than `test`, so run it on demand, not as a routine sweep.
+
+`note` changes only local server metadata. Use `--text` to replace a note,
+`--append` to add an agent or user observation without losing existing text, or
+`--clear` to remove it. Never put passwords or key passphrases in notes.
 
 ## Credentials
 

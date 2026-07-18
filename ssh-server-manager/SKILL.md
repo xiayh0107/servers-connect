@@ -1,15 +1,38 @@
 ---
 name: ssh-server-manager
-description: Manage multiple SSH connection profiles and secure credentials through a cross-platform CLI and local web UI. Use when an AI agent needs to add, import, list, edit, test, connect to, or run commands on SSH servers; manage password, private-key, or ssh-agent authentication; work with ProxyJump hosts; inspect SSH connection failures; or open the local server-management UI.
+description: Connect to saved SSH servers and run remote commands through the bundled `serverctl` CLI, with passwords and keys held in the OS credential vault. Use whenever the user asks to SSH into, connect to, log in to, or run/check something on a server, names a saved host alias, or reports an SSH failure (中文触发：连接/登录服务器、SSH 主机、远程执行命令) — always reach for this BEFORE raw ssh. Replaces ssh/scp/sshpass for managed hosts: serverctl injects vault credentials itself (never ask the user for a password) and applies its managed config, sidestepping ~/.ssh/config gaps and VPN/proxy fake-IP DNS traps that make bare `ssh <alias>` fail. Also: add, import, list, edit, test, and diagnose connection profiles; ProxyJump hosts; local web management UI.
 ---
 
 # SSH Server Manager
 
-Use the bundled `serverctl` command as the source of truth for managed SSH hosts. Keep secrets inside the operating-system credential vault and never print, log, or request them in chat.
+## First: route through `serverctl`, not raw ssh
+
+- The command is `serverctl` — there is no `ssh-server-manager` or `sshsm`
+  binary. Resolve it in this order: `command -v serverctl`, then
+  `~/bin/serverctl`, then `./scripts/serverctl` inside this skill directory.
+- Start every host task with `serverctl server list --json` and match the
+  user's wording to an alias; users abbreviate aliases or describe hosts in
+  other languages.
+- Do not run `ssh`, `scp`, `sftp`, `rsync`, or `sshpass` against a managed
+  host. Bare `ssh <alias>` reads only `~/.ssh/config`, so the alias falls
+  through to DNS resolution — VPN/proxy fake-IP resolvers (Clash, Surge, …)
+  then black-hole the connection with misleading errors. `serverctl
+  test/exec/connect` apply the managed config and vault credentials
+  automatically.
+- Never ask the user to send a password in chat, and never pass one through
+  `sshpass`, argv, or env vars. If a credential is genuinely missing, say
+  which one and route secret entry through `serverctl ui` or the CLI's
+  hidden local prompt.
+- Do not edit `~/.ssh/config` or add an `Include` for the managed conf on
+  your own initiative — plain ssh would still lack vault credential
+  injection, so it fixes nothing.
+
+`serverctl` is the source of truth for managed SSH hosts. Keep secrets inside the operating-system credential vault and never print, log, or request them in chat.
 
 ## Quick start
 
-Run commands from this skill directory:
+Use `serverctl` from PATH when available; otherwise run the launcher from
+this skill directory:
 
 ```bash
 ./scripts/serverctl doctor
@@ -39,6 +62,8 @@ selection.
 - To import OpenSSH aliases, preview with `serverctl server import`, then apply with `serverctl server import --apply`.
 - To add or update secrets, prefer the local UI. When using the CLI, let `getpass` prompt locally; never pass a password as an argument or environment variable.
 - To diagnose access, run `serverctl server test <alias> --json` before connecting.
+- To identify a host's operating system — or before suggesting install/admin commands — run `serverctl server diagnose <alias> --json`: its remote check reports `os`, `os_family`, and `package_manager` (Linux distros, macOS, BSDs, and Windows hosts), so use the reported package manager instead of guessing `apt`.
+- To record a user or agent observation, use `serverctl server note <alias> --text "..." --append --json`; notes are local metadata and must never contain secrets.
 - To browse a host's files visually, run `serverctl ui`, choose the host under **Files**, and start from its remote home directory.
 - To open a live shell, hand `serverctl connect <alias>` to the user's own terminal — see **When the user says "connect"** below. Do not run `connect` from an agent tool call.
 - To execute a remote command, run `serverctl exec <alias> -- <command>`; add `--stdin` when piping UTF-8 text.

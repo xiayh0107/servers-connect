@@ -127,7 +127,7 @@ class WebState:
 def create_app(database: Database, *, launch_token: str, port: int, launch_url_file: Path | None = None):
     try:
         from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
-        from fastapi.responses import FileResponse, JSONResponse
+        from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
     except ImportError as exc:
         raise RuntimeError("UI dependencies are missing; run scripts/bootstrap") from exc
 
@@ -199,7 +199,16 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
             state.launch_token_used = True
             state.consume_launch_url_file()
             new_identifier, session = state.create_session()
-        response = FileResponse(asset_dir() / "index.html", headers={"Cache-Control": "no-store"})
+        html = (asset_dir() / "index.html").read_text(encoding="utf-8")
+        injection = (
+            '<link rel="stylesheet" href="/assets/themes.css">'
+            '<link rel="stylesheet" href="/assets/diagnostics.css">'
+            '<script defer src="/assets/diagnostics.js"></script>'
+            '<link rel="stylesheet" href="/assets/notes.css">'
+            '<script defer src="/assets/notes.js"></script>'
+        )
+        html = html.replace('<div class=app-shell>', f"{injection}<div class=app-shell>", 1)
+        response = HTMLResponse(html, headers={"Cache-Control": "no-store"})
         if new_identifier:
             response.set_cookie(
                 SESSION_COOKIE,
@@ -214,7 +223,17 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
 
     @app.get("/assets/{filename}")
     async def assets(filename: str, _session=Depends(browser_session)):
-        if filename not in {"app.js", "styles.css", "contexts.js", "contexts.css"}:
+        if filename not in {
+            "app.js",
+            "styles.css",
+            "themes.css",
+            "contexts.js",
+            "contexts.css",
+            "diagnostics.js",
+            "diagnostics.css",
+            "notes.js",
+            "notes.css",
+        }:
             raise HTTPException(status_code=404)
         return FileResponse(asset_dir() / filename)
 
@@ -275,6 +294,25 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
     @app.post("/api/servers/{identifier}/test")
     async def test_server(identifier: str, _session=Depends(csrf_session)):
         return await asyncio.to_thread(SSHRunner(database).test, identifier)
+
+    @app.post("/api/servers/{identifier}/diagnose")
+    async def diagnose_server(identifier: str, _session=Depends(csrf_session)):
+        return await asyncio.to_thread(SSHRunner(database).diagnose, identifier)
+
+    @app.post("/api/servers/{identifier}/notes")
+    @app.put("/api/servers/{identifier}/notes")
+    async def update_server_notes(
+        identifier: str, payload: dict[str, Any] = Body(...), _session=Depends(csrf_session)
+    ):
+        mode = str(payload.get("mode", "append"))
+        if mode not in {"append", "set", "clear"}:
+            raise ValidationError("note mode must be append, set, or clear")
+        if mode == "append" and "text" not in payload:
+            raise ValidationError("note text is required when appending")
+        text = "" if mode == "clear" else payload.get("text", "")
+        return await asyncio.to_thread(
+            database.update_server_notes, identifier, text, append=mode == "append"
+        )
 
     @app.get("/api/servers/{identifier}/files")
     async def list_server_files(

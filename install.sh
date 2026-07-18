@@ -80,6 +80,25 @@ else
   say "  ln -s \"$SOURCE\" ~/.claude/skills/$SKILL_NAME"
 fi
 
+# 3b. Put `serverctl` on PATH so humans and agents find it by name instead of
+#     hand-rolling ssh when the skill directory is not the working directory.
+BIN_DIR="$HOME/.local/bin"
+if [ -d "$BIN_DIR" ]; then
+  bin_target="$BIN_DIR/serverctl"
+  if [ -e "$bin_target" ] && [ ! -L "$bin_target" ]; then
+    say "skip: $bin_target exists and is not a symlink"
+  else
+    ln -sfn "$SOURCE/scripts/serverctl" "$bin_target"
+    say "Command linked: serverctl -> $bin_target"
+    case ":$PATH:" in
+      *":$BIN_DIR:"*) ;;
+      *) say "note: $BIN_DIR is not on PATH; add it to your shell profile" ;;
+    esac
+  fi
+else
+  say "note: create $BIN_DIR (and put it on PATH) to get a global 'serverctl' command"
+fi
+
 # 4. Health check.
 say ""
 say "Running serverctl doctor ..."
@@ -90,3 +109,5 @@ say "Running serverctl doctor ..."
 say ""
 say "Done. Your agent can now use the '$SKILL_NAME' skill; humans can run:"
 say "  $SOURCE/scripts/serverctl --help"
+say "Re-run this installer any time to update: it pulls the latest release,"
+say "re-links the skill, and 'serverctl doctor' warns when a linked copy goes stale."

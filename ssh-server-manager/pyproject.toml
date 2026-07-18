@@ -1,6 +1,6 @@
 [project]
 name = "ssh-server-manager"
-version = "0.4.1"
+version = "0.5.0"
 description = "Local-first SSH host and credential manager for humans and AI agents — OS-keychain vault, loopback web UI, agent-safe by design"
 readme = "README.md"
 license = {text = "MIT"}

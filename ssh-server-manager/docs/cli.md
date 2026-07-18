@@ -48,6 +48,8 @@ serverctl server edit ALIAS [--new-alias A] [--hostname H] [--username U]
 serverctl server remove ALIAS [--yes]
 serverctl server import [--config PATH] [--apply] [--overwrite] [--json]
 serverctl server test ALIAS [--timeout SECONDS] [--json]
+serverctl server diagnose ALIAS [--timeout SECONDS] [--json]
+serverctl server note ALIAS (--text TEXT [--append] | --clear) [--json]
 ```
 
 Notes:
@@ -66,6 +68,19 @@ Notes:
   `authentication-failed`, `host-key-untrusted`, `timeout`,
   `connection-refused`, `dns-failed`, `network-unreachable`,
   `ssh-not-found`, `ssh-failed`. Exit code `1` on failure.
+- `diagnose` runs read-only checks for the local profile, SSH handshake, SFTP
+  home-directory access, and a fixed remote system-summary command. The result
+  identifies the operating system across Linux distributions (os-release with
+  legacy-release fallbacks), macOS (`sw_vers`), BSDs, and Windows OpenSSH
+  hosts, reporting structured `os`, `os_id`, `os_version`, `os_family`, and
+  `package_manager` fields (e.g. `debian`/`apt`, `rhel`/`dnf`, `suse`/`zypper`,
+  `arch`/`pacman`, `alpine`/`apk`, `macos`/`brew`) alongside kernel, CPU,
+  uptime/load, memory, and root-disk details when the host exposes them. It
+  never returns credentials or raw remote output; `--json` includes structured
+  check results. Exit code `1` only when at least one check fails.
+- `note` lets a user or agent set, append, or clear the server's human-readable
+  note without changing its SSH connection settings. Notes are local metadata;
+  never put passwords, key passphrases, or other secrets in them.
 - `remove` prompts unless `--yes`; in non-interactive contexts (no TTY)
   it fails closed instead of assuming consent.
 
