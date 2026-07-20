@@ -16,7 +16,7 @@ from . import __version__
 from .db import ConflictError, Database, DatabaseError, NotFoundError
 from .importer import apply_import, preview_import
 from .paths import database_path, managed_ssh_config_path, original_ssh_config_path
-from .service import CredentialService
+from .service import CredentialService, SkillService
 from .ssh_config import SSHConfigError, render_config
 from .ssh_runner import SSHError, SSHRunner
 from .validation import ValidationError
@@ -51,6 +51,11 @@ def format_item(item: Any) -> str:
     if "kind" in item:
         detail = item.get("key_path") or ("stored" if item.get("has_secret") else "not stored")
         return f"{item['label']:<22} {item['kind']:<8} {detail}"
+    if "name" in item and "path" in item:
+        servers = ",".join(server["alias"] for server in item.get("servers", [])) or "-"
+        status = item.get("status")
+        suffix = f"  status={status}" if status else ""
+        return f"{item['name']:<28} {item['path']}  servers={servers}{suffix}"
     return json.dumps(item, ensure_ascii=False)
 
 
@@ -147,6 +152,42 @@ def build_parser() -> argparse.ArgumentParser:
     note_action.add_argument("--clear", action="store_true", help="remove the current note")
     server_note.add_argument("--append", action="store_true", help="append text after the existing note")
     add_json_option(server_note)
+
+    skill = commands.add_parser("skill", help="manage local Agent Skills attached to hosts")
+    skill_commands = skill.add_subparsers(dest="skill_command", required=True)
+    skill_discover = skill_commands.add_parser("discover", help="find local Skills without registering them")
+    add_json_option(skill_discover)
+    skill_list = skill_commands.add_parser("list", help="list registered Skills")
+    skill_list.add_argument("--server", help="only Skills attached to this server alias/id")
+    add_json_option(skill_list)
+    skill_show = skill_commands.add_parser("show", help="show one registered Skill")
+    skill_show.add_argument("skill", help="Skill name or id")
+    add_json_option(skill_show)
+    skill_add = skill_commands.add_parser("add", help="register a local Skill and optionally attach hosts")
+    skill_add.add_argument("path", help="Skill directory or SKILL.md path")
+    skill_add.add_argument("--server", action="append", default=[], help="server alias/id; repeat as needed")
+    add_json_option(skill_add)
+    skill_refresh = skill_commands.add_parser("refresh", help="refresh metadata from SKILL.md")
+    skill_refresh.add_argument("skill", help="Skill name or id")
+    skill_refresh.add_argument("--path", help="new Skill directory or SKILL.md path")
+    add_json_option(skill_refresh)
+    skill_attach = skill_commands.add_parser("attach", help="attach a Skill to one or more hosts")
+    skill_attach.add_argument("skill", help="Skill name or id")
+    skill_attach.add_argument("servers", nargs="+", metavar="SERVER", help="server alias or id")
+    add_json_option(skill_attach)
+    skill_detach = skill_commands.add_parser("detach", help="detach a Skill from one or more hosts")
+    skill_detach.add_argument("skill", help="Skill name or id")
+    skill_detach.add_argument("servers", nargs="+", metavar="SERVER", help="server alias or id")
+    add_json_option(skill_detach)
+    skill_resolve = skill_commands.add_parser(
+        "resolve", help="resolve the local Skills that apply to one or more target hosts"
+    )
+    skill_resolve.add_argument("servers", nargs="+", metavar="SERVER", help="server alias or id")
+    add_json_option(skill_resolve)
+    skill_remove = skill_commands.add_parser("remove", help="unregister a Skill without deleting local files")
+    skill_remove.add_argument("skill", help="Skill name or id")
+    skill_remove.add_argument("--yes", action="store_true")
+    add_json_option(skill_remove)
 
     credential = commands.add_parser("credential", help="manage reusable credentials")
     credential_commands = credential.add_subparsers(dest="credential_command", required=True)
@@ -398,6 +439,34 @@ def handle(args: argparse.Namespace) -> int:
             result = database.update_server_notes(args.alias, args.text or "", append=args.append)
             emit(result, as_json=args.json)
             return 0
+        return 0
+    if args.command == "skill":
+        service = SkillService(database)
+        if args.skill_command == "discover":
+            result = service.discover()
+        elif args.skill_command == "list":
+            result = service.list(server_identifier=args.server)
+        elif args.skill_command == "show":
+            result = database.get_skill(args.skill)
+        elif args.skill_command == "add":
+            result = service.register(args.path, server_identifiers=args.server)
+        elif args.skill_command == "refresh":
+            result = service.refresh(args.skill, path=args.path)
+        elif args.skill_command == "attach":
+            result = database.attach_skill(args.skill, args.servers)
+        elif args.skill_command == "detach":
+            result = database.detach_skill(args.skill, args.servers)
+        elif args.skill_command == "resolve":
+            result = service.resolve(args.servers)
+            emit(result, as_json=args.json)
+            return 0 if result["ok"] else 1
+        elif args.skill_command == "remove":
+            if not confirm(f"Unregister Skill {args.skill}?", args.yes):
+                raise DatabaseError("removal cancelled; use --yes for non-interactive removal")
+            result = service.delete(args.skill)
+        else:
+            return 2
+        emit(result, as_json=args.json)
         return 0
     if args.command == "credential":
         if args.credential_command == "list":

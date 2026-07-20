@@ -38,6 +38,7 @@ SSH Server Manager is different by construction:
 | The web UI is unreachable from the network | Loopback-only bind, one-time launch token, CSRF + Origin checks, strict CSP |
 | Revealing a stored secret requires re-auth | WebAuthn passkey (Touch ID / Windows Hello) or an Argon2id master password; grants are single-use and expire in 30 s |
 | AI agents can drive it without seeing secrets | Every command has `--json`; SSH authentication happens through AskPass so secrets never appear in argv, env, logs, or model context |
+| Environment guidance stays with the right hosts | Local Agent Skills have explicit many-to-many host bindings; resolution partitions multi-host tasks without installing skills or returning their bodies |
 | Host keys are always verified | `StrictHostKeyChecking` is never weakened, by policy and by code |
 
 ## Quick start
@@ -72,6 +73,12 @@ browser with a one-time tokenized URL.
 
 - **Connection profiles** — alias, host, port, user, project/scenario tags,
   notes, ordered ProxyJump chains (with cycle detection).
+- **Host-bound Agent Skills** — discover and register local skills, bind one
+  skill to several related nodes or several skills to one host, and resolve
+  exact `applies_to` partitions before an agent acts. Bindings are routing
+  metadata, not remote authorization. Manage a host's assignments directly
+  from its Connections row or active Workspace; use the Skill Library for
+  discovery and registration.
 - **Three credential kinds** — vault-backed passwords, private keys with
   optional vault-backed passphrases, and ssh-agent/OpenSSH defaults.
   Credentials are reusable across servers and protected against deletion
@@ -123,6 +130,24 @@ inventory questions from a single `--json` call, hand interactive shells to
 *your* terminal and proxy follow-up commands through `exec` (`connect`
 refuses to run without a TTY instead of hanging), and clean up a background
 UI with `serverctl ui --stop`.
+
+Environment-specific skills can follow only the hosts where they belong. The
+agent identifies the target first, runs `serverctl skill resolve ALIAS
+[ALIAS ...] --json`, then selects relevant ready skills by their normal trigger
+rules and applies them only to their returned `applies_to` aliases. Switching
+hosts discards the previous host-specific context; no cluster name or provider
+is hard-coded.
+
+```bash
+serverctl skill discover --json
+serverctl skill add ~/.agents/skills/gpu-ops \
+  --server gpu-lab-01 --server gpu-lab-02 --json
+serverctl skill resolve gpu-lab-01 gpu-lab-02 --json
+```
+
+Discovery is local and read-only. Registration does not install or execute a
+skill, and resolution returns metadata and paths rather than instruction
+bodies. See the [agent deployment guide](docs/ai-agents.md#host-specific-agent-skills).
 
 Deploy the skill with one line:
 

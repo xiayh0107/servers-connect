@@ -14,6 +14,7 @@ pytest.importorskip("argon2")
 from fastapi.testclient import TestClient
 
 from ssh_server_manager.db import Database
+from ssh_server_manager.service import SkillService
 from ssh_server_manager.ssh_runner import SSHRunner
 from ssh_server_manager.vault import MemoryVault
 from ssh_server_manager.webapp import (
@@ -329,3 +330,118 @@ def test_ui_server_notes_endpoint_and_assets(tmp_path):
     assert added.status_code == 200
     assert appended.status_code == 200
     assert appended.json()["notes"] == "Keep this host for model serving\n\nAgent note: check GPU memory first"
+
+
+def test_ui_host_skill_registry_and_atomic_bindings(tmp_path, monkeypatch):
+    database = Database(tmp_path / "manager.db")
+    one = database.create_server(alias="one", hostname="one.example", port=22, username="alice")
+    two = database.create_server(alias="two", hostname="two.example", port=22, username="alice")
+    skill_dir = tmp_path / "skills" / "gpu-operations"
+    skill_dir.mkdir(parents=True)
+    manifest = skill_dir / "SKILL.md"
+    manifest.write_text(
+        "---\nname: gpu-operations\ndescription: Inspect GPU jobs on the attached hosts.\n---\n"
+        "PRIVATE SKILL BODY MUST NOT ENTER BOOTSTRAP\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(SkillService, "standard_roots", staticmethod(lambda: [tmp_path / "skills"]))
+    app = create_app(database, launch_token="launch", port=8765)
+
+    with TestClient(app, base_url="http://localhost:8765") as client:
+        assert client.get("/?token=launch").status_code == 200
+        assert client.get("/assets/skills.js").status_code == 200
+        assert client.get("/assets/skills.css").status_code == 200
+        bootstrap = client.get("/api/bootstrap").json()
+        headers = {"X-CSRF-Token": bootstrap["csrf"], "Origin": "http://localhost:8765"}
+
+        discovered = client.get("/api/skills/discover")
+        assert discovered.status_code == 200
+        assert discovered.json()["candidates"][0]["name"] == "gpu-operations"
+        assert client.post("/api/skills", headers=headers, json={}).status_code == 400
+        assert client.post(
+            "/api/skills", json={"path": str(skill_dir), "server_ids": [one["id"]]}
+        ).status_code == 403
+        created = client.post(
+            "/api/skills",
+            headers=headers,
+            json={"path": str(skill_dir), "server_ids": [one["id"]]},
+        )
+        assert created.status_code == 200
+        skill = created.json()
+        assert skill["name"] == "gpu-operations"
+        assert [server["alias"] for server in skill["servers"]] == ["one"]
+
+        refreshed_bootstrap = client.get("/api/bootstrap").json()
+        assert refreshed_bootstrap["skills"][0]["status"] == "ready"
+        assert refreshed_bootstrap["skills"][0]["servers"] == [
+            {"id": one["id"], "alias": "one"}
+        ]
+        assert "PRIVATE SKILL BODY" not in str(refreshed_bootstrap)
+
+        original_manifest = manifest.read_text(encoding="utf-8")
+        manifest.write_text(
+            "---\nname: gpu-operations\ndescription: Deep metadata\nnested: "
+            + "[" * 500
+            + "0"
+            + "]" * 500
+            + "\n---\n",
+            encoding="utf-8",
+        )
+        deep_bootstrap = client.get("/api/bootstrap")
+        assert deep_bootstrap.status_code == 200
+        assert deep_bootstrap.json()["skills"][0]["status"] == "invalid"
+        assert SkillService(database).resolve(["one"])["ok"] is False
+        manifest.write_text(original_manifest, encoding="utf-8")
+
+        bound = client.put(
+            f"/api/skills/{skill['id']}/servers",
+            headers=headers,
+            json={"server_ids": [one["id"], two["id"]]},
+        )
+        assert bound.status_code == 200
+        assert [server["alias"] for server in bound.json()["servers"]] == ["one", "two"]
+
+        server_scoped = client.put(
+            f"/api/servers/{one['id']}/skills",
+            headers=headers,
+            json={"skill_ids": [skill["id"]]},
+        )
+        assert server_scoped.status_code == 200
+        assert server_scoped.json()[0]["status"] == "ready"
+        assert client.put(
+            f"/api/servers/{one['id']}/skills",
+            headers=headers,
+            json={"skill_ids": [skill["id"], "missing-skill"]},
+        ).status_code == 404
+        assert [server["alias"] for server in database.get_skill(skill["id"])["servers"]] == [
+            "one",
+            "two",
+        ]
+
+        manifest.unlink()
+        missing_bound = client.put(
+            f"/api/servers/{one['id']}/skills",
+            headers=headers,
+            json={"skill_ids": [skill["id"]]},
+        )
+        assert missing_bound.status_code == 200
+        assert missing_bound.json()[0]["status"] == "missing"
+        assert SkillService(database).resolve(["one"])["ok"] is False
+        manifest.write_text(original_manifest, encoding="utf-8")
+
+        server_scoped = client.put(
+            f"/api/servers/{one['id']}/skills",
+            headers=headers,
+            json={"skill_ids": []},
+        )
+        assert server_scoped.status_code == 200
+        assert [server["alias"] for server in database.get_skill(skill["id"])["servers"]] == ["two"]
+
+        assert client.delete(f"/api/skills/{skill['id']}", headers=headers).status_code == 409
+        assert client.put(
+            f"/api/skills/{skill['id']}/servers", headers=headers, json={"server_ids": []}
+        ).status_code == 200
+        removed = client.delete(f"/api/skills/{skill['id']}", headers=headers)
+        assert removed.status_code == 200
+
+    assert manifest.exists()

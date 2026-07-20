@@ -26,6 +26,7 @@ SSH Server Manager 从架构上避开这些问题：
 | Web UI 无法从网络访问 | 仅绑定 127.0.0.1，一次性启动令牌，CSRF + Origin 校验，严格 CSP |
 | 查看已存秘密需要重新认证 | WebAuthn 通行密钥（Touch ID / Windows Hello）或 Argon2id 主密码；授权单次有效、30 秒过期 |
 | AI 智能体可安全驱动 | 所有命令支持 `--json`；SSH 认证通过 AskPass 完成，秘密不会出现在参数、环境变量、日志或模型上下文中 |
+| 环境操作知识只跟随相关主机 | 本地 Agent Skills 与主机显式多对多绑定；多主机解析按适用范围分区，既不安装 skill，也不返回正文 |
 | 主机密钥始终校验 | 代码与规范双重保证，绝不弱化 `StrictHostKeyChecking` |
 
 ## 快速开始
@@ -58,6 +59,7 @@ cd servers-connect/ssh-server-manager
 ## 功能
 
 - **连接档案** —— 别名、主机、端口、用户、项目/场景标签、备注、有序 ProxyJump 跳板链（带环路检测）。
+- **主机专属 Agent Skills** —— 发现并登记本地 skill；一个 skill 可绑定一组相关节点，一台主机也可组合多个 skill；Agent 执行前按精确的 `applies_to` 范围解析。可直接从 Connections 行或当前 Host Workspace 管理该主机的绑定，全局 Skill Library 负责发现与登记。绑定只负责上下文路由，不代表远程操作授权。
 - **三种凭据类型** —— 保险库密码、私钥（可选保险库口令）、ssh-agent/OpenSSH 默认。凭据可被多台服务器复用，被引用时禁止删除。
 - **OpenSSH 导入** —— 解析 `~/.ssh/config`（跟随 `Include`），用 `ssh -G` 解析每个字面量别名，先预览后应用。
 - **托管配置渲染** —— 原子写入、仅本用户可读的 `~/.ssh/ssh-server-manager.conf`；原配置始终最后加载，不影响既有默认值。
@@ -82,6 +84,22 @@ cd servers-connect/ssh-server-manager
 本项目同时以 Agent Skill（[SKILL.md](SKILL.md)）形式发布，Claude Code、Codex 等智能体可以安全地管理服务器：智能体获得结构化 JSON 输出和连接错误分类，而 AskPass 架构从设计上保证秘密不进入模型上下文。
 
 Skill 不只教命令，还规定了对话体验：智能体用一次 `--json` 调用回答主机清单问题；交互式 shell 交还给**你的**终端、后续命令由 `exec` 代理执行（`connect` 在无终端环境下会快速报错而不是挂起）；后台 UI 用 `serverctl ui --stop` 一键清理。
+
+环境专属 skill 只跟随它绑定的主机。智能体先确认目标，再运行
+`serverctl skill resolve 别名 [别名 ...] --json`，再按正常触发规则从 ready
+结果中选择与当前任务相关的 skill，并且只用于返回的 `applies_to` 主机；
+切换主机时会丢弃前一个主机的专属上下文。系统不硬编码任何集群、服务商
+或主机别名。
+
+```bash
+serverctl skill discover --json
+serverctl skill add ~/.agents/skills/gpu-ops \
+  --server gpu-lab-01 --server gpu-lab-02 --json
+serverctl skill resolve gpu-lab-01 gpu-lab-02 --json
+```
+
+发现过程只读且不联网；登记不会安装或执行 skill；解析只返回元数据与本地
+路径，不返回指令正文。详见[智能体部署指南](docs/ai-agents.md#host-specific-agent-skills)。
 
 一句话部署 skill：
 

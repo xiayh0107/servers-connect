@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 import re
 from pathlib import Path
 from typing import Iterable
@@ -10,10 +11,12 @@ ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 KINDS = {"password", "key", "agent"}
 MAX_REMOTE_PATH_LENGTH = 4096
+MAX_SKILL_DESCRIPTION_LENGTH = 4096
 MAX_SERVER_TAGS = 20
 MAX_SERVER_TAG_LENGTH = 40
 MAX_SERVER_NOTE_LENGTH = 10_000
 NOTE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+CASE_INSENSITIVE_SKILL_FILENAMES = os.name == "nt"
 
 
 class ValidationError(ValueError):
@@ -62,6 +65,58 @@ def validate_label(value: str) -> str:
     if not value or len(value) > 100 or CONTROL_RE.search(value):
         raise ValidationError("credential label must be 1-100 printable characters")
     return value
+
+
+def validate_skill_name(value: str) -> str:
+    value = value.strip()
+    if not value or len(value) > 100 or not value.isprintable() or "/" in value or "\\" in value:
+        raise ValidationError("skill name must be 1-100 printable characters without '/' or '\\'")
+    return value
+
+
+def skill_name_key(value: str) -> str:
+    """Return the persisted, Unicode-aware key used for Skill identity."""
+    return validate_skill_name(value).casefold()
+
+
+def is_skill_manifest_name(value: str) -> bool:
+    """Match the manifest filename using the current platform's path rules."""
+    return (
+        value.casefold() == "skill.md"
+        if CASE_INSENSITIVE_SKILL_FILENAMES
+        else value == "SKILL.md"
+    )
+
+
+def validate_skill_path(value: str | Path) -> str:
+    raw_value = str(value).strip()
+    if not raw_value or len(raw_value) > MAX_REMOTE_PATH_LENGTH or CONTROL_RE.search(raw_value):
+        raise ValidationError("skill manifest path must be a valid path to SKILL.md")
+    path = Path(raw_value).expanduser()
+    try:
+        if not path.is_absolute():
+            path = path.resolve()
+        else:
+            path = path.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ValidationError("skill manifest path cannot be resolved") from exc
+    if not is_skill_manifest_name(path.name):
+        raise ValidationError("skill manifest path must point to SKILL.md")
+    # Preserve the resolved spelling.  normcase() is suitable for comparison
+    # keys, but lowercases paths on Windows and can break NTFS directories that
+    # opt into per-directory case sensitivity.
+    return str(path)
+
+
+def validate_skill_description(value: str) -> str:
+    description = str(value).strip()
+    if not description or len(description) > MAX_SKILL_DESCRIPTION_LENGTH:
+        raise ValidationError(
+            f"skill description must be 1-{MAX_SKILL_DESCRIPTION_LENGTH} characters"
+        )
+    if NOTE_CONTROL_RE.search(description):
+        raise ValidationError("skill description must not contain control characters")
+    return description
 
 
 def validate_kind(value: str) -> str:

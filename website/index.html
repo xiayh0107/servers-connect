@@ -4,1071 +4,1066 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#070c14">
 <style>
-  :root {
-    --page: #070c14;
-    --page-soft: #0a111d;
-    --panel: #0e1725;
-    --panel-strong: #111d2e;
-    --ink: #f3f6fb;
-    --muted: #9aa8bd;
-    --faint: #687990;
-    --line: #1d2a3d;
-    --accent: #8794ff;
-    --accent-strong: #aab3ff;
-    --accent-soft: rgba(106, 120, 255, .16);
-    --green: #4ad6a0;
-    --amber: #efbd51;
-    --red: #ff747c;
-    color-scheme: dark;
-  }
-
-  * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
-  body {
-    margin: 0;
-    min-width: 320px;
-    background:
-      radial-gradient(circle at 50% -20%, rgba(88, 106, 255, .12), transparent 32rem),
-      var(--page);
-    color: var(--ink);
-    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-    -webkit-font-smoothing: antialiased;
-  }
-  button, input, select { color: inherit; font: inherit; }
-  button, select { cursor: pointer; }
-  a { color: inherit; text-decoration: none; }
-  [hidden] { display: none !important; }
-  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-  body [lang="zh-CN"] { display: none; }
-  html[data-lang="zh"] body [lang="zh-CN"] { display: revert; }
-  html[data-lang="zh"] body [lang="en"] { display: none; }
-
-  .site-nav,
-  .hero,
-  .demo-section,
-  .feature-section,
-  .final-cta,
-  .site-footer {
-    width: min(1460px, calc(100% - 56px));
-    margin-inline: auto;
-  }
-  .site-nav {
-    height: 72px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-    border-bottom: 1px solid rgba(255, 255, 255, .06);
-  }
-  .site-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-  .site-mark,
-  .demo-mark {
-    display: grid;
-    place-items: center;
-    border: 1px solid rgba(135, 148, 255, .42);
-    background: linear-gradient(145deg, rgba(135, 148, 255, .24), rgba(135, 148, 255, .08));
-    color: var(--accent-strong);
-    font: 800 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  }
-  .site-mark { width: 38px; height: 38px; border-radius: 10px; }
-  .site-brand strong { display: block; font-size: 14px; letter-spacing: -.01em; }
-  .site-brand small { display: block; margin-top: 2px; color: var(--faint); font-size: 10px; }
-  .version-badge {
-    padding: 4px 7px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    color: var(--muted);
-    font-size: 10px;
-  }
-  .site-actions { display: flex; align-items: center; gap: 22px; color: var(--muted); font-size: 12px; }
-  .site-actions a:hover, .lang-button:hover { color: var(--ink); }
-  .lang-button { padding: 0; border: 0; background: none; color: inherit; }
-  .button {
-    min-height: 42px;
-    padding: 0 16px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    background: var(--panel);
-    color: var(--ink);
-    font-weight: 720;
-    font-size: 12px;
-  }
-  .button:hover { border-color: #34455f; background: var(--panel-strong); }
-  .button.primary { border-color: transparent; background: var(--accent); color: #0b1020; }
-  .button.primary:hover { background: #9da8ff; }
-  .button.small { min-height: 34px; padding-inline: 12px; font-size: 11px; }
-
-  .hero {
-    padding: 64px 0 46px;
-    display: grid;
-    grid-template-columns: minmax(0, .94fr) minmax(440px, .76fr);
-    gap: 52px;
-    align-items: center;
-  }
-  .eyebrow {
-    margin: 0 0 16px;
-    color: var(--accent);
-    font-size: 10px;
-    font-weight: 850;
-    letter-spacing: .2em;
-    text-transform: uppercase;
-  }
-  .hero h1 {
-    max-width: 780px;
-    margin: 0;
-    font-size: clamp(42px, 5.2vw, 76px);
-    line-height: .98;
-    letter-spacing: -.055em;
-  }
-  .hero > div { min-width: 0; }
-  .hero h1 .muted-phrase { display: block; color: #8e9bb0; }
-  .hero-description {
-    max-width: 760px;
-    margin: 24px 0 30px;
-    color: var(--muted);
-    font-size: clamp(16px, 1.7vw, 20px);
-    line-height: 1.6;
-  }
-  .hero-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-  .agent-hero {
-    position: relative;
-    min-width: 0;
-    width: 100%;
-    overflow: hidden;
-    border: 1px solid var(--line);
-    border-radius: 16px;
-    background: #0b1421;
-    box-shadow: 0 34px 90px -48px rgba(0, 0, 0, .95);
-  }
-  .agent-visual { position: relative; overflow: hidden; aspect-ratio: 8 / 5; background: #050a12; }
-  .agent-visual::after { content: ""; position: absolute; inset: 58% 0 0; background: linear-gradient(transparent, rgba(5, 10, 18, .7)); pointer-events: none; }
-  .agent-visual img { width: 100%; height: 100%; display: block; object-fit: cover; }
-  .agent-mode { position: absolute; z-index: 1; top: 14px; left: 14px; padding: 7px 9px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(135, 148, 255, .3); border-radius: 7px; background: rgba(6, 13, 23, .88); color: #c9d0ff; font-size: 9px; font-weight: 780; letter-spacing: .04em; }
-  .agent-mode i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px rgba(74, 214, 160, .12); }
-  .agent-caption { padding: 18px; border-top: 1px solid var(--line); }
-  .agent-caption > small { color: var(--accent); font-size: 9px; font-weight: 850; letter-spacing: .15em; text-transform: uppercase; }
-  .agent-caption > strong { display: block; margin: 8px 0 5px; font-size: 19px; letter-spacing: -.02em; }
-  .agent-caption > p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
-  .agent-flow { margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); overflow: hidden; list-style: none; border: 1px solid var(--line); border-radius: 9px; background: #09121e; }
-  .agent-flow li { min-width: 0; padding: 10px; }
-  .agent-flow li + li { border-left: 1px solid var(--line); }
-  .agent-flow b { display: block; margin-bottom: 4px; color: var(--accent); font: 800 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .agent-flow span { color: #bdc7d7; font-size: 9px; line-height: 1.35; }
-
-  .demo-section { padding: 28px 0 80px; }
-  .section-heading {
-    margin-bottom: 18px;
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 30px;
-  }
-  .section-heading h2 { margin: 0; font-size: clamp(25px, 3vw, 38px); letter-spacing: -.035em; }
-  .section-heading p { max-width: 480px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; text-align: right; }
-  .demo-shell {
-    --d-bg: #091321;
-    --d-sidebar: #07101b;
-    --d-panel: #0d1929;
-    --d-panel-soft: #101e31;
-    --d-control: #132137;
-    --d-ink: #f3f6fb;
-    --d-muted: #93a1b6;
-    --d-faint: #60718b;
-    --d-line: #1d2d44;
-    --d-hover: #12223a;
-    position: relative;
-    overflow: hidden;
-    border: 1px solid #27364d;
-    border-radius: 18px;
-    background: var(--d-bg);
-    box-shadow: 0 38px 100px -52px rgba(0, 0, 0, .9);
-    color: var(--d-ink);
-  }
-  .demo-shell[data-demo-theme="light"] {
-    --d-bg: #f4f6fa;
-    --d-sidebar: #eef1f6;
-    --d-panel: #fff;
-    --d-panel-soft: #f7f8fb;
-    --d-control: #e8ecf3;
-    --d-ink: #192233;
-    --d-muted: #59657a;
-    --d-faint: #8590a2;
-    --d-line: #d8dee9;
-    --d-hover: #edf1f8;
-  }
-  .demo-windowbar {
-    height: 38px;
-    padding: 0 14px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    border-bottom: 1px solid var(--d-line);
-    background: var(--d-panel);
-    color: var(--d-faint);
-    font-size: 9px;
-  }
-  .window-dots { display: flex; gap: 5px; }
-  .window-dots i { width: 6px; height: 6px; border-radius: 50%; background: #4a5a71; }
-  .demo-address {
-    min-width: 0;
-    flex: 1;
-    text-align: center;
-    font: 9px ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-  .sample-pill { display: inline-flex; align-items: center; gap: 6px; color: var(--d-muted); }
-  .sample-pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
-  .demo-theme-button, .demo-accent-button { padding: 3px 7px; border: 0; border-radius: 5px; background: var(--d-control); color: var(--d-muted); font-size: 9px; }
-  .demo-accent-button { display: inline-flex; align-items: center; gap: 5px; }
-  .demo-accent-button i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
-  .demo-app { min-height: 690px; display: grid; grid-template-columns: 236px minmax(0, 1fr); background: var(--d-bg); }
-  .demo-sidebar {
-    min-width: 0;
-    padding: 18px 12px 14px;
-    display: flex;
-    flex-direction: column;
-    border-right: 1px solid var(--d-line);
-    background: var(--d-sidebar);
-  }
-  .demo-brand { padding: 0 6px 17px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--d-line); }
-  .demo-mark { width: 32px; height: 32px; border-radius: 8px; font-size: 11px; }
-  .demo-brand strong { display: block; font-size: 11px; }
-  .demo-brand small { display: block; margin-top: 2px; color: var(--d-faint); font-size: 8px; }
-  .demo-nav { padding: 12px 0; display: grid; gap: 3px; border-bottom: 1px solid var(--d-line); }
-  .demo-nav button {
-    width: 100%; min-height: 34px; padding: 0 9px;
-    display: flex; align-items: center; gap: 9px;
-    border: 0; border-radius: 7px; background: transparent; color: var(--d-muted);
-    text-align: left; font-size: 9px; font-weight: 700;
-  }
-  .demo-nav button:hover { background: var(--d-hover); color: var(--d-ink); }
-  .demo-nav button.active { background: var(--accent-soft); color: var(--accent-strong); }
-  .nav-glyph { width: 15px; color: currentColor; text-align: center; font: 800 10px ui-monospace, monospace; }
-  .demo-nav b { margin-left: auto; min-width: 18px; padding: 2px 5px; border-radius: 10px; background: var(--d-control); color: var(--d-muted); font-size: 8px; text-align: center; }
-  .sidebar-heading { padding: 13px 7px 7px; display: flex; align-items: center; justify-content: space-between; color: var(--d-faint); font-size: 8px; font-weight: 850; letter-spacing: .13em; text-transform: uppercase; }
-  .demo-hosts { max-height: 350px; overflow: auto; display: grid; gap: 2px; }
-  .demo-host-button {
-    width: 100%; min-width: 0; padding: 7px;
-    display: grid; grid-template-columns: 7px minmax(0, 1fr); gap: 8px; align-items: center;
-    border: 0; border-radius: 7px; background: transparent; color: var(--d-ink); text-align: left;
-  }
-  .demo-host-button:hover, .demo-host-button.active { background: var(--d-hover); }
-  .demo-host-button.active { box-shadow: inset 2px 0 var(--accent); }
-  .demo-host-button strong, .demo-host-button small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .demo-host-button strong { font-size: 9px; }
-  .demo-host-button small { margin-top: 3px; color: var(--d-faint); font: 7px ui-monospace, monospace; }
-  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--d-faint); box-shadow: 0 0 0 3px rgba(111, 127, 153, .12); }
-  .status-dot.reachable { background: var(--green); }
-  .status-dot.unreachable { background: var(--red); }
-  .status-dot.idle { background: var(--amber); }
-  .demo-tags { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 7px; }
-  .sidebar-tag {
-    padding: 4px 7px; border: 1px solid var(--d-line); border-radius: 6px;
-    background: transparent; color: var(--d-muted); font-size: 7px;
-  }
-  .sidebar-tag:hover, .sidebar-tag.active { border-color: rgba(135, 148, 255, .55); background: var(--accent-soft); color: var(--accent-strong); }
-  .demo-session { margin-top: auto; padding: 12px 7px 0; display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--d-line); }
-  .demo-session strong { display: block; font-size: 8px; }
-  .demo-session small { display: block; margin-top: 2px; color: var(--d-faint); font-size: 7px; }
-  .demo-main { min-width: 0; display: flex; flex-direction: column; }
-  .demo-header {
-    min-height: 88px;
-    padding: 17px 22px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 18px;
-    border-bottom: 1px solid var(--d-line);
-    background: var(--d-bg);
-  }
-  .demo-header .eyebrow { margin-bottom: 6px; font-size: 7px; }
-  .demo-header h2 { margin: 0; font-size: 22px; letter-spacing: -.035em; }
-  .demo-header p { margin: 5px 0 0; color: var(--d-muted); font-size: 9px; }
-  .demo-header-actions { display: flex; align-items: center; gap: 7px; }
-  .demo-select,
-  .demo-input,
-  .demo-control {
-    height: 34px;
-    border: 1px solid var(--d-line);
-    border-radius: 7px;
-    background: var(--d-panel);
-    color: var(--d-muted);
-    font-size: 9px;
-  }
-  .demo-select { min-width: 130px; padding: 0 28px 0 10px; }
-  .demo-input { width: 100%; padding: 0 11px; outline: none; }
-  .demo-input:focus { border-color: var(--accent); }
-  .demo-control { padding: 0 11px; font-weight: 750; }
-  .demo-control:hover { border-color: #42536d; color: var(--d-ink); }
-  .demo-control.accent { border-color: transparent; background: var(--accent); color: #0c1224; }
-  .demo-panel { min-height: 0; flex: 1; padding: 18px 20px 22px; }
-  .demo-stats { margin-bottom: 12px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-  .demo-stat { padding: 11px 12px; border: 1px solid var(--d-line); border-radius: 8px; background: var(--d-panel); }
-  .demo-stat small { display: block; color: var(--d-faint); font-size: 7px; text-transform: uppercase; letter-spacing: .08em; }
-  .demo-stat strong { display: block; margin-top: 5px; font-size: 17px; }
-  .connection-toolbar {
-    margin-bottom: 10px; padding: 7px;
-    display: flex; align-items: center; gap: 8px;
-    border: 1px solid var(--d-line); border-radius: 8px; background: var(--d-panel);
-  }
-  .connection-toolbar label { min-width: 180px; flex: 1; }
-  .shown-count { color: var(--d-faint); font-size: 8px; white-space: nowrap; }
-  .batch-actions { display: flex; align-items: center; gap: 6px; }
-  .batch-actions strong { color: var(--accent-strong); font-size: 8px; }
-  .demo-table-wrap { overflow: auto; border: 1px solid var(--d-line); border-radius: 9px; background: var(--d-panel); }
-  .demo-table { width: 100%; min-width: 900px; border-collapse: collapse; table-layout: fixed; }
-  .demo-table th {
-    height: 34px; padding: 7px 9px; border-bottom: 1px solid var(--d-line); background: var(--d-panel-soft);
-    color: var(--d-faint); font-size: 7px; letter-spacing: .1em; text-align: left; text-transform: uppercase;
-  }
-  .demo-table td { height: 58px; padding: 8px 9px; border-bottom: 1px solid var(--d-line); color: var(--d-muted); font-size: 8px; vertical-align: middle; }
-  .demo-table tbody tr:last-child td { border-bottom: 0; }
-  .demo-table tbody tr:hover { background: var(--d-hover); }
-  .connection-table th:first-child, .connection-table td:first-child { width: 36px; text-align: center; }
-  .connection-table th:nth-child(2) { width: 18%; }
-  .connection-table th:nth-child(3) { width: 19%; }
-  .connection-table th:nth-child(4) { width: 19%; }
-  .connection-table th:nth-child(5) { width: 16%; }
-  .connection-table th:nth-child(6) { width: 14%; }
-  .connection-table th:last-child { width: 92px; }
-  .demo-check { width: 13px; height: 13px; accent-color: var(--accent); }
-  .alias-button { padding: 0; border: 0; background: none; color: inherit; text-align: left; }
-  .alias-button strong, .alias-button small, .cell-stack strong, .cell-stack small { display: block; }
-  .alias-button strong, .cell-stack strong { color: var(--d-ink); font-size: 9px; }
-  .alias-button small, .cell-stack small { margin-top: 4px; color: var(--d-faint); font-size: 7px; }
-  .endpoint { font: 8px ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .tag-stack { display: flex; flex-wrap: wrap; gap: 4px; }
-  .tag-chip, .add-tag {
-    padding: 3px 6px; border: 1px solid rgba(135, 148, 255, .34); border-radius: 6px;
-    background: var(--accent-soft); color: var(--accent-strong); font-size: 7px;
-  }
-  .tag-chip:hover { border-color: var(--accent); }
-  .add-tag { border-style: dashed; background: transparent; color: var(--d-muted); }
-  .tg-0 { --tg: 86, 162, 237; }
-  .tg-1 { --tg: 240, 181, 77; }
-  .tg-2 { --tg: 87, 213, 155; }
-  .tg-3 { --tg: 239, 109, 118; }
-  .tg-4 { --tg: 154, 118, 230; }
-  .tg-5 { --tg: 135, 148, 255; }
-  .sidebar-tag[class*="tg-"], .tag-chip[class*="tg-"] { border-color: rgba(var(--tg), .5); background: rgba(var(--tg), .13); color: rgb(var(--tg)); }
-  .sidebar-tag[class*="tg-"].active { border-color: rgb(var(--tg)); background: rgba(var(--tg), .26); color: rgb(var(--tg)); }
-  .tag-chip[class*="tg-"]:hover { border-color: rgb(var(--tg)); }
-  .demo-shell[data-demo-theme="light"] .sidebar-tag[class*="tg-"], .demo-shell[data-demo-theme="light"] .tag-chip[class*="tg-"], .demo-shell[data-demo-theme="light"] .tag-dot { filter: saturate(1.15) brightness(.74); }
-  .tag-dot { flex: 0 0 auto; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: rgb(var(--tg, 86, 162, 237)); }
-  .status-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border-radius: 20px; font-size: 7px; font-weight: 760; }
-  .status-pill::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
-  .status-pill.reachable { background: rgba(52, 199, 142, .13); color: var(--green); }
-  .status-pill.unreachable { background: rgba(255, 95, 104, .13); color: var(--red); }
-  .status-pill.idle { background: rgba(235, 181, 68, .14); color: var(--amber); }
-  .browse-button { min-height: 30px; padding: 0 10px; border: 0; border-radius: 6px; background: var(--accent-soft); color: var(--accent-strong); font-size: 8px; font-weight: 760; }
-  .browse-button:hover { background: rgba(106, 120, 255, .26); }
-  .empty-table { padding: 32px; color: var(--d-muted); text-align: center; font-size: 9px; }
-
-  .host-banner { margin-bottom: 12px; padding: 12px; display: flex; align-items: center; justify-content: space-between; gap: 15px; border: 1px solid var(--d-line); border-radius: 9px; background: var(--d-panel); }
-  .host-banner-main { display: flex; align-items: center; gap: 10px; }
-  .host-icon { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 8px; background: var(--accent-soft); color: var(--accent-strong); font: 800 10px ui-monospace, monospace; }
-  .host-banner strong, .host-banner small { display: block; }
-  .host-banner strong { font-size: 10px; }
-  .host-banner small { margin-top: 3px; color: var(--d-faint); font: 7px ui-monospace, monospace; }
-  .file-toolbar { margin-bottom: 10px; display: grid; grid-template-columns: auto minmax(180px, 1fr) auto; gap: 7px; }
-  .path-display { padding: 0 11px; display: flex; align-items: center; border: 1px solid var(--d-line); border-radius: 7px; background: var(--d-panel); color: var(--d-muted); font: 8px ui-monospace, monospace; }
-  .file-name { display: flex; align-items: center; gap: 8px; }
-  .file-glyph { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 5px; background: var(--d-control); color: var(--d-muted); font-size: 9px; }
-  .file-glyph.folder { color: var(--amber); }
-  .file-button { padding: 0; border: 0; background: none; color: var(--d-ink); font-size: 8px; font-weight: 700; text-align: left; }
-  .file-copy { padding: 4px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--d-faint); font-size: 7px; }
-  .file-copy:hover { background: var(--d-control); color: var(--d-ink); }
-
-  .tag-create-bar { margin-bottom: 12px; padding: 10px; display: flex; gap: 7px; border: 1px solid var(--d-line); border-radius: 9px; background: var(--d-panel); }
-  .tag-create-bar .demo-input { flex: 1; }
-  .tag-library { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
-  .tag-card { padding: 13px; border: 1px solid var(--d-line); border-radius: 9px; background: var(--d-panel); }
-  .tag-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-  .tag-card-head strong { font-size: 10px; }
-  .tag-card-head span { padding: 3px 6px; border-radius: 10px; background: var(--d-control); color: var(--d-muted); font-size: 7px; }
-  .tag-card p { min-height: 28px; margin: 9px 0 11px; color: var(--d-faint); font-size: 8px; line-height: 1.5; }
-  .tag-host-preview { margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 4px; }
-  .tag-host-preview span { padding: 3px 5px; border-radius: 4px; background: var(--d-panel-soft); color: var(--d-muted); font-size: 7px; }
-  .tag-view-button { padding: 0; border: 0; background: none; color: var(--accent-strong); font-size: 8px; font-weight: 750; }
-  .security-note { margin-bottom: 12px; padding: 13px; display: flex; gap: 11px; border: 1px solid rgba(135, 148, 255, .25); border-radius: 9px; background: var(--accent-soft); }
-  .security-icon { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: rgba(135, 148, 255, .16); color: var(--accent-strong); font-size: 12px; }
-  .security-note strong { display: block; font-size: 9px; }
-  .security-note p { margin: 4px 0 0; color: var(--d-muted); font-size: 8px; line-height: 1.5; }
-
-  .tag-picker {
-    z-index: 20;
-    position: absolute;
-    width: 280px;
-    max-height: 360px;
-    overflow: auto;
-    padding: 10px;
-    border: 1px solid #3a4b66;
-    border-radius: 10px;
-    background: var(--d-panel);
-    box-shadow: 0 18px 50px rgba(0, 0, 0, .38);
-  }
-  .tag-picker-head { margin-bottom: 8px; display: flex; align-items: start; justify-content: space-between; gap: 12px; }
-  .tag-picker-head strong { display: block; font-size: 10px; }
-  .tag-picker-head small { display: block; margin-top: 3px; color: var(--d-faint); font-size: 7px; }
-  .picker-close { padding: 0 3px; border: 0; background: none; color: var(--d-faint); font-size: 15px; }
-  .tag-options { display: grid; gap: 3px; }
-  .tag-option { width: 100%; padding: 7px; display: flex; align-items: center; gap: 8px; border: 0; border-radius: 6px; background: transparent; color: var(--d-muted); text-align: left; font-size: 8px; }
-  .tag-option:hover { background: var(--d-hover); }
-  .tag-option i { width: 14px; height: 14px; display: grid; place-items: center; border: 1px solid var(--d-line); border-radius: 4px; color: var(--accent-strong); font-style: normal; font-size: 8px; }
-  .tag-option.all i, .tag-option.some i { border-color: var(--accent); background: var(--accent-soft); }
-  .picker-create { margin-top: 8px; padding-top: 8px; display: flex; gap: 5px; border-top: 1px solid var(--d-line); }
-  .picker-create .demo-input { min-width: 0; height: 31px; }
-
-  .demo-toast {
-    z-index: 30;
-    position: absolute;
-    right: 16px;
-    bottom: 16px;
-    max-width: 300px;
-    padding: 9px 12px;
-    border: 1px solid #38506a;
-    border-radius: 8px;
-    background: #102032;
-    color: #dfe7f3;
-    box-shadow: 0 12px 34px rgba(0, 0, 0, .3);
-    font-size: 8px;
-  }
-
-  .feature-section { padding: 12px 0 90px; }
-  .feature-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-  .feature-card { min-height: 200px; padding: 22px; border: 1px solid var(--line); border-radius: 13px; background: var(--page-soft); }
-  .feature-number { color: var(--accent); font: 800 10px ui-monospace, monospace; }
-  .feature-card h3 { margin: 46px 0 10px; font-size: 18px; }
-  .feature-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
-  .use-case-section { padding: 22px 0 42px; }
-  .scenario-demo { overflow: hidden; display: grid; grid-template-columns: 270px minmax(0, 1fr); border: 1px solid #27364d; border-radius: 16px; background: #0b1421; box-shadow: 0 30px 80px -48px rgba(0, 0, 0, .9); }
-  .scenario-tabs { padding: 10px; display: grid; align-content: start; gap: 6px; border-right: 1px solid var(--line); background: #080f1a; }
-  .scenario-tab { width: 100%; min-width: 0; padding: 14px 12px; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 9px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); text-align: left; }
-  .scenario-tab:hover { background: var(--panel); color: var(--ink); }
-  .scenario-tab.active { background: var(--accent-soft); color: var(--ink); box-shadow: inset 2px 0 var(--accent); }
-  .scenario-index { color: var(--accent); font: 800 10px ui-monospace, monospace; }
-  .scenario-tab strong, .scenario-tab small { display: block; }
-  .scenario-tab strong { font-size: 12px; line-height: 1.35; }
-  .scenario-tab small { margin-top: 5px; color: var(--faint); font-size: 9px; line-height: 1.4; }
-  .scenario-stage { min-width: 0; padding: 20px; }
-  .scenario-panel { min-height: 345px; }
-  .scenario-bar { padding-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); }
-  .scenario-heading small, .scenario-heading strong { display: block; }
-  .scenario-heading small { color: var(--accent); font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-  .scenario-heading strong { margin-top: 6px; font-size: 18px; }
-  .scenario-status { padding: 7px 9px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(74, 214, 160, .28); border-radius: 20px; background: rgba(74, 214, 160, .08); color: var(--green); font-size: 9px; font-weight: 750; }
-  .scenario-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-  .scenario-layout { padding-top: 16px; display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(230px, .88fr); gap: 12px; }
-  .scenario-list { display: grid; gap: 7px; }
-  .scenario-row { min-width: 0; padding: 11px 12px; display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: #09121e; }
-  .scenario-row.selected { border-color: rgba(135, 148, 255, .34); background: var(--accent-soft); box-shadow: inset 2px 0 var(--accent); }
-  .scenario-row.excluded { opacity: .46; }
-  .scene-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
-  .scene-dot.good { background: var(--green); }
-  .scene-dot.warn { background: var(--amber); }
-  .scene-copy { min-width: 0; }
-  .scene-copy strong, .scene-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .scene-copy strong { font-size: 11px; }
-  .scene-copy small { margin-top: 4px; color: var(--faint); font-size: 9px; }
-  .scene-state { color: var(--muted); font-size: 9px; }
-  .scene-state.good { color: var(--green); }
-  .scene-state.warn { color: var(--amber); }
-  .scene-card { min-width: 0; padding: 16px; border: 1px solid rgba(135, 148, 255, .28); border-radius: 10px; background: linear-gradient(145deg, rgba(135, 148, 255, .12), rgba(9, 18, 30, .72)); }
-  .scene-card > small { color: var(--accent); font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
-  .scene-card h3 { margin: 12px 0 9px; font-size: 18px; line-height: 1.25; }
-  .scene-card p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
-  .scene-metrics { margin: 14px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-  .scene-metrics > span { padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: rgba(7, 12, 20, .44); color: #c9d1df; font-size: 9px; line-height: 1.45; }
-  .scenario-instruction { max-width: 350px; margin: 0 0 12px auto; padding: 12px 14px; border: 1px solid rgba(135, 148, 255, .34); border-radius: 12px 12px 3px 12px; background: var(--accent-soft); }
-  .scenario-instruction small, .scenario-instruction strong { display: block; }
-  .scenario-instruction small { color: var(--accent); font-size: 8px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
-  .scenario-instruction strong { margin-top: 5px; font-size: 13px; }
-  .connection-terminal { margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #050a12; font: 10px/1.6 ui-monospace, monospace; }
-  .connection-terminal small, .connection-terminal strong, .connection-terminal span { display: block; }
-  .connection-terminal small { color: var(--faint); }
-  .connection-terminal strong { margin: 5px 0; color: var(--green); }
-  .connection-terminal span { color: #c7cffc; }
-  .scenario-guard { margin-top: 14px; padding-top: 12px; display: block; border-top: 1px solid rgba(135, 148, 255, .2); color: #c7cffc; font-size: 10px; line-height: 1.5; }
-  .final-cta { margin-bottom: 70px; padding: 34px; display: flex; align-items: center; justify-content: space-between; gap: 30px; border: 1px solid rgba(135, 148, 255, .28); border-radius: 16px; background: linear-gradient(120deg, rgba(100, 116, 255, .14), rgba(14, 23, 37, .72)); }
-  .final-cta h2 { margin: 0; font-size: clamp(23px, 3vw, 38px); letter-spacing: -.035em; }
-  .final-cta p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
-  .site-footer { min-height: 72px; padding: 22px 0; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-top: 1px solid rgba(255, 255, 255, .06); color: var(--faint); font-size: 10px; }
-  .footer-links { display: flex; align-items: center; gap: 18px; }
-  .footer-links a:hover { color: var(--ink); }
-
-  dialog {
-    width: min(680px, calc(100% - 32px));
-    padding: 0;
-    border: 1px solid #2b3b52;
-    border-radius: 14px;
-    background: #0d1725;
-    color: var(--ink);
-    box-shadow: 0 30px 100px rgba(0, 0, 0, .6);
-  }
-  dialog::backdrop { background: rgba(3, 7, 12, .75); }
-  .dialog-content { padding: 26px; }
-  .dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
-  .dialog-head h2 { margin: 0 0 6px; font-size: 22px; }
-  .dialog-head p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-  .close-button { padding: 0 4px; border: 0; background: none; color: var(--faint); font-size: 25px; line-height: 1; }
-  .prompt { margin: 22px 0; padding: 17px; border: 1px solid var(--line); border-radius: 9px; background: #09121e; color: #bec9d9; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
-  .copy-button { width: 100%; }
-  .copy-button.copied { background: var(--green); }
-
-  @media (max-width: 1080px) {
-    .hero { grid-template-columns: 1fr; gap: 28px; }
-    .agent-hero { max-width: 760px; }
-    .demo-app { grid-template-columns: 205px minmax(0, 1fr); }
-    .demo-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .tag-library { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  }
-  @media (max-width: 820px) {
-    .site-nav, .hero, .demo-section, .feature-section, .final-cta, .site-footer { width: min(100% - 28px, 1460px); }
-    .site-actions > a { display: none; }
-    .hero { padding-top: 48px; }
-    .section-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
-    .section-heading p { text-align: left; }
-    .demo-app { min-height: 760px; grid-template-columns: 1fr; }
-    .demo-sidebar { display: block; padding: 10px; border-right: 0; border-bottom: 1px solid var(--d-line); }
-    .demo-brand, .demo-session, .sidebar-heading.tags-heading, .demo-tags { display: none; }
-    .demo-nav { padding: 0 0 8px; grid-template-columns: repeat(4, 1fr); border-bottom: 0; }
-    .demo-nav button { justify-content: center; }
-    .demo-nav b { display: none; }
-    .demo-hosts { max-height: none; display: flex; overflow-x: auto; gap: 5px; }
-    .demo-host-button { min-width: 145px; }
-    .demo-header { min-height: 82px; padding: 14px; }
-    .demo-panel { padding: 12px; }
-    .tag-library { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .scenario-demo { grid-template-columns: 1fr; }
-    .scenario-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); border-right: 0; border-bottom: 1px solid var(--line); }
-    .feature-grid { grid-template-columns: 1fr; }
-    .feature-card { min-height: 150px; }
-    .feature-card h3 { margin-top: 28px; }
-  }
-  @media (max-width: 580px) {
-    .site-nav { height: 64px; }
-    .site-brand small, .version-badge { display: none; }
-    .site-actions { gap: 12px; }
-    .site-actions .button { min-height: 36px; padding-inline: 10px; }
-    .hero { padding: 40px 0 28px; }
-    .hero h1 { font-size: clamp(38px, 10.8vw, 43px); }
-    .hero-description { font-size: 15px; }
-    .agent-hero { border-radius: 12px; }
-    .agent-caption { padding: 14px; }
-    .agent-flow { grid-template-columns: 1fr; }
-    .agent-flow li + li { border-top: 1px solid var(--line); border-left: 0; }
-    .demo-section { padding-top: 12px; }
-    .demo-windowbar { padding-inline: 9px; }
-    .demo-address { text-align: left; }
-    .sample-pill span { display: none; }
-    .demo-nav button { padding-inline: 4px; gap: 4px; font-size: 7px; }
-    .demo-header { align-items: flex-start; flex-direction: column; }
-    .demo-header-actions { width: 100%; }
-    .demo-select { flex: 1; min-width: 0; }
-    .demo-stats { display: none; }
-    .connection-toolbar { align-items: stretch; flex-direction: column; }
-    .batch-actions { flex-wrap: wrap; }
-    .file-toolbar { grid-template-columns: auto minmax(0, 1fr); }
-    .file-toolbar .copy-directory { display: none; }
-    .tag-library { grid-template-columns: 1fr; }
-    .tag-create-bar { flex-direction: column; }
-    .scenario-tabs { grid-template-columns: 1fr; }
-    .scenario-stage { padding: 12px; }
-    .scenario-panel { min-height: 0; }
-    .scenario-bar { align-items: flex-start; flex-direction: column; }
-    .scenario-layout { grid-template-columns: 1fr; }
-    .final-cta { padding: 25px; align-items: flex-start; flex-direction: column; }
-    .site-footer { align-items: flex-start; flex-direction: column; }
-    .tag-picker { width: min(280px, calc(100% - 20px)); }
-  }
-  @media (max-width: 440px) {
-    .site-nav { gap: 10px; }
-    .site-brand > span:nth-child(2) { display: none; }
-  }
-  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+:root{
+--page:#070c14;
+--page-soft:#0a111d;
+--panel:#0e1725;
+--panel-strong:#111d2e;
+--ink:#f3f6fb;
+--muted:#9aa8bd;
+--faint:#687990;
+--line:#1d2a3d;
+--accent:#8794ff;
+--accent-strong:#aab3ff;
+--accent-soft:rgba(106,120,255,.16);
+--green:#4ad6a0;
+--amber:#efbd51;
+--red:#ff747c;
+color-scheme:dark;
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+margin:0;
+min-width:320px;
+background:
+radial-gradient(circle at 50% -20%,rgba(88,106,255,.12),transparent 32rem),
+var(--page);
+color:var(--ink);
+font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+-webkit-font-smoothing:antialiased;
+}
+button,input,select{color:inherit;font:inherit;}
+button,select{cursor:pointer;}
+a{color:inherit;text-decoration:none;}
+[hidden]{display:none !important;}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;}
+body [lang="zh-CN"] { display: none; }
+html[data-lang="zh"] body [lang="zh-CN"]{display:revert;}
+html[data-lang="zh"] body [lang="en"]{display:none;}
+.site-nav,
+.hero,
+.demo-section,
+.feature-section,
+.final-cta,
+.site-footer{
+width:min(1460px,calc(100% - 56px));
+margin-inline:auto;
+}
+.site-nav{
+height:72px;
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:24px;
+border-bottom:1px solid rgba(255,255,255,.06);
+}
+.site-brand{display:flex;align-items:center;gap:12px;min-width:0;}
+.site-mark,
+.demo-mark{
+display:grid;
+place-items:center;
+border:1px solid rgba(135,148,255,.42);
+background:linear-gradient(145deg,rgba(135,148,255,.24),rgba(135,148,255,.08));
+color:var(--accent-strong);
+font:800 14px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+.site-mark{width:38px;height:38px;border-radius:10px;}
+.site-brand strong{display:block;font-size:14px;letter-spacing:-.01em;}
+.site-brand small{display:block;margin-top:2px;color:var(--faint);font-size:10px;}
+.version-badge{
+padding:4px 7px;
+border:1px solid var(--line);
+border-radius:6px;
+color:var(--muted);
+font-size:10px;
+}
+.site-actions{display:flex;align-items:center;gap:22px;color:var(--muted);font-size:12px;}
+.site-actions a:hover,.lang-button:hover{color:var(--ink);}
+.lang-button{padding:0;border:0;background:none;color:inherit;}
+.button{
+min-height:42px;
+padding:0 16px;
+display:inline-flex;
+align-items:center;
+justify-content:center;
+gap:8px;
+border:1px solid var(--line);
+border-radius:9px;
+background:var(--panel);
+color:var(--ink);
+font-weight:720;
+font-size:12px;
+}
+.button:hover{border-color:#34455f;background:var(--panel-strong);}
+.button.primary{border-color:transparent;background:var(--accent);color:#0b1020;}
+.button.primary:hover{background:#9da8ff;}
+.button.small{min-height:34px;padding-inline:12px;font-size:11px;}
+.hero{
+padding:64px 0 46px;
+display:grid;
+grid-template-columns:minmax(0,.94fr) minmax(440px,.76fr);
+gap:52px;
+align-items:center;
+}
+.eyebrow{
+margin:0 0 16px;
+color:var(--accent);
+font-size:10px;
+font-weight:850;
+letter-spacing:.2em;
+text-transform:uppercase;
+}
+.hero h1{
+max-width:780px;
+margin:0;
+font-size:clamp(42px,5.2vw,76px);
+line-height:.98;
+letter-spacing:-.055em;
+}
+.hero > div{min-width:0;}
+.hero h1 .muted-phrase{display:block;color:#8e9bb0;}
+.hero-description{
+max-width:760px;
+margin:24px 0 30px;
+color:var(--muted);
+font-size:clamp(16px,1.7vw,20px);
+line-height:1.6;
+}
+.hero-actions{display:flex;flex-wrap:wrap;gap:10px;}
+.agent-hero{
+position:relative;
+min-width:0;
+width:100%;
+overflow:hidden;
+border:1px solid var(--line);
+border-radius:16px;
+background:#0b1421;
+box-shadow:0 34px 90px -48px rgba(0,0,0,.95);
+}
+.agent-visual{position:relative;overflow:hidden;aspect-ratio:8 / 5;background:#050a12;}
+.agent-visual::after{content:"";position:absolute;inset:58% 0 0;background:linear-gradient(transparent,rgba(5,10,18,.7));pointer-events:none;}
+.agent-visual img{width:100%;height:100%;display:block;object-fit:cover;}
+.agent-mode{position:absolute;z-index:1;top:14px;left:14px;padding:7px 9px;display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(135,148,255,.3);border-radius:7px;background:rgba(6,13,23,.88);color:#c9d0ff;font-size:9px;font-weight:780;letter-spacing:.04em;}
+.agent-mode i{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(74,214,160,.12);}
+.agent-caption{padding:18px;border-top:1px solid var(--line);}
+.agent-caption > small{color:var(--accent);font-size:9px;font-weight:850;letter-spacing:.15em;text-transform:uppercase;}
+.agent-caption > strong{display:block;margin:8px 0 5px;font-size:19px;letter-spacing:-.02em;}
+.agent-caption > p{margin:0;color:var(--muted);font-size:11px;line-height:1.55;}
+.agent-flow{margin:16px 0 0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);overflow:hidden;list-style:none;border:1px solid var(--line);border-radius:9px;background:#09121e;}
+.agent-flow li{min-width:0;padding:10px;}
+.agent-flow li + li{border-left:1px solid var(--line);}
+.agent-flow b{display:block;margin-bottom:4px;color:var(--accent);font:800 9px ui-monospace,SFMono-Regular,Menlo,monospace;}
+.agent-flow span{color:#bdc7d7;font-size:9px;line-height:1.35;}
+.demo-section{padding:28px 0 80px;}
+.section-heading{
+margin-bottom:18px;
+display:flex;
+align-items:end;
+justify-content:space-between;
+gap:30px;
+}
+.section-heading h2{margin:0;font-size:clamp(25px,3vw,38px);letter-spacing:-.035em;}
+.section-heading p{max-width:480px;margin:0;color:var(--muted);font-size:12px;line-height:1.6;text-align:right;}
+.demo-shell{
+--d-bg:#091321;
+--d-sidebar:#07101b;
+--d-panel:#0d1929;
+--d-panel-soft:#101e31;
+--d-control:#132137;
+--d-ink:#f3f6fb;
+--d-muted:#93a1b6;
+--d-faint:#60718b;
+--d-line:#1d2d44;
+--d-hover:#12223a;
+position:relative;
+overflow:hidden;
+border:1px solid #27364d;
+border-radius:18px;
+background:var(--d-bg);
+box-shadow:0 38px 100px -52px rgba(0,0,0,.9);
+color:var(--d-ink);
+}
+.demo-shell[data-demo-theme="light"]{
+--d-bg:#f4f6fa;
+--d-sidebar:#eef1f6;
+--d-panel:#fff;
+--d-panel-soft:#f7f8fb;
+--d-control:#e8ecf3;
+--d-ink:#192233;
+--d-muted:#59657a;
+--d-faint:#8590a2;
+--d-line:#d8dee9;
+--d-hover:#edf1f8;
+}
+.demo-windowbar{
+height:38px;
+padding:0 14px;
+display:flex;
+align-items:center;
+gap:12px;
+border-bottom:1px solid var(--d-line);
+background:var(--d-panel);
+color:var(--d-faint);
+font-size:9px;
+}
+.window-dots{display:flex;gap:5px;}
+.window-dots i{width:6px;height:6px;border-radius:50%;background:#4a5a71;}
+.demo-address{
+min-width:0;
+flex:1;
+text-align:center;
+font:9px ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.sample-pill{display:inline-flex;align-items:center;gap:6px;color:var(--d-muted);}
+.sample-pill i{width:6px;height:6px;border-radius:50%;background:var(--amber);}
+.demo-theme-button,.demo-accent-button{padding:3px 7px;border:0;border-radius:5px;background:var(--d-control);color:var(--d-muted);font-size:9px;}
+.demo-accent-button{display:inline-flex;align-items:center;gap:5px;}
+.demo-accent-button i{width:8px;height:8px;border-radius:50%;background:var(--accent);}
+.demo-app{min-height:690px;display:grid;grid-template-columns:236px minmax(0,1fr);background:var(--d-bg);}
+.demo-sidebar{
+min-width:0;
+padding:18px 12px 14px;
+display:flex;
+flex-direction:column;
+border-right:1px solid var(--d-line);
+background:var(--d-sidebar);
+}
+.demo-brand{padding:0 6px 17px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--d-line);}
+.demo-mark{width:32px;height:32px;border-radius:8px;font-size:11px;}
+.demo-brand strong{display:block;font-size:11px;}
+.demo-brand small{display:block;margin-top:2px;color:var(--d-faint);font-size:8px;}
+.demo-nav{padding:12px 0;display:grid;gap:3px;border-bottom:1px solid var(--d-line);}
+.demo-nav button{
+width:100%;min-height:34px;padding:0 9px;
+display:flex;align-items:center;gap:9px;
+border:0;border-radius:7px;background:transparent;color:var(--d-muted);
+text-align:left;font-size:9px;font-weight:700;
+}
+.demo-nav button:hover{background:var(--d-hover);color:var(--d-ink);}
+.demo-nav button.active{background:var(--accent-soft);color:var(--accent-strong);}
+.nav-glyph{width:15px;color:currentColor;text-align:center;font:800 10px ui-monospace,monospace;}
+.demo-nav b{margin-left:auto;min-width:18px;padding:2px 5px;border-radius:10px;background:var(--d-control);color:var(--d-muted);font-size:8px;text-align:center;}
+.sidebar-heading{padding:13px 7px 7px;display:flex;align-items:center;justify-content:space-between;color:var(--d-faint);font-size:8px;font-weight:850;letter-spacing:.13em;text-transform:uppercase;}
+.demo-hosts{max-height:350px;overflow:auto;display:grid;gap:2px;}
+.demo-host-button{
+width:100%;min-width:0;padding:7px;
+display:grid;grid-template-columns:7px minmax(0,1fr);gap:8px;align-items:center;
+border:0;border-radius:7px;background:transparent;color:var(--d-ink);text-align:left;
+}
+.demo-host-button:hover,.demo-host-button.active{background:var(--d-hover);}
+.demo-host-button.active{box-shadow:inset 2px 0 var(--accent);}
+.demo-host-button strong,.demo-host-button small{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.demo-host-button strong{font-size:9px;}
+.demo-host-button small{margin-top:3px;color:var(--d-faint);font:7px ui-monospace,monospace;}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--d-faint);box-shadow:0 0 0 3px rgba(111,127,153,.12);}
+.status-dot.reachable{background:var(--green);}
+.status-dot.unreachable{background:var(--red);}
+.status-dot.idle{background:var(--amber);}
+.demo-tags{display:flex;flex-wrap:wrap;gap:5px;padding:0 7px;}
+.sidebar-tag{
+padding:4px 7px;border:1px solid var(--d-line);border-radius:6px;
+background:transparent;color:var(--d-muted);font-size:7px;
+}
+.sidebar-tag:hover,.sidebar-tag.active{border-color:rgba(135,148,255,.55);background:var(--accent-soft);color:var(--accent-strong);}
+.demo-session{margin-top:auto;padding:12px 7px 0;display:flex;align-items:center;gap:8px;border-top:1px solid var(--d-line);}
+.demo-session strong{display:block;font-size:8px;}
+.demo-session small{display:block;margin-top:2px;color:var(--d-faint);font-size:7px;}
+.demo-main{min-width:0;display:flex;flex-direction:column;}
+.demo-header{
+min-height:88px;
+padding:17px 22px;
+display:flex;
+align-items:center;
+justify-content:space-between;
+gap:18px;
+border-bottom:1px solid var(--d-line);
+background:var(--d-bg);
+}
+.demo-header .eyebrow{margin-bottom:6px;font-size:7px;}
+.demo-header h2{margin:0;font-size:22px;letter-spacing:-.035em;}
+.demo-header p{margin:5px 0 0;color:var(--d-muted);font-size:9px;}
+.demo-header-actions{display:flex;align-items:center;gap:7px;}
+.demo-select,
+.demo-input,
+.demo-control{
+height:34px;
+border:1px solid var(--d-line);
+border-radius:7px;
+background:var(--d-panel);
+color:var(--d-muted);
+font-size:9px;
+}
+.demo-select{min-width:130px;padding:0 28px 0 10px;}
+.demo-input{width:100%;padding:0 11px;outline:none;}
+.demo-input:focus{border-color:var(--accent);}
+.demo-control{padding:0 11px;font-weight:750;}
+.demo-control:hover{border-color:#42536d;color:var(--d-ink);}
+.demo-control.accent{border-color:transparent;background:var(--accent);color:#0c1224;}
+.demo-panel{min-height:0;flex:1;padding:18px 20px 22px;}
+.demo-stats{margin-bottom:12px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;}
+.demo-stat{padding:11px 12px;border:1px solid var(--d-line);border-radius:8px;background:var(--d-panel);}
+.demo-stat small{display:block;color:var(--d-faint);font-size:7px;text-transform:uppercase;letter-spacing:.08em;}
+.demo-stat strong{display:block;margin-top:5px;font-size:17px;}
+.connection-toolbar{
+margin-bottom:10px;padding:7px;
+display:flex;align-items:center;gap:8px;
+border:1px solid var(--d-line);border-radius:8px;background:var(--d-panel);
+}
+.connection-toolbar label{min-width:180px;flex:1;}
+.shown-count{color:var(--d-faint);font-size:8px;white-space:nowrap;}
+.batch-actions{display:flex;align-items:center;gap:6px;}
+.batch-actions strong{color:var(--accent-strong);font-size:8px;}
+.demo-table-wrap{overflow:auto;border:1px solid var(--d-line);border-radius:9px;background:var(--d-panel);}
+.demo-table{width:100%;min-width:900px;border-collapse:collapse;table-layout:fixed;}
+.demo-table th{
+height:34px;padding:7px 9px;border-bottom:1px solid var(--d-line);background:var(--d-panel-soft);
+color:var(--d-faint);font-size:7px;letter-spacing:.1em;text-align:left;text-transform:uppercase;
+}
+.demo-table td{height:58px;padding:8px 9px;border-bottom:1px solid var(--d-line);color:var(--d-muted);font-size:8px;vertical-align:middle;}
+.demo-table tbody tr:last-child td{border-bottom:0;}
+.demo-table tbody tr:hover{background:var(--d-hover);}
+.connection-table th:first-child,.connection-table td:first-child{width:36px;text-align:center;}
+.connection-table th:nth-child(2){width:18%;}
+.connection-table th:nth-child(3){width:19%;}
+.connection-table th:nth-child(4){width:19%;}
+.connection-table th:nth-child(5){width:16%;}
+.connection-table th:nth-child(6){width:14%;}
+.connection-table th:last-child{width:92px;}
+.demo-check{width:13px;height:13px;accent-color:var(--accent);}
+.alias-button{padding:0;border:0;background:none;color:inherit;text-align:left;}
+.alias-button strong,.alias-button small,.cell-stack strong,.cell-stack small{display:block;}
+.alias-button strong,.cell-stack strong{color:var(--d-ink);font-size:9px;}
+.alias-button small,.cell-stack small{margin-top:4px;color:var(--d-faint);font-size:7px;}
+.endpoint{font:8px ui-monospace,SFMono-Regular,Menlo,monospace;}
+.tag-stack{display:flex;flex-wrap:wrap;gap:4px;}
+.tag-chip,.add-tag{
+padding:3px 6px;border:1px solid rgba(135,148,255,.34);border-radius:6px;
+background:var(--accent-soft);color:var(--accent-strong);font-size:7px;
+}
+.tag-chip:hover{border-color:var(--accent);}
+.add-tag{border-style:dashed;background:transparent;color:var(--d-muted);}
+.tg-0{--tg:86,162,237;}
+.tg-1{--tg:240,181,77;}
+.tg-2{--tg:87,213,155;}
+.tg-3{--tg:239,109,118;}
+.tg-4{--tg:154,118,230;}
+.tg-5{--tg:135,148,255;}
+.sidebar-tag[class*="tg-"],.tag-chip[class*="tg-"]{border-color:rgba(var(--tg),.5);background:rgba(var(--tg),.13);color:rgb(var(--tg));}
+.sidebar-tag[class*="tg-"].active{border-color:rgb(var(--tg));background:rgba(var(--tg),.26);color:rgb(var(--tg));}
+.tag-chip[class*="tg-"]:hover{border-color:rgb(var(--tg));}
+.demo-shell[data-demo-theme="light"] .sidebar-tag[class*="tg-"],.demo-shell[data-demo-theme="light"] .tag-chip[class*="tg-"],.demo-shell[data-demo-theme="light"] .tag-dot{filter:saturate(1.15) brightness(.74);}
+.tag-dot{flex:0 0 auto;width:7px;height:7px;margin-right:6px;border-radius:50%;background:rgb(var(--tg,86,162,237));}
+.status-pill{display:inline-flex;align-items:center;gap:5px;padding:4px 7px;border-radius:20px;font-size:7px;font-weight:760;}
+.status-pill::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;}
+.status-pill.reachable{background:rgba(52,199,142,.13);color:var(--green);}
+.status-pill.unreachable{background:rgba(255,95,104,.13);color:var(--red);}
+.status-pill.idle{background:rgba(235,181,68,.14);color:var(--amber);}
+.browse-button{min-height:30px;padding:0 10px;border:0;border-radius:6px;background:var(--accent-soft);color:var(--accent-strong);font-size:8px;font-weight:760;}
+.browse-button:hover{background:rgba(106,120,255,.26);}
+.empty-table{padding:32px;color:var(--d-muted);text-align:center;font-size:9px;}
+.host-banner{margin-bottom:12px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:15px;border:1px solid var(--d-line);border-radius:9px;background:var(--d-panel);}
+.host-banner-main{display:flex;align-items:center;gap:10px;}
+.host-icon{width:31px;height:31px;display:grid;place-items:center;border-radius:8px;background:var(--accent-soft);color:var(--accent-strong);font:800 10px ui-monospace,monospace;}
+.host-banner strong,.host-banner small{display:block;}
+.host-banner strong{font-size:10px;}
+.host-banner small{margin-top:3px;color:var(--d-faint);font:7px ui-monospace,monospace;}
+.file-toolbar{margin-bottom:10px;display:grid;grid-template-columns:auto minmax(180px,1fr) auto;gap:7px;}
+.path-display{padding:0 11px;display:flex;align-items:center;border:1px solid var(--d-line);border-radius:7px;background:var(--d-panel);color:var(--d-muted);font:8px ui-monospace,monospace;}
+.file-name{display:flex;align-items:center;gap:8px;}
+.file-glyph{width:22px;height:22px;display:grid;place-items:center;border-radius:5px;background:var(--d-control);color:var(--d-muted);font-size:9px;}
+.file-glyph.folder{color:var(--amber);}
+.file-button{padding:0;border:0;background:none;color:var(--d-ink);font-size:8px;font-weight:700;text-align:left;}
+.file-copy{padding:4px 6px;border:0;border-radius:5px;background:transparent;color:var(--d-faint);font-size:7px;}
+.file-copy:hover{background:var(--d-control);color:var(--d-ink);}
+.tag-create-bar{margin-bottom:12px;padding:10px;display:flex;gap:7px;border:1px solid var(--d-line);border-radius:9px;background:var(--d-panel);}
+.tag-create-bar .demo-input{flex:1;}
+.tag-library{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;}
+.tag-card{padding:13px;border:1px solid var(--d-line);border-radius:9px;background:var(--d-panel);}
+.tag-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.tag-card-head strong{font-size:10px;}
+.tag-card-head span{padding:3px 6px;border-radius:10px;background:var(--d-control);color:var(--d-muted);font-size:7px;}
+.tag-card p{min-height:28px;margin:9px 0 11px;color:var(--d-faint);font-size:8px;line-height:1.5;}
+.tag-host-preview{margin-bottom:10px;display:flex;flex-wrap:wrap;gap:4px;}
+.tag-host-preview span{padding:3px 5px;border-radius:4px;background:var(--d-panel-soft);color:var(--d-muted);font-size:7px;}
+.tag-view-button{padding:0;border:0;background:none;color:var(--accent-strong);font-size:8px;font-weight:750;}
+.security-note{margin-bottom:12px;padding:13px;display:flex;gap:11px;border:1px solid rgba(135,148,255,.25);border-radius:9px;background:var(--accent-soft);}
+.security-icon{width:28px;height:28px;display:grid;place-items:center;border-radius:8px;background:rgba(135,148,255,.16);color:var(--accent-strong);font-size:12px;}
+.security-note strong{display:block;font-size:9px;}
+.security-note p{margin:4px 0 0;color:var(--d-muted);font-size:8px;line-height:1.5;}
+.tag-picker{
+z-index:20;
+position:absolute;
+width:280px;
+max-height:360px;
+overflow:auto;
+padding:10px;
+border:1px solid #3a4b66;
+border-radius:10px;
+background:var(--d-panel);
+box-shadow:0 18px 50px rgba(0,0,0,.38);
+}
+.tag-picker-head{margin-bottom:8px;display:flex;align-items:start;justify-content:space-between;gap:12px;}
+.tag-picker-head strong{display:block;font-size:10px;}
+.tag-picker-head small{display:block;margin-top:3px;color:var(--d-faint);font-size:7px;}
+.picker-close{padding:0 3px;border:0;background:none;color:var(--d-faint);font-size:15px;}
+.tag-options{display:grid;gap:3px;}
+.tag-option{width:100%;padding:7px;display:flex;align-items:center;gap:8px;border:0;border-radius:6px;background:transparent;color:var(--d-muted);text-align:left;font-size:8px;}
+.tag-option:hover{background:var(--d-hover);}
+.tag-option i{width:14px;height:14px;display:grid;place-items:center;border:1px solid var(--d-line);border-radius:4px;color:var(--accent-strong);font-style:normal;font-size:8px;}
+.tag-option.all i,.tag-option.some i{border-color:var(--accent);background:var(--accent-soft);}
+.picker-create{margin-top:8px;padding-top:8px;display:flex;gap:5px;border-top:1px solid var(--d-line);}
+.picker-create .demo-input{min-width:0;height:31px;}
+.demo-toast{
+z-index:30;
+position:absolute;
+right:16px;
+bottom:16px;
+max-width:300px;
+padding:9px 12px;
+border:1px solid #38506a;
+border-radius:8px;
+background:#102032;
+color:#dfe7f3;
+box-shadow:0 12px 34px rgba(0,0,0,.3);
+font-size:8px;
+}
+.feature-section{padding:12px 0 90px;}
+.feature-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+.feature-card{min-height:200px;padding:22px;border:1px solid var(--line);border-radius:13px;background:var(--page-soft);}
+.feature-number{color:var(--accent);font:800 10px ui-monospace,monospace;}
+.feature-card h3{margin:46px 0 10px;font-size:18px;}
+.feature-card p{margin:0;color:var(--muted);font-size:12px;line-height:1.65;}
+.use-case-section{padding:22px 0 42px;}
+.scenario-demo{overflow:hidden;display:grid;grid-template-columns:270px minmax(0,1fr);border:1px solid #27364d;border-radius:16px;background:#0b1421;box-shadow:0 30px 80px -48px rgba(0,0,0,.9);}
+.scenario-tabs{padding:10px;display:grid;align-content:start;gap:6px;border-right:1px solid var(--line);background:#080f1a;}
+.scenario-tab{width:100%;min-width:0;padding:14px 12px;display:grid;grid-template-columns:28px minmax(0,1fr);gap:9px;border:0;border-radius:9px;background:transparent;color:var(--muted);text-align:left;}
+.scenario-tab:hover{background:var(--panel);color:var(--ink);}
+.scenario-tab.active{background:var(--accent-soft);color:var(--ink);box-shadow:inset 2px 0 var(--accent);}
+.scenario-index{color:var(--accent);font:800 10px ui-monospace,monospace;}
+.scenario-tab strong,.scenario-tab small{display:block;}
+.scenario-tab strong{font-size:12px;line-height:1.35;}
+.scenario-tab small{margin-top:5px;color:var(--faint);font-size:9px;line-height:1.4;}
+.scenario-stage{min-width:0;padding:20px;}
+.scenario-panel{min-height:345px;}
+.scenario-bar{padding-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line);}
+.scenario-heading small,.scenario-heading strong{display:block;}
+.scenario-heading small{color:var(--accent);font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;}
+.scenario-heading strong{margin-top:6px;font-size:18px;}
+.scenario-status{padding:7px 9px;display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(74,214,160,.28);border-radius:20px;background:rgba(74,214,160,.08);color:var(--green);font-size:9px;font-weight:750;}
+.scenario-status i{width:6px;height:6px;border-radius:50%;background:currentColor;}
+.scenario-layout{padding-top:16px;display:grid;grid-template-columns:minmax(0,1.12fr) minmax(230px,.88fr);gap:12px;}
+.scenario-list{display:grid;gap:7px;}
+.scenario-row{min-width:0;padding:11px 12px;display:grid;grid-template-columns:7px minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;background:#09121e;}
+.scenario-row.selected{border-color:rgba(135,148,255,.34);background:var(--accent-soft);box-shadow:inset 2px 0 var(--accent);}
+.scenario-row.excluded{opacity:.46;}
+.scene-dot{width:7px;height:7px;border-radius:50%;background:var(--faint);}
+.scene-dot.good{background:var(--green);}
+.scene-dot.warn{background:var(--amber);}
+.scene-copy{min-width:0;}
+.scene-copy strong,.scene-copy small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.scene-copy strong{font-size:11px;}
+.scene-copy small{margin-top:4px;color:var(--faint);font-size:9px;}
+.scene-state{color:var(--muted);font-size:9px;}
+.scene-state.good{color:var(--green);}
+.scene-state.warn{color:var(--amber);}
+.scene-card{min-width:0;padding:16px;border:1px solid rgba(135,148,255,.28);border-radius:10px;background:linear-gradient(145deg,rgba(135,148,255,.12),rgba(9,18,30,.72));}
+.scene-card > small{color:var(--accent);font-size:9px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;}
+.scene-card h3{margin:12px 0 9px;font-size:18px;line-height:1.25;}
+.scene-card p{margin:0;color:var(--muted);font-size:11px;line-height:1.6;}
+.scene-metrics{margin:14px 0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;}
+.scene-metrics > span{padding:8px;border:1px solid var(--line);border-radius:7px;background:rgba(7,12,20,.44);color:#c9d1df;font-size:9px;line-height:1.45;}
+.scenario-instruction{max-width:350px;margin:0 0 12px auto;padding:12px 14px;border:1px solid rgba(135,148,255,.34);border-radius:12px 12px 3px 12px;background:var(--accent-soft);}
+.scenario-instruction small,.scenario-instruction strong{display:block;}
+.scenario-instruction small{color:var(--accent);font-size:8px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;}
+.scenario-instruction strong{margin-top:5px;font-size:13px;}
+.connection-terminal{margin-top:14px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#050a12;font:10px/1.6 ui-monospace,monospace;}
+.connection-terminal small,.connection-terminal strong,.connection-terminal span{display:block;}
+.connection-terminal small{color:var(--faint);}
+.connection-terminal strong{margin:5px 0;color:var(--green);}
+.connection-terminal span{color:#c7cffc;}
+.scenario-guard{margin-top:14px;padding-top:12px;display:block;border-top:1px solid rgba(135,148,255,.2);color:#c7cffc;font-size:10px;line-height:1.5;}
+.final-cta{margin-bottom:70px;padding:34px;display:flex;align-items:center;justify-content:space-between;gap:30px;border:1px solid rgba(135,148,255,.28);border-radius:16px;background:linear-gradient(120deg,rgba(100,116,255,.14),rgba(14,23,37,.72));}
+.final-cta h2{margin:0;font-size:clamp(23px,3vw,38px);letter-spacing:-.035em;}
+.final-cta p{margin:8px 0 0;color:var(--muted);font-size:12px;}
+.site-footer{min-height:72px;padding:22px 0;display:flex;align-items:center;justify-content:space-between;gap:20px;border-top:1px solid rgba(255,255,255,.06);color:var(--faint);font-size:10px;}
+.footer-links{display:flex;align-items:center;gap:18px;}
+.footer-links a:hover{color:var(--ink);}
+dialog{
+width:min(680px,calc(100% - 32px));
+padding:0;
+border:1px solid #2b3b52;
+border-radius:14px;
+background:#0d1725;
+color:var(--ink);
+box-shadow:0 30px 100px rgba(0,0,0,.6);
+}
+dialog::backdrop{background:rgba(3,7,12,.75);}
+.dialog-content{padding:26px;}
+.dialog-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;}
+.dialog-head h2{margin:0 0 6px;font-size:22px;}
+.dialog-head p{margin:0;color:var(--muted);font-size:12px;line-height:1.5;}
+.close-button{padding:0 4px;border:0;background:none;color:var(--faint);font-size:25px;line-height:1;}
+.prompt{margin:22px 0;padding:17px;border:1px solid var(--line);border-radius:9px;background:#09121e;color:#bec9d9;font:12px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow-wrap:anywhere;}
+.copy-button{width:100%;}
+.copy-button.copied{background:var(--green);}
+@media (max-width:1080px){
+.hero{grid-template-columns:1fr;gap:28px;}
+.agent-hero{max-width:760px;}
+.demo-app{grid-template-columns:205px minmax(0,1fr);}
+.demo-stats{grid-template-columns:repeat(2,minmax(0,1fr));}
+.tag-library{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media (max-width:820px){
+.site-nav,.hero,.demo-section,.feature-section,.final-cta,.site-footer{width:min(100% - 28px,1460px);}
+.site-actions > a{display:none;}
+.hero{padding-top:48px;}
+.section-heading{align-items:flex-start;flex-direction:column;gap:8px;}
+.section-heading p{text-align:left;}
+.demo-app{min-height:760px;grid-template-columns:1fr;}
+.demo-sidebar{display:block;padding:10px;border-right:0;border-bottom:1px solid var(--d-line);}
+.demo-brand,.demo-session,.sidebar-heading.tags-heading,.demo-tags{display:none;}
+.demo-nav{padding:0 0 8px;grid-template-columns:repeat(5,1fr);border-bottom:0;}
+.demo-nav button{justify-content:center;}
+.demo-nav b{display:none;}
+.demo-hosts{max-height:none;display:flex;overflow-x:auto;gap:5px;}
+.demo-host-button{min-width:145px;}
+.demo-header{min-height:82px;padding:14px;}
+.demo-panel{padding:12px;}
+.tag-library{grid-template-columns:repeat(2,minmax(0,1fr));}
+.scenario-demo{grid-template-columns:1fr;}
+.scenario-tabs{grid-template-columns:repeat(4,minmax(0,1fr));border-right:0;border-bottom:1px solid var(--line);}
+.feature-grid{grid-template-columns:1fr;}
+.feature-card{min-height:150px;}
+.feature-card h3{margin-top:28px;}
+}
+@media (max-width:580px){
+.site-nav{height:64px;}
+.site-brand small,.version-badge{display:none;}
+.site-actions{gap:12px;}
+.site-actions .button{min-height:36px;padding-inline:10px;}
+.hero{padding:40px 0 28px;}
+.hero h1{font-size:clamp(38px,10.8vw,43px);}
+.hero-description{font-size:15px;}
+.agent-hero{border-radius:12px;}
+.agent-caption{padding:14px;}
+.agent-flow{grid-template-columns:1fr;}
+.agent-flow li + li{border-top:1px solid var(--line);border-left:0;}
+.demo-section{padding-top:12px;}
+.demo-windowbar{padding-inline:9px;}
+.demo-address{text-align:left;}
+.sample-pill span{display:none;}
+.demo-nav button{padding-inline:4px;gap:4px;font-size:7px;}
+.demo-header{align-items:flex-start;flex-direction:column;}
+.demo-header-actions{width:100%;}
+.demo-select{flex:1;min-width:0;}
+.demo-stats{display:none;}
+.connection-toolbar{align-items:stretch;flex-direction:column;}
+.batch-actions{flex-wrap:wrap;}
+.file-toolbar{grid-template-columns:auto minmax(0,1fr);}
+.file-toolbar .copy-directory{display:none;}
+.tag-library{grid-template-columns:1fr;}
+.tag-create-bar{flex-direction:column;}
+.scenario-tabs{grid-template-columns:1fr;}
+.scenario-stage{padding:12px;}
+.scenario-panel{min-height:0;}
+.scenario-bar{align-items:flex-start;flex-direction:column;}
+.scenario-layout{grid-template-columns:1fr;}
+.final-cta{padding:25px;align-items:flex-start;flex-direction:column;}
+.site-footer{align-items:flex-start;flex-direction:column;}
+.tag-picker{width:min(280px,calc(100% - 20px));}
+}
+@media (max-width:440px){
+.site-nav{gap:10px;}
+.site-brand > span:nth-child(2){display:none;}
+}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto;}}
 </style>
-
 <header class="site-nav">
-  <a class="site-brand" href="#top" aria-label="SSH Server Manager home">
-    <span class="site-mark">&gt;_</span>
-    <span><strong>SSH Server Manager</strong><small>Local control plane</small></span>
-    <span class="version-badge">v0.5.0</span>
-  </a>
-  <nav class="site-actions" aria-label="Primary navigation">
-    <a href="#use-cases"><span lang="en">Use cases</span><span lang="zh-CN">使用场景</span></a>
-    <a href="#demo"><span lang="en">Live demo</span><span lang="zh-CN">在线体验</span></a>
-    <a href="https://github.com/xiayh0107/servers-connect/tree/main/ssh-server-manager/docs">Docs</a>
-    <a href="https://github.com/xiayh0107/servers-connect">GitHub</a>
-    <button class="lang-button" id="langToggle" type="button">中文</button>
-    <button class="button primary small open-agent-dialog" type="button"><span lang="en">Install with Agent</span><span lang="zh-CN">用 Agent 安装</span></button>
-  </nav>
+<a class="site-brand" href="#top" aria-label="SSH Server Manager home">
+<span class="site-mark">&gt;_</span>
+<span><strong>SSH Server Manager</strong><small>Local control plane</small></span>
+<span class="version-badge">v0.6.0</span>
+</a>
+<nav class="site-actions" aria-label="Primary navigation">
+<a href="#use-cases"><span lang="en">Use cases</span><span lang="zh-CN">使用场景</span></a>
+<a href="#demo"><span lang="en">Live demo</span><span lang="zh-CN">在线体验</span></a>
+<a href="https://github.com/xiayh0107/servers-connect/tree/main/ssh-server-manager/docs">Docs</a>
+<a href="https://github.com/xiayh0107/servers-connect">GitHub</a>
+<button class="lang-button" id="langToggle" type="button">中文</button>
+<button class="button primary small open-agent-dialog" type="button"><span lang="en">Install with Agent</span><span lang="zh-CN">用 Agent 安装</span></button>
+</nav>
 </header>
-
 <main id="top">
-  <section class="hero">
-    <div>
-      <p class="eyebrow"><span lang="en">Human + Agent SSH workspace</span><span lang="zh-CN">用户与 Agent 共用的 SSH 工作区</span></p>
-      <h1><span lang="en">You and your Agent. <span class="muted-phrase">One shared SSH workspace.</span></span><span lang="zh-CN">你和 Agent，<span class="muted-phrase">共用 SSH 工作区。</span></span></h1>
-      <p class="hero-description"><span lang="en">You choose the goal, hosts, and approvals. Your Agent finds files, performs approved actions, and returns evidence in the same local workspace—without credentials entering the chat.</span><span lang="zh-CN">你决定目标、主机范围与授权；Agent 在同一个本地工作区中查找文件、执行获批操作并返回结果，凭据无需进入对话。</span></p>
-      <div class="hero-actions">
-        <button class="button primary" id="focusDemo" type="button"><span lang="en">Try the shared workspace</span><span lang="zh-CN">体验共享工作区</span> <span aria-hidden="true">↓</span></button>
-        <button class="button open-agent-dialog" type="button"><span lang="en">Connect your Agent</span><span lang="zh-CN">Agent 一键接入</span></button>
-      </div>
-    </div>
-    <aside class="agent-hero" aria-labelledby="agentCollaborationTitle">
-      <div class="agent-visual">
-        <img src="assets/human-agent-collaboration.webp" width="960" height="600" fetchpriority="high" decoding="async" alt="A person and an abstract AI Agent working through one shared local SSH control plane.">
-        <span class="agent-mode"><i></i><span lang="en">Shared local session</span><span lang="zh-CN">本地共享会话</span></span>
-      </div>
-      <div class="agent-caption">
-        <small><span lang="en">Human + Agent workflow</span><span lang="zh-CN">用户 + Agent 协作流程</span></small>
-        <strong id="agentCollaborationTitle"><span lang="en">One workspace. Two collaborators.</span><span lang="zh-CN">一个工作区，两个协作者。</span></strong>
-        <p><span lang="en">You keep control of scope and approval. The Agent receives context—not raw secrets.</span><span lang="zh-CN">范围与授权始终由你掌控；Agent 获得执行上下文，而不是原始秘密。</span></p>
-        <ol class="agent-flow">
-          <li><b>01 / INTENT</b><span lang="en">You choose the hosts</span><span lang="zh-CN">你选择主机范围</span></li>
-          <li><b>02 / ACTION</b><span lang="en">Agent works locally</span><span lang="zh-CN">Agent 在本地执行</span></li>
-          <li><b>03 / REVIEW</b><span lang="en">Evidence returns to you</span><span lang="zh-CN">结果回到你手中</span></li>
-        </ol>
-      </div>
-    </aside>
-  </section>
-
-  <section class="feature-section use-case-section" id="use-cases" aria-labelledby="useCaseTitle">
-    <div class="section-heading">
-      <div><p class="eyebrow"><span lang="en">Interactive scenarios</span><span lang="zh-CN">场景演示</span></p><h2 id="useCaseTitle"><span lang="en">From intent to evidence, see what your Agent did.</span><span lang="zh-CN">从目标到证据，看清 Agent 做了什么。</span></h2></div>
-      <p><span lang="en">Choose a scenario to inspect a sample result. No real host is contacted.</span><span lang="zh-CN">选择一个场景，查看模拟执行结果；不会连接任何真实主机。</span></p>
-    </div>
-    <div class="scenario-demo">
-      <div class="scenario-tabs" id="scenarioSwitcher" aria-label="Scenario demos">
-        <button class="scenario-tab active" id="scenarioConnectButton" type="button" data-scenario-target="direct-connect" aria-controls="scenarioConnect" aria-pressed="true"><span class="scenario-index">01</span><span><strong><span lang="en">Quick connect</span><span lang="zh-CN">快速连接</span></strong><small><span lang="en">Ask for a saved host by name</span><span lang="zh-CN">一句话连接已保存主机</span></small></span></button>
-        <button class="scenario-tab" id="scenarioIncidentButton" type="button" data-scenario-target="incident-response" aria-controls="scenarioIncident" aria-pressed="false"><span class="scenario-index">02</span><span><strong><span lang="en">On-call response</span><span lang="zh-CN">值班响应</span></strong><small><span lang="en">Investigate a production alert</span><span lang="zh-CN">定位线上告警</span></small></span></button>
-        <button class="scenario-tab" id="scenarioResearchButton" type="button" data-scenario-target="research-compute" aria-controls="scenarioResearch" aria-pressed="false"><span class="scenario-index">03</span><span><strong><span lang="en">Research compute</span><span lang="zh-CN">研究计算</span></strong><small><span lang="en">Review a failed training run</span><span lang="zh-CN">检查失败的训练任务</span></small></span></button>
-        <button class="scenario-tab" id="scenarioScopeButton" type="button" data-scenario-target="multi-environment" aria-controls="scenarioScope" aria-pressed="false"><span class="scenario-index">04</span><span><strong><span lang="en">Multi-environment</span><span lang="zh-CN">多环境交付</span></strong><small><span lang="en">Keep one task in scope</span><span lang="zh-CN">明确一次任务的范围</span></small></span></button>
-      </div>
-      <div class="scenario-stage">
-        <article class="scenario-panel" id="scenarioConnect" data-scenario-panel="direct-connect" aria-labelledby="scenarioConnectButton">
-          <header class="scenario-bar"><div class="scenario-heading"><small><span lang="en">Sample interaction · saved host</span><span lang="zh-CN">模拟交互 · 已保存主机</span></small><strong><span lang="en">Connect by name</span><span lang="zh-CN">一句话发起连接</span></strong></div><span class="scenario-status"><i></i><span lang="en">Session handed to your terminal</span><span lang="zh-CN">会话已交给本地终端</span></span></header>
-          <div class="scenario-layout"><div><div class="scenario-instruction"><small><span lang="en">You</span><span lang="zh-CN">你</span></small><strong><span lang="en">Connect me to atlas-prod.</span><span lang="zh-CN">连接 atlas-prod。</span></strong></div><div class="scenario-list">
-            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Saved host found</span><span lang="zh-CN">已找到保存的主机</span></strong><small>atlas-prod · deploy@10.24.8.12</small></span><b class="scene-state good"><span lang="en">Matched</span><span lang="zh-CN">已匹配</span></b></div>
-            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Credential ready</span><span lang="zh-CN">凭据已就绪</span></strong><small>deploy-key · <span lang="en">vault reference</span><span lang="zh-CN">保险库引用</span></small></span><b class="scene-state good"><span lang="en">Protected</span><span lang="zh-CN">受保护</span></b></div>
-            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Host identity</span><span lang="zh-CN">主机身份</span></strong><small><span lang="en">Known host key verified</span><span lang="zh-CN">已验证已知主机密钥</span></small></span><b class="scene-state good"><span lang="en">Verified</span><span lang="zh-CN">已验证</span></b></div>
-          </div></div><aside class="scene-card"><small><span lang="en">Interactive session</span><span lang="zh-CN">交互式会话</span></small><h3><span lang="en">Connected to atlas-prod</span><span lang="zh-CN">已连接 atlas-prod</span></h3><p><span lang="en">The shell belongs to your local terminal. The Agent receives connection context, never the raw secret.</span><span lang="zh-CN">Shell 位于你的本地终端；Agent 获得连接上下文，而不是原始秘密。</span></p><div class="connection-terminal"><small>LOCAL TERMINAL</small><strong>SSH session ready</strong><span>deploy@atlas-prod:~$</span></div><span class="scenario-guard"><span lang="en">You remain in control of the interactive shell.</span><span lang="zh-CN">交互式 Shell 始终由你掌控。</span></span></aside></div>
-        </article>
-        <article class="scenario-panel" id="scenarioIncident" data-scenario-panel="incident-response" aria-labelledby="scenarioIncidentButton" hidden>
-          <header class="scenario-bar"><div class="scenario-heading"><small><span lang="en">Sample evidence · atlas-prod</span><span lang="zh-CN">模拟证据 · atlas-prod</span></small><strong><span lang="en">Production alert review</span><span lang="zh-CN">生产告警排查</span></strong></div><span class="scenario-status"><i></i><span lang="en">Review complete · no changes</span><span lang="zh-CN">排查完成 · 未做变更</span></span></header>
-          <div class="scenario-layout"><div class="scenario-list">
-            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Connection</span><span lang="zh-CN">连接</span></strong><small><span lang="en">Reachable just now</span><span lang="zh-CN">刚刚验证可达</span> · 82 ms</small></span><b class="scene-state good">OK</b></div>
-            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Service</span><span lang="zh-CN">服务</span></strong><small>nginx · <span lang="en">active</span><span lang="zh-CN">运行中</span></small></span><b class="scene-state good">OK</b></div>
-            <div class="scenario-row"><i class="scene-dot warn" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Logs</span><span lang="zh-CN">日志</span></strong><small>upstream timed out · 14 / 10 min</small></span><b class="scene-state warn"><span lang="en">Review</span><span lang="zh-CN">需关注</span></b></div>
-            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Resources</span><span lang="zh-CN">资源</span></strong><small>load 0.82 · disk 68%</small></span><b class="scene-state good">OK</b></div>
-          </div><aside class="scene-card"><small><span lang="en">Evidence summary</span><span lang="zh-CN">证据结论</span></small><h3><span lang="en">Errors point to the upstream service.</span><span lang="zh-CN">异常集中在上游服务。</span></h3><p><span lang="en">The host and nginx remain available. Four read-only checks completed.</span><span lang="zh-CN">主机与 nginx 仍可用，4 项只读检查已经完成。</span></p><span class="scenario-guard"><span lang="en">You decide whether anything is restarted or changed.</span><span lang="zh-CN">是否重启或修改配置，仍由你决定。</span></span></aside></div>
-        </article>
-        <article class="scenario-panel" id="scenarioResearch" data-scenario-panel="research-compute" aria-labelledby="scenarioResearchButton" hidden>
-          <header class="scenario-bar"><div class="scenario-heading"><small><span lang="en">Sample evidence · gpu-lab-01</span><span lang="zh-CN">模拟证据 · gpu-lab-01</span></small><strong><span lang="en">Training run review</span><span lang="zh-CN">训练任务检查</span></strong></div><span class="scenario-status"><i></i><span lang="en">Run reviewed · job untouched</span><span lang="zh-CN">检查完成 · 任务未改动</span></span></header>
-          <div class="scenario-layout"><div class="scenario-list">
-            <div class="scenario-row selected"><i class="scene-dot warn" aria-hidden="true"></i><span class="scene-copy"><strong>train.log</strong><small>CUDA out of memory · 02:17:43</small></span><b class="scene-state warn"><span lang="en">Error</span><span lang="zh-CN">错误</span></b></div>
-            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong>config.yaml</strong><small>batch_size 64 · fp16 true</small></span><b class="scene-state">4 KB</b></div>
-            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong>ckpt-18000.pt</strong><small><span lang="en">Latest checkpoint</span><span lang="zh-CN">最近检查点</span> · 02:14</small></span><b class="scene-state good"><span lang="en">Ready</span><span lang="zh-CN">可用</span></b></div>
-          </div><aside class="scene-card"><small><span lang="en">Agent analysis</span><span lang="zh-CN">Agent 分析</span></small><h3><span lang="en">GPU memory was near its limit.</span><span lang="zh-CN">失败前显存已接近上限。</span></h3><div class="scene-metrics"><span>79.1 / 80 GB<br><span lang="en">GPU memory</span><span lang="zh-CN">GPU 显存</span></span><span>step 18,420<br><span lang="en">last step</span><span lang="zh-CN">最后步数</span></span></div><p><span lang="en">The latest checkpoint is still present.</span><span lang="zh-CN">最近检查点仍然保留。</span></p><span class="scenario-guard"><span lang="en">Logs stayed remote. Credentials stayed local.</span><span lang="zh-CN">日志留在远端，凭据留在本机。</span></span></aside></div>
-        </article>
-        <article class="scenario-panel" id="scenarioScope" data-scenario-panel="multi-environment" aria-labelledby="scenarioScopeButton" hidden>
-          <header class="scenario-bar"><div class="scenario-heading"><small><span lang="en">Sample scope · Acme / Checkout</span><span lang="zh-CN">模拟范围 · Acme / Checkout</span></small><strong><span lang="en">Staging release review</span><span lang="zh-CN">预发布环境检查</span></strong></div><span class="scenario-status"><i></i><span lang="en">Scope selected · 2 hosts</span><span lang="zh-CN">范围已选定 · 2 台主机</span></span></header>
-          <div class="scenario-layout"><div class="scenario-list">
-            <div class="scenario-row selected"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong>api-stg-01</strong><small>client-a · checkout · staging</small></span><b class="scene-state good"><span lang="en">Reachable</span><span lang="zh-CN">可达</span></b></div>
-            <div class="scenario-row selected"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong>worker-stg-01</strong><small>client-a · checkout · staging</small></span><b class="scene-state good">18 min</b></div>
-            <div class="scenario-row excluded"><i class="scene-dot" aria-hidden="true"></i><span class="scene-copy"><strong>atlas-prod</strong><small>internal · api · prod</small></span><b class="scene-state"><span lang="en">Excluded</span><span lang="zh-CN">已排除</span></b></div>
-          </div><aside class="scene-card"><small><span lang="en">Task boundary</span><span lang="zh-CN">任务边界</span></small><h3><span lang="en">This view contains two staging hosts.</span><span lang="zh-CN">当前视图只聚焦 2 台预发布主机。</span></h3><div class="scene-metrics"><span>client-a<br><span lang="en">client</span><span lang="zh-CN">客户</span></span><span>staging<br><span lang="en">environment</span><span lang="zh-CN">环境</span></span></div><p><span lang="en">Production hosts stay outside this task view.</span><span lang="zh-CN">生产主机不在本次任务视图中。</span></p><span class="scenario-guard"><span lang="en">Tags organize scope; SSH accounts still govern access.</span><span lang="zh-CN">标签用于组织范围，实际权限仍由 SSH 账户决定。</span></span></aside></div>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <section class="demo-section" id="demo" aria-labelledby="demoTitle">
-    <div class="section-heading">
-      <div><p class="eyebrow">Live product demo</p><h2 id="demoTitle"><span lang="en">Try the workspace you both share.</span><span lang="zh-CN">现在体验你们共用的工作区。</span></h2></div>
-      <p><span lang="en">Use the same interface that gives people control and Agents precise context. Nothing connects to a real machine.</span><span lang="zh-CN">在同一界面中，让用户保有控制、让 Agent 获得精确上下文；所有内容均为模拟数据，不会连接真实机器。</span></p>
-    </div>
-
-    <div class="demo-shell" id="demoShell" data-demo-theme="dark">
-      <div class="demo-windowbar">
-        <span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span class="demo-address">ssh-manager.local / sample workspace</span>
-        <span class="sample-pill"><i></i><span>Sample data</span></span>
-        <button class="demo-accent-button" id="demoAccentButton" type="button" aria-label="Switch accent color"><i></i><span>Indigo</span></button><button class="demo-theme-button" id="demoThemeButton" type="button" aria-label="Switch demo theme">Light</button>
-      </div>
-      <div class="demo-app">
-        <aside class="demo-sidebar">
-          <div class="demo-brand"><span class="demo-mark">&gt;_</span><span><strong>SSH Manager</strong><small>Local control plane</small></span></div>
-          <nav class="demo-nav" aria-label="Demo views">
-            <button type="button" data-demo-view="workspace"><span class="nav-glyph">□</span>Workspace</button>
-            <button type="button" data-demo-view="connections" class="active"><span class="nav-glyph">═</span>Connections <b id="demoHostCount">0</b></button>
-            <button type="button" data-demo-view="tags"><span class="nav-glyph">◇</span>Tags <b id="demoTagCount">0</b></button>
-            <button type="button" data-demo-view="credentials"><span class="nav-glyph">⌁</span>Credentials <b>3</b></button>
-          </nav>
-          <div class="sidebar-heading"><span>Hosts</span><span id="sidebarShownCount"></span></div>
-          <div class="demo-hosts" id="demoHostList"></div>
-          <div class="sidebar-heading tags-heading"><span>Tags</span></div>
-          <div class="demo-tags" id="demoSidebarTags"></div>
-          <div class="demo-session"><span class="status-dot reachable"></span><span><strong>Local session</strong><small>Sample mode · ready</small></span></div>
-        </aside>
-
-        <div class="demo-main">
-          <header class="demo-header">
-            <div><p class="eyebrow" id="demoViewEyebrow">Connection inventory</p><h2 id="demoViewTitle">Connections</h2><p id="demoViewDescription">Manage endpoints, credentials, and jump hosts.</p></div>
-            <div class="demo-header-actions">
-              <select class="demo-select" id="demoTagFilter" aria-label="Filter demo hosts by tag"><option value="*">All hosts</option></select>
-              <button class="demo-control" id="resetDemo" type="button">Reset demo</button>
-            </div>
-          </header>
-
-          <section class="demo-panel" data-demo-panel="connections">
-            <div class="demo-stats">
-              <article class="demo-stat"><small>Total hosts</small><strong id="statTotal">0</strong></article>
-              <article class="demo-stat"><small>Reachable</small><strong id="statReachable">0</strong></article>
-              <article class="demo-stat"><small>Credentials</small><strong>3</strong></article>
-              <article class="demo-stat"><small>Tags</small><strong id="statTags">0</strong></article>
-            </div>
-            <div class="connection-toolbar">
-              <label><input class="demo-input" id="demoSearch" type="search" autocomplete="off" placeholder="Search alias, endpoint, or tag…" aria-label="Search demo connections"></label>
-              <span class="shown-count" id="demoShown"></span>
-              <div class="batch-actions" id="batchActions" hidden><strong id="selectedCount"></strong><button class="demo-control" id="bulkEditTags" type="button">Edit tags</button><button class="demo-control" id="clearSelection" type="button">Clear</button></div>
-            </div>
-            <div class="demo-table-wrap">
-              <table class="demo-table connection-table">
-                <thead><tr><th><input class="demo-check" id="selectVisible" type="checkbox" aria-label="Select visible demo hosts"></th><th>Alias</th><th>Endpoint</th><th>Tags</th><th>Credential</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
-                <tbody id="demoConnectionRows"></tbody>
-              </table>
-              <div class="empty-table" id="demoConnectionsEmpty" hidden>No hosts match this view.</div>
-            </div>
-          </section>
-
-          <section class="demo-panel" data-demo-panel="workspace" hidden>
-            <div class="host-banner" id="workspaceHostBanner"></div>
-            <div class="file-toolbar"><button class="demo-control" id="fileUp" type="button">↑ Up</button><div class="path-display" id="demoPath">/</div><button class="demo-control copy-directory" id="copyDirectory" type="button">Copy reference</button></div>
-            <div class="demo-table-wrap"><table class="demo-table"><thead><tr><th style="width:45%">Name</th><th>Size</th><th>Modified</th><th>Access</th><th></th></tr></thead><tbody id="demoFileRows"></tbody></table></div>
-          </section>
-
-          <section class="demo-panel" data-demo-panel="tags" hidden>
-            <form class="tag-create-bar" id="tagCreateForm"><input class="demo-input" id="newTagName" maxlength="24" autocomplete="off" placeholder="Create a project, environment, or role tag…" aria-label="New demo tag"><button class="demo-control accent" type="submit">Create tag</button></form>
-            <div class="tag-library" id="demoTagLibrary"></div>
-          </section>
-
-          <section class="demo-panel" data-demo-panel="credentials" hidden>
-            <div class="security-note"><span class="security-icon">⌁</span><div><strong>Credentials are encrypted and never shared.</strong><p>This demo contains names only. The real app stores passwords and passphrases in your operating-system vault.</p></div></div>
-            <div class="demo-table-wrap"><table class="demo-table"><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Secret state</th><th>Used by</th><th>Last used</th></tr></thead><tbody><tr><td><span class="cell-stack"><strong>deploy-key</strong><small>Production access</small></span></td><td>Private key</td><td><span class="status-pill reachable">Ready</span></td><td>Vault protected</td><td>3 hosts</td><td>Just now</td></tr><tr><td><span class="cell-stack"><strong>lab-agent</strong><small>Local ssh-agent</small></span></td><td>OpenSSH</td><td><span class="status-pill reachable">Ready</span></td><td>No stored secret</td><td>4 hosts</td><td>12m ago</td></tr><tr><td><span class="cell-stack"><strong>client-password</strong><small>Client staging</small></span></td><td>Password</td><td><span class="status-pill idle">Locked</span></td><td>Vault protected</td><td>2 hosts</td><td>2h ago</td></tr></tbody></table></div>
-          </section>
-        </div>
-      </div>
-      <div class="tag-picker" id="demoTagPicker" role="dialog" aria-label="Edit demo host tags" hidden></div>
-      <div class="demo-toast" id="demoToast" role="status" aria-live="polite" hidden></div>
-    </div>
-  </section>
-
-  <section class="feature-section" aria-labelledby="featureTitle">
-    <div class="section-heading"><div><p class="eyebrow">Built for human + Agent workflows</p><h2 id="featureTitle"><span lang="en">One source of truth for intent, context, and evidence.</span><span lang="zh-CN">让意图、上下文和执行结果拥有同一个事实源。</span></h2></div></div>
-    <div class="feature-grid">
-      <article class="feature-card"><span class="feature-number">01 / ORGANIZE</span><h3><span lang="en">Find the right host instantly</span><span lang="zh-CN">瞬间找到正确主机</span></h3><p><span lang="en">Use reusable tags for projects, environments, roles, or clients. Every tag keeps one colour across sidebar, tables, and pickers.</span><span lang="zh-CN">按项目、环境、角色或客户建立标签，每个标签在侧栏、表格与选择器中保持同一颜色。</span></p></article>
-      <article class="feature-card"><span class="feature-number">02 / BROWSE</span><h3><span lang="en">Reference files without a shell</span><span lang="zh-CN">无需终端即可引用文件</span></h3><p><span lang="en">Browse remote directories read-only and copy precise host:path references that people and AI agents can understand.</span><span lang="zh-CN">以只读方式浏览远程目录，并复制人和 AI Agent 都能理解的精确 host:path 引用。</span></p></article>
-      <article class="feature-card"><span class="feature-number">03 / PROTECT</span><h3><span lang="en">Keep secrets outside the browser</span><span lang="zh-CN">让秘密远离浏览器</span></h3><p><span lang="en">Passwords and passphrases stay in the operating-system vault. The local UI and agent-safe CLI reference them without exposing values.</span><span lang="zh-CN">密码和口令保留在操作系统保险库中，本地 UI 与 Agent 安全 CLI 只引用、不暴露。</span></p></article>
-    </div>
-  </section>
-
-  <section class="final-cta">
-    <div><h2><span lang="en">Move from sample hosts to your own.</span><span lang="zh-CN">现在，把模拟主机换成你的真实环境。</span></h2><p><span lang="en">Open source, local only, and ready for macOS, Linux, and Windows.</span><span lang="zh-CN">开源、本地运行，支持 macOS、Linux 与 Windows。</span></p></div>
-    <button class="button primary open-agent-dialog" type="button"><span lang="en">Install with your Agent</span><span lang="zh-CN">让 Agent 帮我安装</span> <span aria-hidden="true">→</span></button>
-  </section>
+<section class="hero">
+<div>
+<p class="eyebrow"><span lang="en">Human + Agent SSH workspace</span><span lang="zh-CN">用户与 Agent 共用的 SSH 工作区</span></p>
+<h1><span lang="en">You and your Agent. <span class="muted-phrase">One shared SSH workspace.</span></span><span lang="zh-CN">你和 Agent，<span class="muted-phrase">共用 SSH 工作区。</span></span></h1>
+<p class="hero-description"><span lang="en">You choose the goal, hosts, and approvals. Your Agent finds files, performs approved actions, and returns evidence in the same local workspace—without credentials entering the chat.</span><span lang="zh-CN">你决定目标、主机范围与授权；Agent 在同一个本地工作区中查找文件、执行获批操作并返回结果，凭据无需进入对话。</span></p>
+<div class="hero-actions">
+<button class="button primary" id="focusDemo" type="button"><span lang="en">Try the shared workspace</span><span lang="zh-CN">体验共享工作区</span> <span aria-hidden="true">↓</span></button>
+<button class="button open-agent-dialog" type="button"><span lang="en">Connect your Agent</span><span lang="zh-CN">Agent 一键接入</span></button>
+</div>
+</div>
+<aside class="agent-hero" aria-labelledby="agentCollaborationTitle">
+<div class="agent-visual">
+<img src="assets/human-agent-collaboration.webp" width="960" height="600" fetchpriority="high" decoding="async" alt="A person and an abstract AI Agent working through one shared local SSH control plane.">
+<span class="agent-mode"><i></i><span lang="en">Shared local session</span><span lang="zh-CN">本地共享会话</span></span>
+</div>
+<div class="agent-caption">
+<small><span lang="en">Human + Agent workflow</span><span lang="zh-CN">用户 + Agent 协作流程</span></small>
+<strong id="agentCollaborationTitle"><span lang="en">One workspace. Two collaborators.</span><span lang="zh-CN">一个工作区，两个协作者。</span></strong>
+<p><span lang="en">You keep control of scope and approval. The Agent receives context—not raw secrets.</span><span lang="zh-CN">范围与授权始终由你掌控；Agent 获得执行上下文，而不是原始秘密。</span></p>
+<ol class="agent-flow">
+<li><b>01 / INTENT</b><span lang="en">You choose the hosts</span><span lang="zh-CN">你选择主机范围</span></li>
+<li><b>02 / ACTION</b><span lang="en">Agent works locally</span><span lang="zh-CN">Agent 在本地执行</span></li>
+<li><b>03 / REVIEW</b><span lang="en">Evidence returns to you</span><span lang="zh-CN">结果回到你手中</span></li>
+</ol>
+</div>
+</aside>
+</section>
+<section class="feature-section use-case-section" id="use-cases" aria-labelledby="useCaseTitle">
+<div class="section-heading">
+<div><p class="eyebrow"><span lang="en">Interactive scenarios</span><span lang="zh-CN">场景演示</span></p><h2 id="useCaseTitle"><span lang="en">From intent to evidence, see what your Agent did.</span><span lang="zh-CN">从目标到证据，看清 Agent 做了什么。</span></h2></div>
+<p><span lang="en">Choose a scenario to inspect a sample result. No real host is contacted.</span><span lang="zh-CN">选择一个场景，查看模拟执行结果；不会连接任何真实主机。</span></p>
+</div>
+<div class="scenario-demo">
+<div class="scenario-tabs" id="scenarioSwitcher" aria-label="Scenario demos">
+<button class="scenario-tab active" id="scenarioConnectButton" type="button" data-scenario-target="direct-connect" aria-controls="scenarioConnect" aria-pressed="true"><span class="scenario-index">01</span><span><strong><span lang="en">Quick connect</span><span lang="zh-CN">快速连接</span></strong><small><span lang="en">Ask for a saved host by name</span><span lang="zh-CN">一句话连接已保存主机</span></small></span></button>
+<button class="scenario-tab" id="scenarioIncidentButton" type="button" data-scenario-target="incident-response" aria-controls="scenarioIncident" aria-pressed="false"><span class="scenario-index">02</span><span><strong><span lang="en">On-call response</span><span lang="zh-CN">值班响应</span></strong><small><span lang="en">Investigate a production alert</span><span lang="zh-CN">定位线上告警</span></small></span></button>
+<button class="scenario-tab" id="scenarioResearchButton" type="button" data-scenario-target="research-compute" aria-controls="scenarioResearch" aria-pressed="false"><span class="scenario-index">03</span><span><strong><span lang="en">Research compute</span><span lang="zh-CN">研究计算</span></strong><small><span lang="en">Review a failed training run</span><span lang="zh-CN">检查失败的训练任务</span></small></span></button>
+<button class="scenario-tab" id="scenarioScopeButton" type="button" data-scenario-target="multi-environment" aria-controls="scenarioScope" aria-pressed="false"><span class="scenario-index">04</span><span><strong><span lang="en">Multi-environment</span><span lang="zh-CN">多环境交付</span></strong><small><span lang="en">Keep one task in scope</span><span lang="zh-CN">明确一次任务的范围</span></small></span></button>
+</div>
+<div class="scenario-stage">
+<article class="scenario-panel" id="scenarioConnect" data-scenario-panel="direct-connect" aria-labelledby="scenarioConnectButton">
+<header class="scenario-bar"><div class="scenario-heading"><small><span lang="en">Sample interaction · saved host</span><span lang="zh-CN">模拟交互 · 已保存主机</span></small><strong><span lang="en">Connect by name</span><span lang="zh-CN">一句话发起连接</span></strong></div><span class="scenario-status"><i></i><span lang="en">Session handed to your terminal</span><span lang="zh-CN">会话已交给本地终端</span></span></header>
+<div class="scenario-layout"><div><div class="scenario-instruction"><small><span lang="en">You</span><span lang="zh-CN">你</span></small><strong><span lang="en">Connect me to atlas-prod.</span><span lang="zh-CN">连接 atlas-prod。</span></strong></div><div class="scenario-list">
+<div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Saved host found</span><span lang="zh-CN">已找到保存的主机</span></strong><small>atlas-prod · deploy@10.24.8.12</small></span><b class="scene-state good"><span lang="en">Matched</span><span lang="zh-CN">已匹配</span></b></div>
+<div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Credential ready</span><span lang="zh-CN">凭据已就绪</span></strong><small>deploy-key · <span lang="en">vault reference</span><span lang="zh-CN">保险库引用</span></small></span><b class="scene-state good"><span lang="en">Protected</span><span lang="zh-CN">受保护</span></b></div>
+<div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Host identity</span><span lang="zh-CN">主机身份</span></strong><small><span lang="en">Known host key verified</span><span lang="zh-CN">已验证已知主机密钥</span></small></span><b class="scene-state good"><span lang="en">Verified</span><span lang="zh-CN">已验证</span></b></div>
+</div></div><aside class="scene-card"><small><span lang="en">Interactive session</span><span lang="zh-CN">交互式会话</span></small><h3><span lang="en">Connected to atlas-prod</span><span lang="zh-CN">已连接 atlas-prod</span></h3><p><span lang="en">The shell belongs to your local terminal. The Agent receives connection context, never the raw secret.</span><span lang="zh-CN">Shell 位于你的本地终端；Agent 获得连接上下文，而不是原始秘密。</span></p><div class="connection-terminal"><small>LOCAL TERMINAL</small><strong>SSH session ready</strong><span>deploy@atlas-prod:~$</span></div><span class="scenario-guard"><span lang="en">You remain in control of the interactive shell.</span><span lang="zh-CN">交互式 Shell 始终由你掌控。</span></span></aside></div>
+</article>
+<article class="scenario-panel" id="scenarioIncident" data-scenario-panel="incident-response" aria-labelledby="scenarioIncidentButton" hidden>
+<header class="scenario-bar"><div class="scenario-heading"><small><span lang="en">Sample evidence · atlas-prod</span><span lang="zh-CN">模拟证据 · atlas-prod</span></small><strong><span lang="en">Production alert review</span><span lang="zh-CN">生产告警排查</span></strong></div><span class="scenario-status"><i></i><span lang="en">Review complete · no changes</span><span lang="zh-CN">排查完成 · 未做变更</span></span></header>
+<div class="scenario-layout"><div class="scenario-list">
+<div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Connection</span><span lang="zh-CN">连接</span></strong><small><span lang="en">Reachable just now</span><span lang="zh-CN">刚刚验证可达</span> · 82 ms</small></span><b class="scene-state good">OK</b></div>
+<div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Service</span><span lang="zh-CN">服务</span></strong><small>nginx · <span lang="en">active</span><span lang="zh-CN">运行中</span></small></span><b class="scene-state good">OK</b></div>
+<div class="scenario-row"><i class="scene-dot warn" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Logs</span><span lang="zh-CN">日志</span></strong><small>upstream timed out · 14 / 10 min</small></span><b class="scene-state warn"><span lang="en">Review</span><span lang="zh-CN">需关注</span></b></div>
+<div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Resources</span><span lang="zh-CN">资源</span></strong><small>load 0.82 · disk 68%</small></span><b class="scene-state good">OK</b></div>
+</div><aside class="scene-card"><small><span lang="en">Evidence summary</span><span lang="zh-CN">证据结论</span></small><h3><span lang="en">Errors point to the upstream service.</span><span lang="zh-CN">异常集中在上游服务。</span></h3><p><span lang="en">The host and nginx remain available. Four read-only checks completed.</span><span lang="zh-CN">主机与 nginx 仍可用，4 项只读检查已经完成。</span></p><span class="scenario-guard"><span lang="en">You decide whether anything is restarted or changed.</span><span lang="zh-CN">是否重启或修改配置，仍由你决定。</span></span></aside></div>
+</article>
+<article class="scenario-panel" id="scenarioResearch" data-scenario-panel="research-compute" aria-labelledby="scenarioResearchButton" hidden>
+<header class="scenario-bar"><div class="scenario-heading"><small><span lang="en">Sample evidence · gpu-lab-01</span><span lang="zh-CN">模拟证据 · gpu-lab-01</span></small><strong><span lang="en">Training run review</span><span lang="zh-CN">训练任务检查</span></strong></div><span class="scenario-status"><i></i><span lang="en">Run reviewed · job untouched</span><span lang="zh-CN">检查完成 · 任务未改动</span></span></header>
+<div class="scenario-layout"><div class="scenario-list">
+<div class="scenario-row selected"><i class="scene-dot warn" aria-hidden="true"></i><span class="scene-copy"><strong>train.log</strong><small>CUDA out of memory · 02:17:43</small></span><b class="scene-state warn"><span lang="en">Error</span><span lang="zh-CN">错误</span></b></div>
+<div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong>config.yaml</strong><small>batch_size 64 · fp16 true</small></span><b class="scene-state">4 KB</b></div>
+<div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong>ckpt-18000.pt</strong><small><span lang="en">Latest checkpoint</span><span lang="zh-CN">最近检查点</span> · 02:14</small></span><b class="scene-state good"><span lang="en">Ready</span><span lang="zh-CN">可用</span></b></div>
+</div><aside class="scene-card"><small><span lang="en">Agent analysis</span><span lang="zh-CN">Agent 分析</span></small><h3><span lang="en">GPU memory was near its limit.</span><span lang="zh-CN">失败前显存已接近上限。</span></h3><div class="scene-metrics"><span>79.1 / 80 GB<br><span lang="en">GPU memory</span><span lang="zh-CN">GPU 显存</span></span><span>step 18,420<br><span lang="en">last step</span><span lang="zh-CN">最后步数</span></span></div><p><span lang="en">The latest checkpoint is still present.</span><span lang="zh-CN">最近检查点仍然保留。</span></p><span class="scenario-guard"><span lang="en">Logs stayed remote. Credentials stayed local.</span><span lang="zh-CN">日志留在远端，凭据留在本机。</span></span></aside></div>
+</article>
+<article class="scenario-panel" id="scenarioScope" data-scenario-panel="multi-environment" aria-labelledby="scenarioScopeButton" hidden>
+<header class="scenario-bar"><div class="scenario-heading"><small><span lang="en">Sample scope · Acme / Checkout</span><span lang="zh-CN">模拟范围 · Acme / Checkout</span></small><strong><span lang="en">Staging release review</span><span lang="zh-CN">预发布环境检查</span></strong></div><span class="scenario-status"><i></i><span lang="en">Scope selected · 2 hosts</span><span lang="zh-CN">范围已选定 · 2 台主机</span></span></header>
+<div class="scenario-layout"><div class="scenario-list">
+<div class="scenario-row selected"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong>api-stg-01</strong><small>client-a · checkout · staging</small></span><b class="scene-state good"><span lang="en">Reachable</span><span lang="zh-CN">可达</span></b></div>
+<div class="scenario-row selected"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong>worker-stg-01</strong><small>client-a · checkout · staging</small></span><b class="scene-state good">18 min</b></div>
+<div class="scenario-row excluded"><i class="scene-dot" aria-hidden="true"></i><span class="scene-copy"><strong>atlas-prod</strong><small>internal · api · prod</small></span><b class="scene-state"><span lang="en">Excluded</span><span lang="zh-CN">已排除</span></b></div>
+</div><aside class="scene-card"><small><span lang="en">Task boundary</span><span lang="zh-CN">任务边界</span></small><h3><span lang="en">This view contains two staging hosts.</span><span lang="zh-CN">当前视图只聚焦 2 台预发布主机。</span></h3><div class="scene-metrics"><span>client-a<br><span lang="en">client</span><span lang="zh-CN">客户</span></span><span>staging<br><span lang="en">environment</span><span lang="zh-CN">环境</span></span></div><p><span lang="en">Production hosts stay outside this task view.</span><span lang="zh-CN">生产主机不在本次任务视图中。</span></p><span class="scenario-guard"><span lang="en">Tags organize scope; SSH accounts still govern access.</span><span lang="zh-CN">标签用于组织范围，实际权限仍由 SSH 账户决定。</span></span></aside></div>
+</article>
+</div>
+</div>
+</section>
+<section class="demo-section" id="demo" aria-labelledby="demoTitle">
+<div class="section-heading">
+<div><p class="eyebrow">Live product demo</p><h2 id="demoTitle"><span lang="en">Try the workspace you both share.</span><span lang="zh-CN">现在体验你们共用的工作区。</span></h2></div>
+<p><span lang="en">Use the same interface that gives people control and Agents precise context. Nothing connects to a real machine.</span><span lang="zh-CN">在同一界面中，让用户保有控制、让 Agent 获得精确上下文；所有内容均为模拟数据，不会连接真实机器。</span></p>
+</div>
+<div class="demo-shell" id="demoShell" data-demo-theme="dark">
+<div class="demo-windowbar">
+<span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+<span class="demo-address">ssh-manager.local / sample workspace</span>
+<span class="sample-pill"><i></i><span>Sample data</span></span>
+<button class="demo-accent-button" id="demoAccentButton" type="button" aria-label="Switch accent color"><i></i><span>Indigo</span></button><button class="demo-theme-button" id="demoThemeButton" type="button" aria-label="Switch demo theme">Light</button>
+</div>
+<div class="demo-app">
+<aside class="demo-sidebar">
+<div class="demo-brand"><span class="demo-mark">&gt;_</span><span><strong>SSH Manager</strong><small>Local control plane</small></span></div>
+<nav class="demo-nav" aria-label="Demo views">
+<button type="button" data-demo-view="workspace"><span class="nav-glyph">□</span>Workspace</button>
+<button type="button" data-demo-view="connections" class="active"><span class="nav-glyph">═</span>Connections <b id="demoHostCount">0</b></button>
+<button type="button" data-demo-view="tags"><span class="nav-glyph">◇</span>Tags <b id="demoTagCount">0</b></button>
+<button type="button" data-demo-view="skills"><span class="nav-glyph">✦</span>Skill Library <b id="demoSkillCount">0</b></button>
+<button type="button" data-demo-view="credentials"><span class="nav-glyph">⌁</span>Credentials <b>3</b></button>
+</nav>
+<div class="sidebar-heading"><span>Hosts</span><span id="sidebarShownCount"></span></div>
+<div class="demo-hosts" id="demoHostList"></div>
+<div class="sidebar-heading tags-heading"><span>Tags</span></div>
+<div class="demo-tags" id="demoSidebarTags"></div>
+<div class="demo-session"><span class="status-dot reachable"></span><span><strong>Local session</strong><small>Sample mode · ready</small></span></div>
+</aside>
+<div class="demo-main">
+<header class="demo-header">
+<div><p class="eyebrow" id="demoViewEyebrow">Connection inventory</p><h2 id="demoViewTitle">Connections</h2><p id="demoViewDescription">Manage endpoints, credentials, and jump hosts.</p></div>
+<div class="demo-header-actions">
+<select class="demo-select" id="demoTagFilter" aria-label="Filter demo hosts by tag"><option value="*">All hosts</option></select>
+<button class="demo-control" id="resetDemo" type="button">Reset demo</button>
+</div>
+</header>
+<section class="demo-panel" data-demo-panel="connections">
+<div class="demo-stats">
+<article class="demo-stat"><small>Total hosts</small><strong id="statTotal">0</strong></article>
+<article class="demo-stat"><small>Reachable</small><strong id="statReachable">0</strong></article>
+<article class="demo-stat"><small>Credentials</small><strong>3</strong></article>
+<article class="demo-stat"><small>Tags</small><strong id="statTags">0</strong></article>
+</div>
+<div class="connection-toolbar">
+<label><input class="demo-input" id="demoSearch" type="search" autocomplete="off" placeholder="Search alias, endpoint, or tag…" aria-label="Search demo connections"></label>
+<span class="shown-count" id="demoShown"></span>
+<div class="batch-actions" id="batchActions" hidden><strong id="selectedCount"></strong><button class="demo-control" id="bulkEditTags" type="button">Edit tags</button><button class="demo-control" id="clearSelection" type="button">Clear</button></div>
+</div>
+<div class="demo-table-wrap">
+<table class="demo-table connection-table">
+<thead><tr><th><input class="demo-check" id="selectVisible" type="checkbox" aria-label="Select visible demo hosts"></th><th>Alias</th><th>Endpoint</th><th>Tags</th><th>Credential</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
+<tbody id="demoConnectionRows"></tbody>
+</table>
+<div class="empty-table" id="demoConnectionsEmpty" hidden>No hosts match this view.</div>
+</div>
+</section>
+<section class="demo-panel" data-demo-panel="workspace" hidden>
+<div class="host-banner" id="workspaceHostBanner"></div>
+<div class="security-note" id="workspaceSkills"></div>
+<div class="file-toolbar"><button class="demo-control" id="fileUp" type="button">↑ Up</button><div class="path-display" id="demoPath">/</div><button class="demo-control copy-directory" id="copyDirectory" type="button">Copy reference</button></div>
+<div class="demo-table-wrap"><table class="demo-table"><thead><tr><th style="width:45%">Name</th><th>Size</th><th>Modified</th><th>Access</th><th></th></tr></thead><tbody id="demoFileRows"></tbody></table></div>
+</section>
+<section class="demo-panel" data-demo-panel="tags" hidden>
+<form class="tag-create-bar" id="tagCreateForm"><input class="demo-input" id="newTagName" maxlength="24" autocomplete="off" placeholder="Create a project, environment, or role tag…" aria-label="New demo tag"><button class="demo-control accent" type="submit">Create tag</button></form>
+<div class="tag-library" id="demoTagLibrary"></div>
+</section>
+<section class="demo-panel" data-demo-panel="skills" hidden><div class="security-note" id="demoSkillLibrary"></div></section>
+<section class="demo-panel" data-demo-panel="credentials" hidden>
+<div class="security-note"><span class="security-icon">⌁</span><div><strong>Credentials are encrypted and never shared.</strong><p>This demo contains names only. The real app stores passwords and passphrases in your operating-system vault.</p></div></div>
+<div class="demo-table-wrap"><table class="demo-table"><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Secret state</th><th>Used by</th><th>Last used</th></tr></thead><tbody><tr><td><span class="cell-stack"><strong>deploy-key</strong><small>Production access</small></span></td><td>Private key</td><td><span class="status-pill reachable">Ready</span></td><td>Vault protected</td><td>3 hosts</td><td>Just now</td></tr><tr><td><span class="cell-stack"><strong>lab-agent</strong><small>Local ssh-agent</small></span></td><td>OpenSSH</td><td><span class="status-pill reachable">Ready</span></td><td>No stored secret</td><td>4 hosts</td><td>12m ago</td></tr><tr><td><span class="cell-stack"><strong>client-password</strong><small>Client staging</small></span></td><td>Password</td><td><span class="status-pill idle">Locked</span></td><td>Vault protected</td><td>2 hosts</td><td>2h ago</td></tr></tbody></table></div>
+</section>
+</div>
+</div>
+<div class="tag-picker" id="demoTagPicker" role="dialog" aria-label="Edit host skills or tags" hidden></div>
+<div class="demo-toast" id="demoToast" role="status" aria-live="polite" hidden></div>
+</div>
+</section>
+<section class="feature-section" aria-labelledby="featureTitle">
+<div class="section-heading"><div><p class="eyebrow">Built for human + Agent workflows</p><h2 id="featureTitle"><span lang="en">One source of truth for intent, context, and evidence.</span><span lang="zh-CN">让意图、上下文和执行结果拥有同一个事实源。</span></h2></div></div>
+<div class="feature-grid">
+<article class="feature-card"><span class="feature-number">01 / ORGANIZE</span><h3><span lang="en">Find the right host instantly</span><span lang="zh-CN">瞬间找到正确主机</span></h3><p><span lang="en">Use reusable tags for projects, environments, roles, or clients. Every tag keeps one colour across sidebar, tables, and pickers.</span><span lang="zh-CN">按项目、环境、角色或客户建立标签，每个标签在侧栏、表格与选择器中保持同一颜色。</span></p></article>
+<article class="feature-card"><span class="feature-number">02 / BROWSE</span><h3><span lang="en">Reference files without a shell</span><span lang="zh-CN">无需终端即可引用文件</span></h3><p><span lang="en">Browse remote directories read-only and copy precise host:path references that people and AI agents can understand.</span><span lang="zh-CN">以只读方式浏览远程目录，并复制人和 AI Agent 都能理解的精确 host:path 引用。</span></p></article>
+<article class="feature-card"><span class="feature-number">03 / PROTECT</span><h3><span lang="en">Keep secrets outside the browser</span><span lang="zh-CN">让秘密远离浏览器</span></h3><p><span lang="en">Passwords and passphrases stay in the operating-system vault. The local UI and agent-safe CLI reference them without exposing values.</span><span lang="zh-CN">密码和口令保留在操作系统保险库中，本地 UI 与 Agent 安全 CLI 只引用、不暴露。</span></p></article>
+</div>
+</section>
+<section class="final-cta">
+<div><h2><span lang="en">Move from sample hosts to your own.</span><span lang="zh-CN">现在，把模拟主机换成你的真实环境。</span></h2><p><span lang="en">Open source, local only, and ready for macOS, Linux, and Windows.</span><span lang="zh-CN">开源、本地运行，支持 macOS、Linux 与 Windows。</span></p></div>
+<button class="button primary open-agent-dialog" type="button"><span lang="en">Install with your Agent</span><span lang="zh-CN">让 Agent 帮我安装</span> <span aria-hidden="true">→</span></button>
+</section>
 </main>
-
 <footer class="site-footer">
-  <span>SSH Server Manager · v0.5.0 · MIT</span>
-  <div class="footer-links"><a href="https://github.com/xiayh0107/servers-connect">GitHub</a><a href="https://github.com/xiayh0107/servers-connect/tree/main/ssh-server-manager/docs">Docs</a><a href="https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/security.md">Security</a></div>
+<span>SSH Server Manager · v0.6.0 · MIT</span>
+<div class="footer-links"><a href="https://github.com/xiayh0107/servers-connect">GitHub</a><a href="https://github.com/xiayh0107/servers-connect/tree/main/ssh-server-manager/docs">Docs</a><a href="https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/security.md">Security</a></div>
 </footer>
-
 <dialog id="agentDialog" aria-labelledby="agentDialogTitle">
-  <div class="dialog-content">
-    <div class="dialog-head"><div><h2 id="agentDialogTitle"><span lang="en">Connect your Agent</span><span lang="zh-CN">Agent 一键接入</span></h2><p><span lang="en">Send this prompt to your Agent. It will install and verify the tool for you.</span><span lang="zh-CN">将下面的提示词发送给 Agent，它会帮你完成安装和检查。</span></p></div><button class="close-button" id="closeAgentDialog" type="button" aria-label="Close">×</button></div>
-    <div class="prompt" id="agentInstallCommand"><span lang="en">Read https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md and follow it to install and configure SSH Server Manager for me. When finished, run serverctl doctor and report the results.</span><span lang="zh-CN">请阅读 https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md，按照文档为我安装并配置 SSH Server Manager。完成后运行 serverctl doctor，并告诉我检查结果。</span></div>
-    <button class="button primary copy-button" id="copyAgentCommand" type="button"><span lang="en">Copy prompt</span><span lang="zh-CN">复制提示词</span></button>
-  </div>
+<div class="dialog-content">
+<div class="dialog-head"><div><h2 id="agentDialogTitle"><span lang="en">Connect your Agent</span><span lang="zh-CN">Agent 一键接入</span></h2><p><span lang="en">Send this prompt to your Agent. It will install and verify the tool for you.</span><span lang="zh-CN">将下面的提示词发送给 Agent，它会帮你完成安装和检查。</span></p></div><button class="close-button" id="closeAgentDialog" type="button" aria-label="Close">×</button></div>
+<div class="prompt" id="agentInstallCommand"><span lang="en">Read https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md and follow it to install and configure SSH Server Manager for me. When finished, run serverctl doctor and report the results.</span><span lang="zh-CN">请阅读 https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md，按照文档为我安装并配置 SSH Server Manager。完成后运行 serverctl doctor，并告诉我检查结果。</span></div>
+<button class="button primary copy-button" id="copyAgentCommand" type="button"><span lang="en">Copy prompt</span><span lang="zh-CN">复制提示词</span></button>
+</div>
 </dialog>
-
 <script>
-  (function () {
-    var root = document.documentElement;
-    var langButton = document.getElementById("langToggle");
-    var agentDialog = document.getElementById("agentDialog");
-    var copyButton = document.getElementById("copyAgentCommand");
-    var demoShell = document.getElementById("demoShell");
-    var demoTagPicker = document.getElementById("demoTagPicker");
-    var demoToast = document.getElementById("demoToast");
-    var scenarioSwitcher = document.getElementById("scenarioSwitcher");
-    var toastTimer = 0;
-    var storedLanguage = null;
-    try { storedLanguage = localStorage.getItem("ssm-lang"); } catch (error) {}
-    var useChinese = storedLanguage ? storedLanguage === "zh" : /^zh/i.test(navigator.language || "");
-
-    var initialHosts = [
-      { id: "atlas-prod", alias: "atlas-prod", username: "deploy", hostname: "10.24.8.12", note: "Production API", tags: ["prod", "api"], credential: "deploy-key", status: "reachable", meta: "82 ms" },
-      { id: "gpu-lab-01", alias: "gpu-lab-01", username: "research", hostname: "192.168.4.21", note: "A100 research node", tags: ["gpu", "lab"], credential: "lab-agent", status: "reachable", meta: "118 ms" },
-      { id: "client-staging", alias: "client-staging", username: "ubuntu", hostname: "172.18.0.34", note: "Client preview", tags: ["staging", "client-a"], credential: "client-password", status: "unreachable", meta: "2h ago" },
-      { id: "bastion-east", alias: "bastion-east", username: "ops", hostname: "10.20.0.5", note: "East jump host", tags: ["prod", "ops"], credential: "deploy-key", status: "reachable", meta: "64 ms" },
-      { id: "docs-runner", alias: "docs-runner", username: "runner", hostname: "10.30.12.8", note: "Documentation builds", tags: ["tooling"], credential: "lab-agent", status: "idle", meta: "Not checked" },
-      { id: "archive-node", alias: "archive-node", username: "backup", hostname: "10.11.4.90", note: "Nightly archives", tags: ["ops"], credential: "lab-agent", status: "idle", meta: "Not checked" },
-      { id: "edge-cache-02", alias: "edge-cache-02", username: "deploy", hostname: "10.24.9.18", note: "Regional cache", tags: ["prod", "tooling"], credential: "deploy-key", status: "reachable", meta: "91 ms" },
-      { id: "login-01", alias: "login-01", username: "research", hostname: "172.16.78.132", note: "Lab login node", tags: ["lab", "ops"], credential: "lab-agent", status: "idle", meta: "Not checked" },
-      { id: "login-02", alias: "login-02", username: "research", hostname: "172.16.78.133", note: "Lab login node", tags: ["lab", "ops"], credential: "lab-agent", status: "idle", meta: "Not checked" },
-      { id: "qa-runner", alias: "qa-runner", username: "runner", hostname: "10.30.12.19", note: "Release verification", tags: ["staging", "tooling"], credential: "client-password", status: "reachable", meta: "73 ms" },
-      { id: "database-ro", alias: "database-ro", username: "analyst", hostname: "10.24.16.7", note: "Read-only reporting", tags: ["prod", "database"], credential: "deploy-key", status: "reachable", meta: "88 ms" }
-    ];
-    var hosts = [];
-    var tags = [];
-    var selectedIds = new Set();
-    var pickerHostIds = [];
-    var state = { view: "connections", hostId: "atlas-prod", filter: "*", query: "", path: "/" };
-    var viewCopy = {
-      connections: ["CONNECTION INVENTORY", "Connections", "Manage endpoints, credentials, and jump hosts."],
-      workspace: ["REMOTE WORKSPACE", "Files", "Browse remote files without opening a shell."],
-      tags: ["HOST ORGANIZATION", "Tags", "Label hosts for fast filtering by project, environment, or role."],
-      credentials: ["SECURE STORAGE", "Credentials", "Reusable authentication profiles stored securely."]
-    };
-    var fileTree = {
-      "/": [
-        { name: "projects", type: "folder", size: "—", modified: "Today 09:42", access: "rwxr-xr-x" },
-        { name: "deploy", type: "folder", size: "—", modified: "Yesterday", access: "rwxr-x---" },
-        { name: "README.md", type: "file", size: "3.2 KB", modified: "Today 08:17", access: "rw-r--r--" },
-        { name: "healthcheck.log", type: "file", size: "18 KB", modified: "12m ago", access: "rw-r-----" }
-      ],
-      "/projects": [
-        { name: "api", type: "folder", size: "—", modified: "Today 09:40", access: "rwxr-xr-x" },
-        { name: "website", type: "folder", size: "—", modified: "Yesterday", access: "rwxr-xr-x" },
-        { name: "release-notes.md", type: "file", size: "6.8 KB", modified: "Today 07:51", access: "rw-r--r--" }
-      ],
-      "/projects/api": [
-        { name: "src", type: "folder", size: "—", modified: "Today 09:38", access: "rwxr-xr-x" },
-        { name: "package.json", type: "file", size: "1.7 KB", modified: "Today 09:34", access: "rw-r--r--" },
-        { name: "Dockerfile", type: "file", size: "864 B", modified: "Yesterday", access: "rw-r--r--" },
-        { name: ".env.example", type: "file", size: "442 B", modified: "Jun 28", access: "rw-r--r--" }
-      ],
-      "/projects/website": [
-        { name: "public", type: "folder", size: "—", modified: "Yesterday", access: "rwxr-xr-x" },
-        { name: "index.html", type: "file", size: "24 KB", modified: "Yesterday", access: "rw-r--r--" }
-      ],
-      "/deploy": [
-        { name: "current", type: "folder", size: "—", modified: "Today 09:42", access: "rwxr-x---" },
-        { name: "deploy.sh", type: "file", size: "2.1 KB", modified: "May 18", access: "rwxr-x---" }
-      ]
-    };
-
-    function byId(id) { return document.getElementById(id); }
-    function escapeHtml(value) { return String(value).replace(/[&<>"']/g, function (character) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]; }); }
-    function setScenario(scenario) {
-      document.querySelectorAll("[data-scenario-target]").forEach(function (button) { var active = button.dataset.scenarioTarget === scenario; button.classList.toggle("active", active); button.setAttribute("aria-pressed", active ? "true" : "false"); });
-      document.querySelectorAll("[data-scenario-panel]").forEach(function (panel) { panel.hidden = panel.dataset.scenarioPanel !== scenario; });
-    }
-    function uniqueTags() { return tags.slice().sort(function (a, b) { return a.localeCompare(b); }); }
-    function tagHue(tag) { var index = uniqueTags().indexOf(tag); return " tg-" + (index < 0 ? 0 : index % 6); }
-    function currentHost() { return hosts.find(function (host) { return host.id === state.hostId; }) || hosts[0]; }
-    function tagCount(tag) { return hosts.filter(function (host) { return host.tags.indexOf(tag) >= 0; }).length; }
-    function visibleHosts() {
-      var query = state.query.trim().toLowerCase();
-      return hosts.filter(function (host) {
-        var inTag = state.filter === "*" || host.tags.indexOf(state.filter) >= 0;
-        var matches = !query || [host.alias, host.username, host.hostname, host.note].concat(host.tags).some(function (value) { return String(value).toLowerCase().indexOf(query) >= 0; });
-        return inTag && matches;
-      });
-    }
-    function showToast(message) {
-      window.clearTimeout(toastTimer);
-      demoToast.textContent = message;
-      demoToast.hidden = false;
-      toastTimer = window.setTimeout(function () { demoToast.hidden = true; }, 1800);
-    }
-    function applyLanguage() {
-      if (useChinese) { root.setAttribute("data-lang", "zh"); root.lang = "zh-CN"; langButton.textContent = "EN"; }
-      else { root.removeAttribute("data-lang"); root.lang = "en"; langButton.textContent = "中文"; }
-    }
-    function promptText() {
-      var selector = useChinese ? '[lang="zh-CN"]' : '[lang="en"]';
-      return byId("agentInstallCommand").querySelector(selector).textContent.trim();
-    }
-    function copied() {
-      copyButton.classList.add("copied"); copyButton.textContent = useChinese ? "已复制" : "Copied";
-      window.setTimeout(function () { copyButton.classList.remove("copied"); copyButton.innerHTML = '<span lang="en">Copy prompt</span><span lang="zh-CN">复制提示词</span>'; }, 1800);
-    }
-    function fallbackCopy(text) {
-      var helper = document.createElement("textarea");
-      helper.value = text; helper.setAttribute("readonly", ""); helper.style.position = "fixed"; helper.style.opacity = "0";
-      document.body.appendChild(helper); helper.select(); document.execCommand("copy"); helper.remove(); copied();
-    }
-    function resetData() {
-      hosts = initialHosts.map(function (host) { return Object.assign({}, host, { tags: host.tags.slice() }); });
-      tags = ["prod", "staging", "api", "gpu", "lab", "ops", "client-a", "tooling", "database"];
-      selectedIds.clear();
-      state = { view: "connections", hostId: "atlas-prod", filter: "*", query: "", path: "/" };
-      byId("demoSearch").value = "";
-      closeTagPicker();
-      setView("connections");
-    }
-    function setView(view) {
-      state.view = view;
-      document.querySelectorAll("[data-demo-view]").forEach(function (button) { button.classList.toggle("active", button.dataset.demoView === view); });
-      document.querySelectorAll("[data-demo-panel]").forEach(function (panel) { panel.hidden = panel.dataset.demoPanel !== view; });
-      var copy = viewCopy[view];
-      byId("demoViewEyebrow").textContent = copy[0]; byId("demoViewTitle").textContent = copy[1]; byId("demoViewDescription").textContent = copy[2];
-      byId("demoTagFilter").hidden = view === "credentials" || view === "tags";
-      closeTagPicker();
-      renderAll();
-    }
-    function setFilter(tag) {
-      state.filter = tag;
-      byId("demoTagFilter").value = tag;
-      setView("connections");
-    }
-    function renderHeaderFilter() {
-      var options = ['<option value="*">All hosts (' + hosts.length + ")</option>"];
-      uniqueTags().forEach(function (tag) { options.push('<option value="' + escapeHtml(tag) + '">' + escapeHtml(tag) + " (" + tagCount(tag) + ")</option>"); });
-      byId("demoTagFilter").innerHTML = options.join(""); byId("demoTagFilter").value = state.filter;
-    }
-    function renderSidebar() {
-      byId("demoHostCount").textContent = hosts.length; byId("demoTagCount").textContent = tags.length; byId("sidebarShownCount").textContent = hosts.length;
-      byId("demoHostList").innerHTML = hosts.map(function (host) {
-        return '<button class="demo-host-button' + (state.hostId === host.id ? " active" : "") + '" type="button" data-sidebar-host="' + escapeHtml(host.id) + '"><span class="status-dot ' + host.status + '"></span><span><strong>' + escapeHtml(host.alias) + "</strong><small>" + escapeHtml(host.username + "@" + host.hostname) + "</small></span></button>";
-      }).join("");
-      byId("demoSidebarTags").innerHTML = '<button class="sidebar-tag' + (state.filter === "*" ? " active" : "") + '" type="button" data-filter-tag="*">All ' + hosts.length + "</button>" + uniqueTags().map(function (tag) {
-        return '<button class="sidebar-tag' + tagHue(tag) + (state.filter === tag ? " active" : "") + '" type="button" data-filter-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + " " + tagCount(tag) + "</button>";
-      }).join("");
-    }
-    function renderConnections() {
-      var visible = visibleHosts();
-      byId("statTotal").textContent = hosts.length; byId("statReachable").textContent = hosts.filter(function (host) { return host.status === "reachable"; }).length; byId("statTags").textContent = tags.length;
-      byId("demoShown").textContent = visible.length + " shown";
-      byId("batchActions").hidden = selectedIds.size === 0; byId("selectedCount").textContent = selectedIds.size + " selected";
-      byId("demoConnectionsEmpty").hidden = visible.length > 0;
-      var allSelected = visible.length > 0 && visible.every(function (host) { return selectedIds.has(host.id); });
-      byId("selectVisible").checked = allSelected; byId("selectVisible").indeterminate = !allSelected && visible.some(function (host) { return selectedIds.has(host.id); });
-      byId("demoConnectionRows").innerHTML = visible.map(function (host) {
-        var statusLabel = host.status === "reachable" ? "Reachable" : host.status === "unreachable" ? "Unreachable" : "Not checked";
-        var tagMarkup = host.tags.map(function (tag) { return '<button class="tag-chip' + tagHue(tag) + '" type="button" data-filter-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + "</button>"; }).join("");
-        return '<tr>' +
-          '<td><input class="demo-check" type="checkbox" data-select-host="' + escapeHtml(host.id) + '" aria-label="Select ' + escapeHtml(host.alias) + '"' + (selectedIds.has(host.id) ? " checked" : "") + '></td>' +
-          '<td><button class="alias-button" type="button" data-browse-host="' + escapeHtml(host.id) + '"><strong>' + escapeHtml(host.alias) + '</strong><small>' + escapeHtml(host.note) + '</small></button></td>' +
-          '<td><span class="endpoint">' + escapeHtml(host.username + "@" + host.hostname) + '</span></td>' +
-          '<td><div class="tag-stack">' + tagMarkup + '<button class="add-tag" type="button" data-edit-host-tags="' + escapeHtml(host.id) + '">＋</button></div></td>' +
-          '<td><span class="cell-stack"><strong>' + escapeHtml(host.credential) + '</strong><small>Vault reference</small></span></td>' +
-          '<td><span class="status-pill ' + escapeHtml(host.status) + '">' + escapeHtml(statusLabel) + '</span><span class="cell-stack"><small>' + escapeHtml(host.meta) + '</small></span></td>' +
-          '<td><button class="browse-button" type="button" data-browse-host="' + escapeHtml(host.id) + '">›_ Browse</button></td>' +
-          '</tr>';
-      }).join("");
-    }
-    function renderWorkspace() {
-      var host = currentHost();
-      if (!host) return;
-      var statusLabel = host.status === "reachable" ? "Reachable" : host.status === "unreachable" ? "Unreachable" : "Not checked";
-      byId("workspaceHostBanner").innerHTML = '<div class="host-banner-main"><span class="host-icon">›_</span><span><strong>' + escapeHtml(host.alias) + '</strong><small>' + escapeHtml(host.username + "@" + host.hostname) + '</small></span></div><span class="status-pill ' + escapeHtml(host.status) + '">' + escapeHtml(statusLabel) + '</span>';
-      byId("demoPath").textContent = state.path; byId("fileUp").disabled = state.path === "/";
-      var files = fileTree[state.path] || [];
-      byId("demoFileRows").innerHTML = files.map(function (file) {
-        var nextPath = (state.path === "/" ? "" : state.path) + "/" + file.name;
-        var name = file.type === "folder" ? '<button class="file-button" type="button" data-open-path="' + escapeHtml(nextPath) + '">' + escapeHtml(file.name) + "</button>" : '<span class="file-button">' + escapeHtml(file.name) + "</span>";
-        return '<tr><td><div class="file-name"><span class="file-glyph ' + file.type + '">' + (file.type === "folder" ? "□" : "·") + "</span>" + name + "</div></td><td>" + file.size + "</td><td>" + file.modified + '</td><td><span class="endpoint">' + file.access + '</span></td><td><button class="file-copy" type="button" data-copy-path="' + escapeHtml(nextPath) + '">Copy</button></td></tr>';
-      }).join("");
-    }
-    function renderTags() {
-      byId("demoTagLibrary").innerHTML = uniqueTags().map(function (tag) {
-        var assigned = hosts.filter(function (host) { return host.tags.indexOf(tag) >= 0; });
-        return '<article class="tag-card"><div class="tag-card-head"><i class="tag-dot' + tagHue(tag) + '"></i><strong>' + escapeHtml(tag) + "</strong><span>" + assigned.length + ' hosts</span></div><p>Reusable host tag for filtering and bulk organization.</p><div class="tag-host-preview">' + assigned.slice(0, 3).map(function (host) { return "<span>" + escapeHtml(host.alias) + "</span>"; }).join("") + (assigned.length > 3 ? "<span>+" + (assigned.length - 3) + "</span>" : "") + '</div><button class="tag-view-button" type="button" data-filter-tag="' + escapeHtml(tag) + '">View matching hosts →</button></article>';
-      }).join("");
-    }
-    function renderAll() { renderHeaderFilter(); renderSidebar(); renderConnections(); renderWorkspace(); renderTags(); }
-
-    function openTagPicker(ids, anchor) {
-      pickerHostIds = ids.slice();
-      renderTagPicker(); demoTagPicker.hidden = false;
-      window.requestAnimationFrame(function () {
-        var shellRect = demoShell.getBoundingClientRect(); var anchorRect = anchor.getBoundingClientRect();
-        var left = Math.max(10, Math.min(anchorRect.left - shellRect.left, shellRect.width - demoTagPicker.offsetWidth - 10));
-        var top = anchorRect.bottom - shellRect.top + 6;
-        if (top + demoTagPicker.offsetHeight > shellRect.height - 8) top = Math.max(44, anchorRect.top - shellRect.top - demoTagPicker.offsetHeight - 6);
-        demoTagPicker.style.left = left + "px"; demoTagPicker.style.top = top + "px";
-        demoTagPicker.querySelector(".tag-option, input")?.focus();
-      });
-    }
-    function closeTagPicker() { demoTagPicker.hidden = true; pickerHostIds = []; }
-    function renderTagPicker() {
-      var pickedHosts = hosts.filter(function (host) { return pickerHostIds.indexOf(host.id) >= 0; });
-      var options = uniqueTags().map(function (tag) {
-        var count = pickedHosts.filter(function (host) { return host.tags.indexOf(tag) >= 0; }).length;
-        var mode = count === pickedHosts.length ? "all" : count ? "some" : "none";
-        return '<button class="tag-option ' + mode + '" type="button" data-picker-tag="' + escapeHtml(tag) + '"><i>' + (mode === "all" ? "✓" : mode === "some" ? "−" : "") + "</i><span>" + escapeHtml(tag) + "</span></button>";
-      }).join("");
-      demoTagPicker.innerHTML = '<div class="tag-picker-head"><span><strong>Tags for ' + pickedHosts.length + " host" + (pickedHosts.length === 1 ? "" : "s") + '</strong><small>Click to add or remove</small></span><button class="picker-close" type="button" aria-label="Close tag picker">×</button></div><div class="tag-options">' + options + '</div><form class="picker-create" id="pickerCreateForm"><input class="demo-input" id="pickerTagName" maxlength="24" autocomplete="off" placeholder="Create a tag…" aria-label="Create a demo tag"><button class="demo-control accent" type="submit">Add</button></form>';
-    }
-    function togglePickerTag(tag) {
-      var pickedHosts = hosts.filter(function (host) { return pickerHostIds.indexOf(host.id) >= 0; });
-      var remove = pickedHosts.length > 0 && pickedHosts.every(function (host) { return host.tags.indexOf(tag) >= 0; });
-      pickedHosts.forEach(function (host) {
-        var index = host.tags.indexOf(tag);
-        if (remove && index >= 0) host.tags.splice(index, 1);
-        if (!remove && index < 0) host.tags.push(tag);
-      });
-      renderAll(); renderTagPicker(); showToast((remove ? "Removed “" : "Added “") + tag + (remove ? "”" : "”") + (pickedHosts.length > 1 ? " for selected hosts" : ""));
-    }
-    function createTag(name, assignToPicker) {
-      var clean = name.trim().replace(/\s+/g, "-").toLowerCase();
-      if (!clean) return;
-      if (tags.indexOf(clean) < 0) tags.push(clean);
-      if (assignToPicker) hosts.filter(function (host) { return pickerHostIds.indexOf(host.id) >= 0; }).forEach(function (host) { if (host.tags.indexOf(clean) < 0) host.tags.push(clean); });
-      renderAll(); if (assignToPicker) renderTagPicker(); showToast("Created tag “" + clean + "”");
-    }
-
-    langButton.addEventListener("click", function () { useChinese = !useChinese; try { localStorage.setItem("ssm-lang", useChinese ? "zh" : "en"); } catch (error) {} applyLanguage(); });
-    scenarioSwitcher.addEventListener("click", function (event) { var button = event.target.closest("[data-scenario-target]"); if (button) setScenario(button.dataset.scenarioTarget); });
-    document.querySelectorAll(".open-agent-dialog").forEach(function (button) { button.addEventListener("click", function () { agentDialog.showModal(); }); });
-    byId("closeAgentDialog").addEventListener("click", function () { agentDialog.close(); });
-    copyButton.addEventListener("click", function () { var text = promptText(); if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(copied, function () { fallbackCopy(text); }); else fallbackCopy(text); });
-    byId("focusDemo").addEventListener("click", function () { byId("demo").scrollIntoView({ behavior: "smooth", block: "start" }); window.setTimeout(function () { byId("demoSearch").focus(); }, 450); });
-    byId("demoThemeButton").addEventListener("click", function () { var light = demoShell.dataset.demoTheme !== "light"; demoShell.dataset.demoTheme = light ? "light" : "dark"; this.textContent = light ? "Dark" : "Light"; });
-    var demoAccents = [["Indigo", "#8794ff", "#aab3ff", "rgba(106, 120, 255, .16)"], ["Teal", "#38c8b6", "#63dccd", "rgba(56, 200, 182, .17)"], ["Emerald", "#43cd87", "#6fdfa4", "rgba(67, 205, 135, .17)"], ["Amber", "#e3aa46", "#f0c26b", "rgba(227, 170, 70, .17)"], ["Rose", "#ef7fa4", "#ff9fc0", "rgba(239, 127, 164, .17)"]];
-    var demoAccentIndex = 0;
-    byId("demoAccentButton").addEventListener("click", function () {
-      demoAccentIndex = (demoAccentIndex + 1) % demoAccents.length;
-      var accent = demoAccents[demoAccentIndex];
-      demoShell.style.setProperty("--accent", accent[1]);
-      demoShell.style.setProperty("--accent-strong", accent[2]);
-      demoShell.style.setProperty("--accent-soft", accent[3]);
-      this.querySelector("span").textContent = accent[0];
-      showToast("Accent: " + accent[0]);
-    });
-    byId("resetDemo").addEventListener("click", function () { resetData(); showToast("Sample data reset"); });
-    document.querySelector(".demo-nav").addEventListener("click", function (event) { var button = event.target.closest("[data-demo-view]"); if (button) setView(button.dataset.demoView); });
-    byId("demoHostList").addEventListener("click", function (event) { var button = event.target.closest("[data-sidebar-host]"); if (button) { state.hostId = button.dataset.sidebarHost; state.path = "/"; setView("workspace"); } });
-    byId("demoSidebarTags").addEventListener("click", function (event) { var button = event.target.closest("[data-filter-tag]"); if (button) setFilter(button.dataset.filterTag); });
-    byId("demoTagFilter").addEventListener("change", function () { state.filter = this.value; renderAll(); });
-    byId("demoSearch").addEventListener("input", function () { state.query = this.value; renderConnections(); });
-    byId("selectVisible").addEventListener("change", function () { visibleHosts().forEach(function (host) { if (byId("selectVisible").checked) selectedIds.add(host.id); else selectedIds.delete(host.id); }); renderConnections(); });
-    byId("clearSelection").addEventListener("click", function () { selectedIds.clear(); renderConnections(); });
-    byId("bulkEditTags").addEventListener("click", function () { openTagPicker(Array.from(selectedIds), this); });
-    byId("demoConnectionRows").addEventListener("change", function (event) { var input = event.target.closest("[data-select-host]"); if (input) { if (input.checked) selectedIds.add(input.dataset.selectHost); else selectedIds.delete(input.dataset.selectHost); renderConnections(); } });
-    byId("demoConnectionRows").addEventListener("click", function (event) {
-      var browse = event.target.closest("[data-browse-host]"); var edit = event.target.closest("[data-edit-host-tags]"); var filter = event.target.closest("[data-filter-tag]");
-      if (browse) { state.hostId = browse.dataset.browseHost; state.path = "/"; setView("workspace"); }
-      else if (edit) openTagPicker([edit.dataset.editHostTags], edit);
-      else if (filter) setFilter(filter.dataset.filterTag);
-    });
-    byId("fileUp").addEventListener("click", function () { if (state.path !== "/") { var parts = state.path.split("/").filter(Boolean); parts.pop(); state.path = parts.length ? "/" + parts.join("/") : "/"; renderWorkspace(); } });
-    byId("demoFileRows").addEventListener("click", function (event) { var open = event.target.closest("[data-open-path]"); var copy = event.target.closest("[data-copy-path]"); if (open) { state.path = open.dataset.openPath; renderWorkspace(); } else if (copy) showToast("Copied “" + currentHost().alias + ":" + copy.dataset.copyPath + "”"); });
-    byId("copyDirectory").addEventListener("click", function () { showToast("Copied “" + currentHost().alias + ":" + state.path + "”"); });
-    byId("tagCreateForm").addEventListener("submit", function (event) { event.preventDefault(); createTag(byId("newTagName").value, false); byId("newTagName").value = ""; });
-    byId("demoTagLibrary").addEventListener("click", function (event) { var button = event.target.closest("[data-filter-tag]"); if (button) setFilter(button.dataset.filterTag); });
-    demoTagPicker.addEventListener("click", function (event) { var option = event.target.closest("[data-picker-tag]"); if (event.target.closest(".picker-close")) closeTagPicker(); else if (option) togglePickerTag(option.dataset.pickerTag); });
-    demoTagPicker.addEventListener("submit", function (event) { if (event.target.id === "pickerCreateForm") { event.preventDefault(); createTag(byId("pickerTagName").value, true); byId("pickerTagName").value = ""; } });
-    document.addEventListener("pointerdown", function (event) { if (!demoTagPicker.hidden && !demoTagPicker.contains(event.target) && !event.target.closest("[data-edit-host-tags], #bulkEditTags")) closeTagPicker(); }, true);
-    document.addEventListener("keydown", function (event) { if (event.key === "Escape" && !demoTagPicker.hidden) closeTagPicker(); });
-
-    applyLanguage(); setScenario("direct-connect"); resetData();
-  })();
+(function () {
+var root = document.documentElement;
+var langButton = document.getElementById("langToggle");
+var agentDialog = document.getElementById("agentDialog");
+var copyButton = document.getElementById("copyAgentCommand");
+var demoShell = document.getElementById("demoShell");
+var demoTagPicker = document.getElementById("demoTagPicker");
+var demoToast = document.getElementById("demoToast");
+var scenarioSwitcher = document.getElementById("scenarioSwitcher");
+var toastTimer = 0;
+var storedLanguage = null;
+try { storedLanguage = localStorage.getItem("ssm-lang"); } catch (error) {}
+var useChinese = storedLanguage ? storedLanguage === "zh" : /^zh/i.test(navigator.language || "");
+var initialHosts = [
+{ id: "atlas-prod", alias: "atlas-prod", username: "deploy", hostname: "10.24.8.12", note: "Production API", tags: ["prod", "api"], skills: ["production-checks", "incident-response"], credential: "deploy-key", status: "reachable", meta: "82 ms" },
+{ id: "gpu-lab-01", alias: "gpu-lab-01", username: "research", hostname: "192.168.4.21", note: "A100 research node", tags: ["gpu", "lab"], skills: ["yulab-gpu-node", "training-debug"], credential: "lab-agent", status: "reachable", meta: "118 ms" },
+{ id: "client-staging", alias: "client-staging", username: "ubuntu", hostname: "172.18.0.34", note: "Client preview", tags: ["staging", "client-a"], skills: ["client-release"], credential: "client-password", status: "unreachable", meta: "2h ago" },
+{ id: "bastion-east", alias: "bastion-east", username: "ops", hostname: "10.20.0.5", note: "East jump host", tags: ["prod", "ops"], credential: "deploy-key", status: "reachable", meta: "64 ms" },
+{ id: "docs-runner", alias: "docs-runner", username: "runner", hostname: "10.30.12.8", note: "Documentation builds", tags: ["tooling"], credential: "lab-agent", status: "idle", meta: "Not checked" },
+{ id: "archive-node", alias: "archive-node", username: "backup", hostname: "10.11.4.90", note: "Nightly archives", tags: ["ops"], credential: "lab-agent", status: "idle", meta: "Not checked" },
+{ id: "edge-cache-02", alias: "edge-cache-02", username: "deploy", hostname: "10.24.9.18", note: "Regional cache", tags: ["prod", "tooling"], credential: "deploy-key", status: "reachable", meta: "91 ms" },
+{ id: "login-01", alias: "login-01", username: "research", hostname: "172.16.78.132", note: "Lab login node", tags: ["lab", "ops"], skills: ["yulab-gpu-node"], credential: "lab-agent", status: "idle", meta: "Not checked" },
+{ id: "login-02", alias: "login-02", username: "research", hostname: "172.16.78.133", note: "Lab login node", tags: ["lab", "ops"], skills: ["yulab-gpu-node"], credential: "lab-agent", status: "idle", meta: "Not checked" },
+{ id: "qa-runner", alias: "qa-runner", username: "runner", hostname: "10.30.12.19", note: "Release verification", tags: ["staging", "tooling"], credential: "client-password", status: "reachable", meta: "73 ms" },
+{ id: "database-ro", alias: "database-ro", username: "analyst", hostname: "10.24.16.7", note: "Read-only reporting", tags: ["prod", "database"], credential: "deploy-key", status: "reachable", meta: "88 ms" }
+];
+var initialSkills = ["production-checks", "incident-response", "yulab-gpu-node", "training-debug", "client-release"];
+var hosts = [];
+var tags = [];
+var skills = [];
+var selectedIds = new Set();
+var pickerHostIds = [];
+var state = { view: "connections", hostId: "atlas-prod", filter: "*", query: "", path: "/" };
+var viewCopy = {
+connections: ["CONNECTION INVENTORY", "Connections", "Manage endpoints, credentials, and jump hosts."],
+workspace: ["REMOTE WORKSPACE", "Files", "Browse remote files without opening a shell."],
+tags: ["HOST ORGANIZATION", "Tags", "Label hosts for fast filtering by project, environment, or role."],
+skills: ["SKILL REGISTRY", "Skill Library", "Discover and register reusable skills, then assign them to hosts."],
+credentials: ["SECURE STORAGE", "Credentials", "Reusable authentication profiles stored securely."]
+};
+var fileTree = {
+"/": [
+{ name: "projects", type: "folder", size: "—", modified: "Today 09:42", access: "rwxr-xr-x" },
+{ name: "deploy", type: "folder", size: "—", modified: "Yesterday", access: "rwxr-x---" },
+{ name: "README.md", type: "file", size: "3.2 KB", modified: "Today 08:17", access: "rw-r--r--" },
+{ name: "healthcheck.log", type: "file", size: "18 KB", modified: "12m ago", access: "rw-r-----" }
+],
+"/projects": [
+{ name: "api", type: "folder", size: "—", modified: "Today 09:40", access: "rwxr-xr-x" },
+{ name: "website", type: "folder", size: "—", modified: "Yesterday", access: "rwxr-xr-x" },
+{ name: "release-notes.md", type: "file", size: "6.8 KB", modified: "Today 07:51", access: "rw-r--r--" }
+],
+"/projects/api": [
+{ name: "src", type: "folder", size: "—", modified: "Today 09:38", access: "rwxr-xr-x" },
+{ name: "package.json", type: "file", size: "1.7 KB", modified: "Today 09:34", access: "rw-r--r--" },
+{ name: "Dockerfile", type: "file", size: "864 B", modified: "Yesterday", access: "rw-r--r--" },
+{ name: ".env.example", type: "file", size: "442 B", modified: "Jun 28", access: "rw-r--r--" }
+],
+"/projects/website": [
+{ name: "public", type: "folder", size: "—", modified: "Yesterday", access: "rwxr-xr-x" },
+{ name: "index.html", type: "file", size: "24 KB", modified: "Yesterday", access: "rw-r--r--" }
+],
+"/deploy": [
+{ name: "current", type: "folder", size: "—", modified: "Today 09:42", access: "rwxr-x---" },
+{ name: "deploy.sh", type: "file", size: "2.1 KB", modified: "May 18", access: "rwxr-x---" }
+]
+};
+function byId(id) { return document.getElementById(id); }
+function escapeHtml(value) { return String(value).replace(/[&<>"']/g, function (character) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]; }); }
+function setScenario(scenario) {
+document.querySelectorAll("[data-scenario-target]").forEach(function (button) { var active = button.dataset.scenarioTarget === scenario; button.classList.toggle("active", active); button.setAttribute("aria-pressed", active ? "true" : "false"); });
+document.querySelectorAll("[data-scenario-panel]").forEach(function (panel) { panel.hidden = panel.dataset.scenarioPanel !== scenario; });
+}
+function uniqueTags() { return tags.slice().sort(function (a, b) { return a.localeCompare(b); }); }
+function tagHue(tag) { var index = uniqueTags().indexOf(tag); return " tg-" + (index < 0 ? 0 : index % 6); }
+function currentHost() { return hosts.find(function (host) { return host.id === state.hostId; }) || hosts[0]; }
+function tagCount(tag) { return hosts.filter(function (host) { return host.tags.indexOf(tag) >= 0; }).length; }
+function visibleHosts() {
+var query = state.query.trim().toLowerCase();
+return hosts.filter(function (host) {
+var inTag = state.filter === "*" || host.tags.indexOf(state.filter) >= 0;
+var matches = !query || [host.alias, host.username, host.hostname, host.note].concat(host.tags).some(function (value) { return String(value).toLowerCase().indexOf(query) >= 0; });
+return inTag && matches;
+});
+}
+function showToast(message) {
+window.clearTimeout(toastTimer);
+demoToast.textContent = message;
+demoToast.hidden = false;
+toastTimer = window.setTimeout(function () { demoToast.hidden = true; }, 1800);
+}
+function applyLanguage() {
+if (useChinese) { root.setAttribute("data-lang", "zh"); root.lang = "zh-CN"; langButton.textContent = "EN"; }
+else { root.removeAttribute("data-lang"); root.lang = "en"; langButton.textContent = "中文"; }
+}
+function promptText() {
+var selector = useChinese ? '[lang="zh-CN"]' : '[lang="en"]';
+return byId("agentInstallCommand").querySelector(selector).textContent.trim();
+}
+function copied() {
+copyButton.classList.add("copied"); copyButton.textContent = useChinese ? "已复制" : "Copied";
+window.setTimeout(function () { copyButton.classList.remove("copied"); copyButton.innerHTML = '<span lang="en">Copy prompt</span><span lang="zh-CN">复制提示词</span>'; }, 1800);
+}
+function fallbackCopy(text) {
+var helper = document.createElement("textarea");
+helper.value = text; helper.setAttribute("readonly", ""); helper.style.position = "fixed"; helper.style.opacity = "0";
+document.body.appendChild(helper); helper.select(); document.execCommand("copy"); helper.remove(); copied();
+}
+function resetData() {
+hosts = initialHosts.map(function (host) { return Object.assign({}, host, { tags: host.tags.slice(), skills: (host.skills || []).slice() }); });
+tags = ["prod", "staging", "api", "gpu", "lab", "ops", "client-a", "tooling", "database"];
+skills = initialSkills.slice();
+selectedIds.clear();
+state = { view: "connections", hostId: "atlas-prod", filter: "*", query: "", path: "/" };
+byId("demoSearch").value = "";
+closeTagPicker();
+setView("connections");
+}
+function setView(view) {
+state.view = view;
+document.querySelectorAll("[data-demo-view]").forEach(function (button) { button.classList.toggle("active", button.dataset.demoView === view); });
+document.querySelectorAll("[data-demo-panel]").forEach(function (panel) { panel.hidden = panel.dataset.demoPanel !== view; });
+var copy = viewCopy[view];
+byId("demoViewEyebrow").textContent = copy[0]; byId("demoViewTitle").textContent = copy[1]; byId("demoViewDescription").textContent = copy[2];
+byId("demoTagFilter").hidden = view === "credentials" || view === "tags" || view === "skills";
+closeTagPicker();
+renderAll();
+}
+function setFilter(tag) {
+state.filter = tag;
+byId("demoTagFilter").value = tag;
+setView("connections");
+}
+function renderHeaderFilter() {
+var options = ['<option value="*">All hosts (' + hosts.length + ")</option>"];
+uniqueTags().forEach(function (tag) { options.push('<option value="' + escapeHtml(tag) + '">' + escapeHtml(tag) + " (" + tagCount(tag) + ")</option>"); });
+byId("demoTagFilter").innerHTML = options.join(""); byId("demoTagFilter").value = state.filter;
+}
+function renderSidebar() {
+byId("demoHostCount").textContent = hosts.length; byId("demoTagCount").textContent = tags.length; byId("demoSkillCount").textContent = skills.length; byId("sidebarShownCount").textContent = hosts.length;
+byId("demoHostList").innerHTML = hosts.map(function (host) {
+return '<button class="demo-host-button' + (state.hostId === host.id ? " active" : "") + '" type="button" data-sidebar-host="' + escapeHtml(host.id) + '"><span class="status-dot ' + host.status + '"></span><span><strong>' + escapeHtml(host.alias) + "</strong><small>" + escapeHtml(host.username + "@" + host.hostname) + "</small></span></button>";
+}).join("");
+byId("demoSidebarTags").innerHTML = '<button class="sidebar-tag' + (state.filter === "*" ? " active" : "") + '" type="button" data-filter-tag="*">All ' + hosts.length + "</button>" + uniqueTags().map(function (tag) {
+return '<button class="sidebar-tag' + tagHue(tag) + (state.filter === tag ? " active" : "") + '" type="button" data-filter-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + " " + tagCount(tag) + "</button>";
+}).join("");
+}
+function renderConnections() {
+var visible = visibleHosts();
+byId("statTotal").textContent = hosts.length; byId("statReachable").textContent = hosts.filter(function (host) { return host.status === "reachable"; }).length; byId("statTags").textContent = tags.length;
+byId("demoShown").textContent = visible.length + " shown";
+byId("batchActions").hidden = selectedIds.size === 0; byId("selectedCount").textContent = selectedIds.size + " selected";
+byId("demoConnectionsEmpty").hidden = visible.length > 0;
+var allSelected = visible.length > 0 && visible.every(function (host) { return selectedIds.has(host.id); });
+byId("selectVisible").checked = allSelected; byId("selectVisible").indeterminate = !allSelected && visible.some(function (host) { return selectedIds.has(host.id); });
+byId("demoConnectionRows").innerHTML = visible.map(function (host) {
+var statusLabel = host.status === "reachable" ? "Reachable" : host.status === "unreachable" ? "Unreachable" : "Not checked";
+var tagMarkup = host.tags.map(function (tag) { return '<button class="tag-chip' + tagHue(tag) + '" type="button" data-filter-tag="' + escapeHtml(tag) + '">' + escapeHtml(tag) + "</button>"; }).join("");
+var skillLabel = host.skills.length ? "✦ " + host.skills.length + " skill" + (host.skills.length > 1 ? "s" : "") : "＋ Assign skills";
+return '<tr>' +
+'<td><input class="demo-check" type="checkbox" data-select-host="' + escapeHtml(host.id) + '" aria-label="Select ' + escapeHtml(host.alias) + '"' + (selectedIds.has(host.id) ? " checked" : "") + '></td>' +
+'<td><button class="alias-button" type="button" data-browse-host="' + escapeHtml(host.id) + '"><strong>' + escapeHtml(host.alias) + '</strong><small>' + escapeHtml(host.note) + '</small></button><br><button class="tag-view-button" type="button" data-edit-host-skills="' + escapeHtml(host.id) + '" aria-haspopup="dialog" aria-label="Assign Agent skills to ' + escapeHtml(host.alias) + '">' + skillLabel + '</button></td>' +
+'<td><span class="endpoint">' + escapeHtml(host.username + "@" + host.hostname) + '</span></td>' +
+'<td><div class="tag-stack">' + tagMarkup + '<button class="add-tag" type="button" data-edit-host-tags="' + escapeHtml(host.id) + '">＋</button></div></td>' +
+'<td><span class="cell-stack"><strong>' + escapeHtml(host.credential) + '</strong><small>Vault reference</small></span></td>' +
+'<td><span class="status-pill ' + escapeHtml(host.status) + '">' + escapeHtml(statusLabel) + '</span><span class="cell-stack"><small>' + escapeHtml(host.meta) + '</small></span></td>' +
+'<td><button class="browse-button" type="button" data-browse-host="' + escapeHtml(host.id) + '">›_ Browse</button></td>' +
+'</tr>';
+}).join("");
+}
+function renderWorkspace() {
+var host = currentHost();
+if (!host) return;
+var statusLabel = host.status === "reachable" ? "Reachable" : host.status === "unreachable" ? "Unreachable" : "Not checked";
+byId("workspaceHostBanner").innerHTML = '<div class="host-banner-main"><span class="host-icon">›_</span><span><strong>' + escapeHtml(host.alias) + '</strong><small>' + escapeHtml(host.username + "@" + host.hostname) + '</small></span></div><span class="status-pill ' + escapeHtml(host.status) + '">' + escapeHtml(statusLabel) + '</span>';
+byId("workspaceSkills").innerHTML = '<span class="security-icon">✦</span><div><strong>Agent Skills for ' + escapeHtml(host.alias) + '</strong><p>' + (host.skills.length ? host.skills.map(function (skill) { return '<span class="tag-chip">' + escapeHtml(skill) + ' · Ready</span>'; }).join(" ") : "No skills assigned · Generic host context only") + '</p><button class="tag-view-button" type="button" data-edit-host-skills="' + escapeHtml(host.id) + '" aria-haspopup="dialog">' + (host.skills.length ? "Manage skills" : "Assign skills") + '</button></div>';
+byId("demoPath").textContent = state.path; byId("fileUp").disabled = state.path === "/";
+var files = fileTree[state.path] || [];
+byId("demoFileRows").innerHTML = files.map(function (file) {
+var nextPath = (state.path === "/" ? "" : state.path) + "/" + file.name;
+var name = file.type === "folder" ? '<button class="file-button" type="button" data-open-path="' + escapeHtml(nextPath) + '">' + escapeHtml(file.name) + "</button>" : '<span class="file-button">' + escapeHtml(file.name) + "</span>";
+return '<tr><td><div class="file-name"><span class="file-glyph ' + file.type + '">' + (file.type === "folder" ? "□" : "·") + "</span>" + name + "</div></td><td>" + file.size + "</td><td>" + file.modified + '</td><td><span class="endpoint">' + file.access + '</span></td><td><button class="file-copy" type="button" data-copy-path="' + escapeHtml(nextPath) + '">Copy</button></td></tr>';
+}).join("");
+}
+function renderTags() {
+byId("demoTagLibrary").innerHTML = uniqueTags().map(function (tag) {
+var assigned = hosts.filter(function (host) { return host.tags.indexOf(tag) >= 0; });
+return '<article class="tag-card"><div class="tag-card-head"><i class="tag-dot' + tagHue(tag) + '"></i><strong>' + escapeHtml(tag) + "</strong><span>" + assigned.length + ' hosts</span></div><p>Reusable host tag for filtering and bulk organization.</p><div class="tag-host-preview">' + assigned.slice(0, 3).map(function (host) { return "<span>" + escapeHtml(host.alias) + "</span>"; }).join("") + (assigned.length > 3 ? "<span>+" + (assigned.length - 3) + "</span>" : "") + '</div><button class="tag-view-button" type="button" data-filter-tag="' + escapeHtml(tag) + '">View matching hosts →</button></article>';
+}).join("");
+}
+function renderSkillLibrary() {
+byId("demoSkillLibrary").innerHTML = '<span class="security-icon">✦</span><div><strong>Skill Library</strong><p>Registered skills · Ready to bind</p><div class="tag-stack">' + skills.map(function (skill) { var count = hosts.filter(function (host) { return host.skills.indexOf(skill) >= 0; }).length; return '<span class="tag-chip">' + escapeHtml(skill) + ' · Ready · ' + count + ' host' + (count === 1 ? "" : "s") + '</span>'; }).join("") + '</div><p><button class="tag-view-button" type="button" data-register-skill>Discover &amp; register</button></p></div>';
+}
+function renderAll() { renderHeaderFilter(); renderSidebar(); renderConnections(); renderWorkspace(); renderTags(); renderSkillLibrary(); }
+function showPicker(anchor) {
+demoTagPicker.hidden = false;
+window.requestAnimationFrame(function () {
+var shellRect = demoShell.getBoundingClientRect(); var anchorRect = anchor.getBoundingClientRect();
+var left = Math.max(10, Math.min(anchorRect.left - shellRect.left, shellRect.width - demoTagPicker.offsetWidth - 10));
+var top = anchorRect.bottom - shellRect.top + 6;
+if (top + demoTagPicker.offsetHeight > shellRect.height - 8) top = Math.max(44, anchorRect.top - shellRect.top - demoTagPicker.offsetHeight - 6);
+demoTagPicker.style.left = left + "px"; demoTagPicker.style.top = top + "px";
+demoTagPicker.querySelector(".tag-option, input")?.focus();
+});
+}
+function openTagPicker(ids, anchor) { pickerHostIds = ids.slice(); renderTagPicker(); showPicker(anchor); }
+function openSkillPicker(id, anchor) { pickerHostIds = [id]; renderSkillPicker(); showPicker(anchor); }
+function closeTagPicker() { demoTagPicker.hidden = true; pickerHostIds = []; }
+function renderTagPicker() {
+var pickedHosts = hosts.filter(function (host) { return pickerHostIds.indexOf(host.id) >= 0; });
+var options = uniqueTags().map(function (tag) {
+var count = pickedHosts.filter(function (host) { return host.tags.indexOf(tag) >= 0; }).length;
+var mode = count === pickedHosts.length ? "all" : count ? "some" : "none";
+return '<button class="tag-option ' + mode + '" type="button" data-picker-tag="' + escapeHtml(tag) + '"><i>' + (mode === "all" ? "✓" : mode === "some" ? "−" : "") + "</i><span>" + escapeHtml(tag) + "</span></button>";
+}).join("");
+demoTagPicker.innerHTML = '<div class="tag-picker-head"><span><strong>Tags for ' + pickedHosts.length + " host" + (pickedHosts.length === 1 ? "" : "s") + '</strong><small>Click to add or remove</small></span><button class="picker-close" type="button" aria-label="Close tag picker">×</button></div><div class="tag-options">' + options + '</div><form class="picker-create" id="pickerCreateForm"><input class="demo-input" id="pickerTagName" maxlength="24" autocomplete="off" placeholder="Create a tag…" aria-label="Create a demo tag"><button class="demo-control accent" type="submit">Add</button></form>';
+}
+function renderSkillPicker() {
+var host = hosts.find(function (item) { return item.id === pickerHostIds[0]; });
+var options = skills.map(function (skill) { var bound = host.skills.indexOf(skill) >= 0; return '<button class="tag-option ' + (bound ? "all" : "") + '" type="button" data-picker-skill="' + escapeHtml(skill) + '"><i>' + (bound ? "✓" : "") + '</i><span>' + escapeHtml(skill) + '</span></button>'; }).join("");
+demoTagPicker.innerHTML = '<div class="tag-picker-head"><span><strong>Agent Skills for ' + escapeHtml(host.alias) + '</strong><small>Only this host receives the selected context</small></span><button class="picker-close" type="button" aria-label="Close skill picker">×</button></div><div class="tag-options">' + options + '</div><div class="picker-create"><button class="tag-view-button" type="button" data-open-skill-library>Open Skill Library →</button></div>';
+}
+function togglePickerSkill(skill) {
+var host = hosts.find(function (item) { return item.id === pickerHostIds[0]; }); var index = host.skills.indexOf(skill);
+if (index < 0) host.skills.push(skill); else host.skills.splice(index, 1);
+renderAll(); renderSkillPicker(); showToast((index < 0 ? "Assigned “" : "Removed “") + skill + "” for " + host.alias);
+}
+function togglePickerTag(tag) {
+var pickedHosts = hosts.filter(function (host) { return pickerHostIds.indexOf(host.id) >= 0; });
+var remove = pickedHosts.length > 0 && pickedHosts.every(function (host) { return host.tags.indexOf(tag) >= 0; });
+pickedHosts.forEach(function (host) {
+var index = host.tags.indexOf(tag);
+if (remove && index >= 0) host.tags.splice(index, 1);
+if (!remove && index < 0) host.tags.push(tag);
+});
+renderAll(); renderTagPicker(); showToast((remove ? "Removed “" : "Added “") + tag + (remove ? "”" : "”") + (pickedHosts.length > 1 ? " for selected hosts" : ""));
+}
+function createTag(name, assignToPicker) {
+var clean = name.trim().replace(/\s+/g, "-").toLowerCase();
+if (!clean) return;
+if (tags.indexOf(clean) < 0) tags.push(clean);
+if (assignToPicker) hosts.filter(function (host) { return pickerHostIds.indexOf(host.id) >= 0; }).forEach(function (host) { if (host.tags.indexOf(clean) < 0) host.tags.push(clean); });
+renderAll(); if (assignToPicker) renderTagPicker(); showToast("Created tag “" + clean + "”");
+}
+langButton.addEventListener("click", function () { useChinese = !useChinese; try { localStorage.setItem("ssm-lang", useChinese ? "zh" : "en"); } catch (error) {} applyLanguage(); });
+scenarioSwitcher.addEventListener("click", function (event) { var button = event.target.closest("[data-scenario-target]"); if (button) setScenario(button.dataset.scenarioTarget); });
+document.querySelectorAll(".open-agent-dialog").forEach(function (button) { button.addEventListener("click", function () { agentDialog.showModal(); }); });
+byId("closeAgentDialog").addEventListener("click", function () { agentDialog.close(); });
+copyButton.addEventListener("click", function () { var text = promptText(); if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(copied, function () { fallbackCopy(text); }); else fallbackCopy(text); });
+byId("focusDemo").addEventListener("click", function () { byId("demo").scrollIntoView({ behavior: "smooth", block: "start" }); window.setTimeout(function () { byId("demoSearch").focus(); }, 450); });
+byId("demoThemeButton").addEventListener("click", function () { var light = demoShell.dataset.demoTheme !== "light"; demoShell.dataset.demoTheme = light ? "light" : "dark"; this.textContent = light ? "Dark" : "Light"; });
+var demoAccents = [["Indigo", "#8794ff", "#aab3ff", "rgba(106, 120, 255, .16)"], ["Teal", "#38c8b6", "#63dccd", "rgba(56, 200, 182, .17)"], ["Emerald", "#43cd87", "#6fdfa4", "rgba(67, 205, 135, .17)"], ["Amber", "#e3aa46", "#f0c26b", "rgba(227, 170, 70, .17)"], ["Rose", "#ef7fa4", "#ff9fc0", "rgba(239, 127, 164, .17)"]];
+var demoAccentIndex = 0;
+byId("demoAccentButton").addEventListener("click", function () {
+demoAccentIndex = (demoAccentIndex + 1) % demoAccents.length;
+var accent = demoAccents[demoAccentIndex];
+demoShell.style.setProperty("--accent", accent[1]);
+demoShell.style.setProperty("--accent-strong", accent[2]);
+demoShell.style.setProperty("--accent-soft", accent[3]);
+this.querySelector("span").textContent = accent[0];
+showToast("Accent: " + accent[0]);
+});
+byId("resetDemo").addEventListener("click", function () { resetData(); showToast("Sample data reset"); });
+document.querySelector(".demo-nav").addEventListener("click", function (event) { var button = event.target.closest("[data-demo-view]"); if (button) setView(button.dataset.demoView); });
+byId("demoHostList").addEventListener("click", function (event) { var button = event.target.closest("[data-sidebar-host]"); if (button) { state.hostId = button.dataset.sidebarHost; state.path = "/"; setView("workspace"); } });
+byId("demoSidebarTags").addEventListener("click", function (event) { var button = event.target.closest("[data-filter-tag]"); if (button) setFilter(button.dataset.filterTag); });
+byId("demoTagFilter").addEventListener("change", function () { state.filter = this.value; renderAll(); });
+byId("demoSearch").addEventListener("input", function () { state.query = this.value; renderConnections(); });
+byId("selectVisible").addEventListener("change", function () { visibleHosts().forEach(function (host) { if (byId("selectVisible").checked) selectedIds.add(host.id); else selectedIds.delete(host.id); }); renderConnections(); });
+byId("clearSelection").addEventListener("click", function () { selectedIds.clear(); renderConnections(); });
+byId("bulkEditTags").addEventListener("click", function () { openTagPicker(Array.from(selectedIds), this); });
+byId("demoConnectionRows").addEventListener("change", function (event) { var input = event.target.closest("[data-select-host]"); if (input) { if (input.checked) selectedIds.add(input.dataset.selectHost); else selectedIds.delete(input.dataset.selectHost); renderConnections(); } });
+byId("demoConnectionRows").addEventListener("click", function (event) {
+var browse = event.target.closest("[data-browse-host]"); var edit = event.target.closest("[data-edit-host-tags]"); var editSkills = event.target.closest("[data-edit-host-skills]"); var filter = event.target.closest("[data-filter-tag]");
+if (browse) { state.hostId = browse.dataset.browseHost; state.path = "/"; setView("workspace"); }
+else if (edit) openTagPicker([edit.dataset.editHostTags], edit);
+else if (editSkills) openSkillPicker(editSkills.dataset.editHostSkills, editSkills);
+else if (filter) setFilter(filter.dataset.filterTag);
+});
+byId("workspaceSkills").addEventListener("click", function (event) { var button = event.target.closest("[data-edit-host-skills]"); if (button) openSkillPicker(button.dataset.editHostSkills, button); });
+byId("fileUp").addEventListener("click", function () { if (state.path !== "/") { var parts = state.path.split("/").filter(Boolean); parts.pop(); state.path = parts.length ? "/" + parts.join("/") : "/"; renderWorkspace(); } });
+byId("demoFileRows").addEventListener("click", function (event) { var open = event.target.closest("[data-open-path]"); var copy = event.target.closest("[data-copy-path]"); if (open) { state.path = open.dataset.openPath; renderWorkspace(); } else if (copy) showToast("Copied “" + currentHost().alias + ":" + copy.dataset.copyPath + "”"); });
+byId("copyDirectory").addEventListener("click", function () { showToast("Copied “" + currentHost().alias + ":" + state.path + "”"); });
+byId("tagCreateForm").addEventListener("submit", function (event) { event.preventDefault(); createTag(byId("newTagName").value, false); byId("newTagName").value = ""; });
+byId("demoSkillLibrary").addEventListener("click", function (event) { if (event.target.closest("[data-register-skill]")) { if (skills.indexOf("database-inspector") < 0) { skills.push("database-inspector"); renderAll(); showToast("Registered “database-inspector”"); } else showToast("No new skills discovered"); } });
+byId("demoTagLibrary").addEventListener("click", function (event) { var button = event.target.closest("[data-filter-tag]"); if (button) setFilter(button.dataset.filterTag); });
+demoTagPicker.addEventListener("click", function (event) { var option = event.target.closest("[data-picker-tag]"); var skill = event.target.closest("[data-picker-skill]"); if (event.target.closest(".picker-close")) closeTagPicker(); else if (option) togglePickerTag(option.dataset.pickerTag); else if (skill) togglePickerSkill(skill.dataset.pickerSkill); else if (event.target.closest("[data-open-skill-library]")) { closeTagPicker(); setView("skills"); } });
+demoTagPicker.addEventListener("submit", function (event) { if (event.target.id === "pickerCreateForm") { event.preventDefault(); createTag(byId("pickerTagName").value, true); byId("pickerTagName").value = ""; } });
+document.addEventListener("pointerdown", function (event) { if (!demoTagPicker.hidden && !demoTagPicker.contains(event.target) && !event.target.closest("[data-edit-host-tags], [data-edit-host-skills], #bulkEditTags")) closeTagPicker(); }, true);
+document.addEventListener("keydown", function (event) { if (event.key === "Escape" && !demoTagPicker.hidden) closeTagPicker(); });
+applyLanguage(); setScenario("direct-connect"); resetData();
+})();
 </script>

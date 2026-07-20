@@ -70,7 +70,7 @@ def test_marketing_page_is_an_interactive_product_demo():
     views = set(re.findall(r'data-demo-view="([^"]+)"', WEBSITE_HTML))
     panels = set(re.findall(r'data-demo-panel="([^"]+)"', WEBSITE_HTML))
 
-    assert views == panels == {"workspace", "connections", "tags", "credentials"}
+    assert views == panels == {"workspace", "connections", "tags", "skills", "credentials"}
     assert 'id="demoShell"' in WEBSITE_HTML
     assert 'id="demoConnectionRows"' in WEBSITE_HTML
     assert 'id="demoFileRows"' in WEBSITE_HTML
@@ -81,6 +81,17 @@ def test_marketing_page_is_an_interactive_product_demo():
     for hue in range(6):
         assert f".tg-{hue}" in WEBSITE_HTML
     assert 'id="agentDialog"' in WEBSITE_HTML
+
+
+def test_marketing_demo_shows_host_scoped_skill_workflow():
+    assert "＋ Assign skills" in WEBSITE_HTML
+    assert 'data-edit-host-skills="' in WEBSITE_HTML
+    assert 'id="workspaceSkills"' in WEBSITE_HTML
+    assert "Agent Skills for " in WEBSITE_HTML
+    assert 'id="demoSkillLibrary"' in WEBSITE_HTML
+    assert "Discover and register reusable skills" in WEBSITE_HTML
+    assert "data-register-skill" in WEBSITE_HTML
+    assert "yulab-gpu-node" in WEBSITE_HTML
 
 
 def test_language_switch_does_not_hide_the_document_root():

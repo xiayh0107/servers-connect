@@ -11,6 +11,8 @@ JAVASCRIPT = (UI_DIR / "app.js").read_text(encoding="utf-8")
 STYLES = (UI_DIR / "styles.css").read_text(encoding="utf-8")
 CONTEXT_JAVASCRIPT = (UI_DIR / "contexts.js").read_text(encoding="utf-8")
 CONTEXT_STYLES = (UI_DIR / "contexts.css").read_text(encoding="utf-8")
+SKILL_JAVASCRIPT = (UI_DIR / "skills.js").read_text(encoding="utf-8")
+SKILL_STYLES = (UI_DIR / "skills.css").read_text(encoding="utf-8")
 DIAGNOSTICS_JAVASCRIPT = (UI_DIR / "diagnostics.js").read_text(encoding="utf-8")
 DIAGNOSTICS_STYLES = (UI_DIR / "diagnostics.css").read_text(encoding="utf-8")
 NOTES_JAVASCRIPT = (UI_DIR / "notes.js").read_text(encoding="utf-8")
@@ -76,6 +78,42 @@ def test_context_workflows_are_resource_first_and_explicit():
     assert "showModal" not in CONTEXT_JAVASCRIPT
 
 
+def test_host_skill_tools_are_scoped_lazy_and_small():
+    assets = [SKILL_JAVASCRIPT.encode(), SKILL_STYLES.encode()]
+
+    assert sum(map(len, assets)) <= 48_000
+    assert sum(len(gzip.compress(value, compresslevel=9, mtime=0)) for value in assets) <= 11_500
+    assert 'import("/assets/skills.js")' in JAVASCRIPT
+    assert '<script src="/assets/skills.js"' not in HTML
+    assert "export function openSkillManager" in SKILL_JAVASCRIPT
+    assert "export function openHostSkillPicker" in SKILL_JAVASCRIPT
+    assert "export function syncHostSkills" in SKILL_JAVASCRIPT
+    assert "export function syncSkillUI" in SKILL_JAVASCRIPT
+    assert "/api/skills/discover" in SKILL_JAVASCRIPT
+    assert re.search(r"/api/skills/\$\{[^}]+\}/servers", SKILL_JAVASCRIPT)
+    assert re.search(r"/api/servers/\$\{[^}]+\}/skills", SKILL_JAVASCRIPT)
+    assert "server_ids" in SKILL_JAVASCRIPT and "skill_ids" in SKILL_JAVASCRIPT
+    assert "nothing is installed on the remote host" in SKILL_JAVASCRIPT
+    assert "manage-server-skills" in JAVASCRIPT
+    assert "Agent Skills for" in SKILL_JAVASCRIPT
+    assert "Assign skills" in JAVASCRIPT + SKILL_JAVASCRIPT
+    assert "normal trigger rules" in SKILL_JAVASCRIPT
+    assert "The Agent will use only the skills attached" not in SKILL_JAVASCRIPT
+    assert "Skill Library" in HTML + JAVASCRIPT + SKILL_JAVASCRIPT
+    assert "data-sk-empty-copy" in SKILL_JAVASCRIPT
+    assert "aria-labelledby" in SKILL_JAVASCRIPT
+    assert "Registered name no longer matches this file" in SKILL_JAVASCRIPT
+    assert "Fix SKILL.md first" in SKILL_JAVASCRIPT
+    assert "HOST CAPABILITIES" not in JAVASCRIPT + SKILL_JAVASCRIPT
+    assert "https://" not in SKILL_JAVASCRIPT + SKILL_STYLES
+    assert "http://" not in SKILL_JAVASCRIPT + SKILL_STYLES
+    assert "@import" not in SKILL_STYLES
+    assert "backdrop-filter" not in SKILL_STYLES
+    assert re.search(r"@media\s*\((?:max-width:\s*820px|width<=820px)\)", SKILL_STYLES)
+    assert re.search(r"@media\s*\((?:max-width:\s*640px|width<=640px)\)", SKILL_STYLES)
+    assert re.search(r"@media\s*\(prefers-reduced-motion:\s*reduce\)", SKILL_STYLES)
+
+
 def test_periodic_status_refresh_restores_enhanced_connection_rows():
     interval_callback = re.search(r"setInterval\(([A-Za-z_$][A-Za-z0-9_$]*),3e4\)", JAVASCRIPT)
 
@@ -94,6 +132,13 @@ def test_ui_javascript_only_targets_existing_unique_ids():
 
     assert len(html_ids) == len(set(html_ids))
     assert javascript_ids <= set(html_ids)
+
+
+def test_host_skill_summary_is_not_a_repeated_live_region():
+    mount = re.search(r"<div\b[^>]*\bid=(?:\"hostSkillsMount\"|hostSkillsMount)[^>]*>", HTML)
+
+    assert mount is not None
+    assert "aria-live" not in mount.group(0)
 
 
 def test_workspace_first_shell_has_navigation_and_responsive_states():
@@ -126,6 +171,9 @@ def test_workspace_first_shell_has_navigation_and_responsive_states():
         "summaryReachableHosts",
         "contextsView",
         "contextManagerMount",
+        "skillsView",
+        "skillManagerMount",
+        "hostSkillsMount",
         "credentialsView",
         "credentialSearchInput",
         "credentialKindFilter",
@@ -135,7 +183,7 @@ def test_workspace_first_shell_has_navigation_and_responsive_states():
     }
 
     assert required_ids <= set(html_attribute_values("id"))
-    assert {'data-view="workspace"', 'data-view="servers"', 'data-view="contexts"', 'data-view="credentials"'} <= {
+    assert {'data-view="workspace"', 'data-view="servers"', 'data-view="contexts"', 'data-view="skills"', 'data-view="credentials"'} <= {
         f'data-view="{view}"' for view in html_attribute_values("data-view")
     }
     assert "name" in html_attribute_values("data-sort")

@@ -27,6 +27,7 @@ What it does not defend against:
 - Malware running as your user
 - An attacker with your unlocked OS session
 - A compromised remote server
+- A malicious or compromised local skill file chosen by the same OS user
 
 ## Where secrets live
 
@@ -62,6 +63,33 @@ metadata. When OpenSSH asks for a password or passphrase, the helper:
 The secret exists only in the memory of the helper and ssh. It never
 appears in command lines, environment variables, files, logs, or the
 calling process's output.
+
+## Host-bound skill routing
+
+Host-skill bindings are local routing metadata, not a capability or policy
+grant. The user or agent still selects the target hosts and operations through
+the normal workflow; binding a skill cannot authorize a command, install
+software, execute a hook, or weaken credential and host-key rules.
+
+`skill discover` scans only local agent skill roots and `SSM_SKILLS_DIRS`; it
+makes no network request and changes no state. Registration stores a normalized
+absolute `SKILL.md` path plus its name and description. The database and
+`skill resolve` do not copy or return the instruction body. Removing a
+registration is blocked until every host has been detached and never deletes
+the source files.
+
+Names are case-insensitively unique. Same-name candidates at different paths
+are reported as a conflict rather than selected by search order. At resolution
+time, missing, invalid, or renamed files make the operation fail; agents must
+not substitute another file or reuse context from the previously selected
+host. Multi-host results include `applies_to` so one host's procedures are not
+implicitly applied to another.
+
+This mechanism is not code signing, content pinning, or a sandbox. A local
+skill file is trusted to the same extent as other code and configuration owned
+by the OS user, and it may change after registration. Review skills before
+registering them and protect their directories with normal filesystem
+permissions.
 
 ## The web UI's layered defenses
 

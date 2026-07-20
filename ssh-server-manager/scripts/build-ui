@@ -29,8 +29,8 @@ WORK="${2:-}"
 command -v npx >/dev/null || { echo "error: node/npx required" >&2; exit 1; }
 
 # Tracked-minified core; diagnostics/notes are committed readable and stay put.
-CSS_FILES="styles contexts themes"
-JS_FILES="app contexts"
+CSS_FILES="styles contexts skills themes"
+JS_FILES="app contexts skills"
 
 case "$MODE" in
   beautify)
@@ -70,6 +70,7 @@ group = lambda names: (sum(raw(ui / n) for n in names), sum(gz(ui / n) for n in 
 for label, names, lraw, lgz in (
     ("core", ["index.html", "styles.css", "app.js"], 104_000, 26_000),
     ("contexts", ["contexts.js", "contexts.css"], 48_000, 11_500),
+    ("skills", ["skills.js", "skills.css"], 48_000, 11_500),
     ("diagnostics", ["diagnostics.js", "diagnostics.css"], 20_000, 8_000),
     ("notes", ["notes.js", "notes.css"], 24_000, 9_000),
     ("themes", ["themes.css"], 8_000, 1_800),

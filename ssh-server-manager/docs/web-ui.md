@@ -54,6 +54,19 @@ to get a new one. Sessions last 12 hours.
   chip, and suggestions reuse existing tags. The Files sidebar also shows each
   host's first tag and remaining count; click that summary to open the
   same add/remove/create picker without leaving the workspace.
+- **Skill Library** — browse a local skill library, discover candidates from standard
+  agent skill directories, and explicitly register one by its directory or
+  `SKILL.md` path. Bind a registered skill to one or several selected hosts,
+  or edit the host set later in bulk. One host may use several skills and one
+  skill may cover a related node group. Discovery is offline and read-only;
+  registering or binding never installs a skill or runs its instructions.
+  Missing, invalid, renamed, and same-name conflicting paths remain visible as
+  errors instead of being silently replaced. Host-first management is available
+  without visiting the library: every row in **Connections** shows an
+  **Assign skills** or skill-count control, and the active Host Workspace shows
+  its attached Skills, readiness, and a host-scoped picker. Bindings make a
+  Skill eligible for that Host; normal Skill trigger rules still decide whether
+  the Agent uses it for a particular task.
 - **Themes** — follow the operating-system appearance or explicitly choose the
   light, dark, or high-contrast token set, then pick one of seven accent
   palettes (indigo, teal, emerald, amber, rose, violet, graphite) from the
@@ -88,6 +101,12 @@ configuration, normal host-key verification, ProxyJump chain, and AskPass
 credential flow. The browser returns directory metadata only; it does not read
 file contents or provide remote write actions.
 
+The Skills workspace follows the same explicit-action model. The library shows
+registered name, description, local path, readiness, and bound hosts; discovery
+only proposes local candidates. Removing a skill is blocked until its hosts are
+detached, and deletes neither `SKILL.md` nor its directory. Host bindings are
+context for an agent, not permission to connect or make changes.
+
 Status indicators are deliberately time-aware. Green means an SSH test or SFTP
 operation succeeded within the last two minutes, and the label includes how
 recently it was verified. Older results become an amber “Last reachable” state;
@@ -103,7 +122,9 @@ and makes no CDN or third-party network requests. Automated tests keep those
 initial assets below 100 KB uncompressed and 25 KB compressed. Tag
 management, connection bulk actions, and the chip picker are separate
 dependency-free assets loaded only when one of those controls is opened (below
-48 KB uncompressed / 11 KB compressed together).
+48 KB uncompressed / 11.5 KB compressed together). The Agent Skills library
+and host-binding picker use their own lazy asset pair under the same budget;
+they load only when the Skills view or an active host needs them.
 
 Opening the UI does not initiate an SSH connection. Remote work begins only
 after a host is selected. Directory filtering and sorting happen locally, while

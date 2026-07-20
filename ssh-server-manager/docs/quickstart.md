@@ -71,17 +71,35 @@ Run several commands without re-authenticating each time (macOS/Linux):
 serverctl exec web1 --reuse 300 -- uptime   # keeps the connection alive 300 s
 ```
 
-## 6. Optional: the web UI
+## 6. Optional: attach environment-specific Agent Skills
+
+Discover local Skills, register one, and bind it only to the Hosts where its
+guidance applies:
+
+```bash
+serverctl skill discover --json
+serverctl skill add ~/.agents/skills/web-operations --server web1 --json
+serverctl skill resolve web1 --json
+```
+
+Replace the example path with a candidate returned by `discover`. Discovery is
+local and read-only. A binding makes a Skill eligible for that Host; normal
+Skill trigger rules still decide whether it matches the task, and the binding
+does not authorize remote changes. See
+[ai-agents.md](ai-agents.md#host-specific-agent-skills).
+
+## 7. Optional: the web UI
 
 ```bash
 serverctl ui
 ```
 
 Opens the local management interface with a one-time tokenized URL —
-add/edit servers and credentials, run tests, import config, and reveal a
-stored secret after re-authentication. See [web-ui.md](web-ui.md).
+add/edit servers and credentials, discover and register Skills in the Skill
+Library, manage a Host's Skill assignments, run tests, import config, and
+reveal a stored secret after re-authentication. See [web-ui.md](web-ui.md).
 
-## 7. Plain `ssh` still works
+## 8. Plain `ssh` still works
 
 Every managed alias is rendered into `~/.ssh/ssh-server-manager.conf`, which
 `Include`s your original `~/.ssh/config` at the end — so managed values win

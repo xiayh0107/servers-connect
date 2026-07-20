@@ -1,5 +1,45 @@
 # Changelog
 
+## Unreleased
+
+## 0.6.0 — 2026-07-20
+
+### Added
+- Host-bound Agent Skills: a local skill registry and many-to-many bindings let
+  one environment skill serve several related nodes and let one host compose
+  several skills. The `serverctl skill` `discover`, `list`, `show`, `add`,
+  `refresh`, `attach`, `detach`, and `remove` subcommands manage the
+  relationships; registration can bind repeated `--server` aliases atomically.
+- `serverctl skill resolve ALIAS [ALIAS ...] --json` gives agents per-host and
+  deduplicated views with explicit `applies_to` partitions. Resolution returns
+  metadata and local paths rather than skill bodies, and fails on missing,
+  invalid, or renamed skills. Discovery reports ambiguous same-name copies
+  explicitly instead of choosing by scan order.
+- A Skill Library in the loopback UI supports offline discovery, explicit
+  registration, readiness status, and bulk host binding. Each Connections row
+  and active Host Workspace now also exposes that host's current assignments
+  and opens a host-scoped picker directly.
+
+### Changed
+- Existing databases migrate automatically to schema 4 while preserving Hosts,
+  credentials, tags, notes, and other saved data. Skill identity now uses a
+  persisted Unicode-aware casefold key, so case variants cannot create
+  ambiguous registrations across platforms.
+- PyYAML 6.0 or newer is now a runtime dependency for bounded, safe parsing of
+  `SKILL.md` frontmatter; normal package installation and the bundled
+  installers add it automatically.
+- Skill manifest paths preserve their resolved filesystem spelling, while
+  discovery and validation consistently honor Windows filename case rules,
+  including case-sensitive NTFS directories.
+
+### Security
+- Host-skill bindings are routing metadata, not authorization. Discovery never
+  installs or executes a skill, deletion is blocked while hosts remain bound,
+  and same-name paths fail closed instead of depending on discovery order.
+- Frontmatter parsing enforces both a 64 KiB size limit and a nesting-depth
+  limit; malformed or pathological YAML becomes an `invalid` Skill instead of
+  escaping resolution or breaking the UI bootstrap.
+
 ## 0.5.0 — 2026-07-18
 
 ### Added

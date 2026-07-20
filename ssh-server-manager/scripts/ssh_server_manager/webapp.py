@@ -17,7 +17,7 @@ from .auth import AuthenticationError, RevealAuth
 from .db import ConflictError, Database, DatabaseError, NotFoundError
 from .importer import apply_import, preview_import
 from .paths import asset_dir, managed_ssh_config_path, runtime_dir
-from .service import CredentialService
+from .service import CredentialService, SkillService
 from .ssh_config import SSHConfigError, render_config
 from .ssh_runner import SSHError, SSHRunner
 from .validation import ValidationError
@@ -229,6 +229,8 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
             "themes.css",
             "contexts.js",
             "contexts.css",
+            "skills.js",
+            "skills.css",
             "diagnostics.js",
             "diagnostics.css",
             "notes.js",
@@ -245,6 +247,7 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
             "servers": database.list_servers(),
             "credentials": database.list_credentials(),
             "contexts": database.list_server_contexts(),
+            "skills": SkillService(database).list(),
             "auth": state.auth.status(),
             "managed_config": str(managed_ssh_config_path()),
         }
@@ -273,6 +276,41 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
     async def remove_context(payload: dict[str, Any] = Body(...), _session=Depends(csrf_session)):
         return database.delete_server_context(str(payload.get("name", "")))
 
+    @app.get("/api/skills/discover")
+    async def discover_skills(_session=Depends(browser_session)):
+        return await asyncio.to_thread(SkillService(database).discover)
+
+    @app.post("/api/skills")
+    async def add_skill(payload: dict[str, Any] = Body(...), _session=Depends(csrf_session)):
+        server_ids = payload.get("server_ids")
+        if server_ids is not None and not isinstance(server_ids, list):
+            raise ValidationError("server_ids must be a list")
+        return await asyncio.to_thread(
+            SkillService(database).register,
+            str(payload.get("path", "")),
+            server_identifiers=server_ids,
+        )
+
+    @app.post("/api/skills/{identifier}/refresh")
+    async def refresh_skill(
+        identifier: str, payload: dict[str, Any] = Body(default={}), _session=Depends(csrf_session)
+    ):
+        path = str(payload["path"]) if payload.get("path") is not None else None
+        return await asyncio.to_thread(SkillService(database).refresh, identifier, path=path)
+
+    @app.put("/api/skills/{identifier}/servers")
+    async def set_skill_servers(
+        identifier: str, payload: dict[str, Any] = Body(...), _session=Depends(csrf_session)
+    ):
+        server_ids = payload.get("server_ids")
+        if not isinstance(server_ids, list):
+            raise ValidationError("server_ids must be a list")
+        return database.set_skill_servers(identifier, server_ids)
+
+    @app.delete("/api/skills/{identifier}")
+    async def remove_skill(identifier: str, _session=Depends(csrf_session)):
+        return SkillService(database).delete(identifier)
+
     @app.post("/api/servers")
     async def add_server(payload: dict[str, Any] = Body(...), _session=Depends(csrf_session)):
         result = database.create_server(**payload)
@@ -290,6 +328,17 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
         result = database.delete_server(identifier)
         render_config(database)
         return result
+
+    @app.put("/api/servers/{identifier}/skills")
+    async def set_server_skills(
+        identifier: str, payload: dict[str, Any] = Body(...), _session=Depends(csrf_session)
+    ):
+        skill_ids = payload.get("skill_ids")
+        if not isinstance(skill_ids, list):
+            raise ValidationError("skill_ids must be a list")
+        return await asyncio.to_thread(
+            SkillService(database).set_server_skills, identifier, skill_ids
+        )
 
     @app.post("/api/servers/{identifier}/test")
     async def test_server(identifier: str, _session=Depends(csrf_session)):

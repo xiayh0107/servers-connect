@@ -20,13 +20,17 @@ from .validation import (
     validate_label,
     validate_port,
     validate_proxy_jumps,
+    skill_name_key,
+    validate_skill_description,
+    validate_skill_path,
+    validate_skill_name,
     validate_server_tags,
     validate_server_note,
     validate_username,
 )
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 SERVER_CONTEXTS_SETTING = "server_contexts"
 
 
@@ -132,13 +136,91 @@ class Database:
                     updated_at TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS skills (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    name_key TEXT NOT NULL,
+                    path TEXT NOT NULL UNIQUE,
+                    description TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS server_skills (
+                    server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                    skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE RESTRICT,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (server_id, skill_id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_servers_credential ON servers(credential_id);
-                PRAGMA user_version = 2;
+                CREATE INDEX IF NOT EXISTS idx_server_skills_skill ON server_skills(skill_id);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_name_key ON skills(name_key);
+                PRAGMA user_version = 4;
                 """
                 )
-            elif version == 1:
+            if version == 1:
                 connection.execute("ALTER TABLE servers ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
                 connection.execute("PRAGMA user_version = 2")
+                version = 2
+            if version == 2:
+                connection.executescript(
+                    """
+                    CREATE TABLE IF NOT EXISTS skills (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                        name_key TEXT NOT NULL,
+                        path TEXT NOT NULL UNIQUE,
+                        description TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+
+                    CREATE TABLE IF NOT EXISTS server_skills (
+                        server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                        skill_id TEXT NOT NULL REFERENCES skills(id) ON DELETE RESTRICT,
+                        created_at TEXT NOT NULL,
+                        PRIMARY KEY (server_id, skill_id)
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_server_skills_skill ON server_skills(skill_id);
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_name_key ON skills(name_key);
+                    PRAGMA user_version = 4;
+                    """
+                )
+            if version == 3:
+                rows = connection.execute("SELECT id, name FROM skills").fetchall()
+                names_by_key: dict[str, str] = {}
+                keys_by_id: dict[str, str] = {}
+                for row in rows:
+                    try:
+                        key = skill_name_key(row["name"])
+                    except ValidationError as exc:
+                        raise DatabaseError(
+                            f"saved skill has an invalid name: {row['name']!r}"
+                        ) from exc
+                    if key in names_by_key:
+                        raise DatabaseError(
+                            "saved skills conflict case-insensitively: "
+                            f"{names_by_key[key]!r} and {row['name']!r}"
+                        )
+                    names_by_key[key] = row["name"]
+                    keys_by_id[row["id"]] = key
+                columns = {
+                    row["name"] for row in connection.execute("PRAGMA table_info(skills)")
+                }
+                if "name_key" not in columns:
+                    connection.execute(
+                        "ALTER TABLE skills ADD COLUMN name_key TEXT NOT NULL DEFAULT ''"
+                    )
+                connection.executemany(
+                    "UPDATE skills SET name_key = ? WHERE id = ?",
+                    [(key, identifier) for identifier, key in keys_by_id.items()],
+                )
+                connection.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_name_key ON skills(name_key)"
+                )
+                connection.execute("PRAGMA user_version = 4")
         if is_new and os.name != "nt":
             self.path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
@@ -449,6 +531,256 @@ class Database:
                 connection, [item for item in contexts if item.casefold() != key]
             )
         return {"name": requested, "removed_from": removed_from}
+
+    @staticmethod
+    def _find_server_row(connection: sqlite3.Connection, identifier: str) -> sqlite3.Row:
+        row = connection.execute(
+            "SELECT id, alias FROM servers WHERE id = ? OR alias = ? COLLATE NOCASE",
+            (identifier, identifier),
+        ).fetchone()
+        if not row:
+            raise NotFoundError(f"server not found: {identifier}")
+        return row
+
+    @classmethod
+    def _resolve_server_rows(
+        cls, connection: sqlite3.Connection, identifiers: list[str]
+    ) -> list[sqlite3.Row]:
+        rows: list[sqlite3.Row] = []
+        seen: set[str] = set()
+        for identifier in identifiers:
+            row = cls._find_server_row(connection, str(identifier))
+            if row["id"] not in seen:
+                rows.append(row)
+                seen.add(row["id"])
+        return rows
+
+    @staticmethod
+    def _find_skill_row(connection: sqlite3.Connection, identifier: str) -> sqlite3.Row:
+        row = connection.execute("SELECT * FROM skills WHERE id = ?", (identifier,)).fetchone()
+        if not row:
+            try:
+                key = skill_name_key(identifier)
+            except ValidationError:
+                key = ""
+            row = connection.execute(
+                "SELECT * FROM skills WHERE name_key = ?", (key,)
+            ).fetchone()
+        if not row:
+            raise NotFoundError(f"skill not found: {identifier}")
+        return row
+
+    @classmethod
+    def _resolve_skill_rows(
+        cls, connection: sqlite3.Connection, identifiers: list[str]
+    ) -> list[sqlite3.Row]:
+        rows: list[sqlite3.Row] = []
+        seen: set[str] = set()
+        for identifier in identifiers:
+            row = cls._find_skill_row(connection, str(identifier))
+            if row["id"] not in seen:
+                rows.append(row)
+                seen.add(row["id"])
+        return rows
+
+    @staticmethod
+    def _skill_servers(connection: sqlite3.Connection, skill_id: str) -> list[dict[str, str]]:
+        rows = connection.execute(
+            """
+            SELECT s.id, s.alias
+            FROM server_skills ss JOIN servers s ON s.id = ss.server_id
+            WHERE ss.skill_id = ?
+            ORDER BY s.alias COLLATE NOCASE
+            """,
+            (skill_id,),
+        ).fetchall()
+        return [{"id": row["id"], "alias": row["alias"]} for row in rows]
+
+    @classmethod
+    def _skill_dict(cls, connection: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "path": row["path"],
+            "description": row["description"],
+            "servers": cls._skill_servers(connection, row["id"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def list_skills(self, server_identifier: str | None = None) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            parameters: tuple[str, ...] = ()
+            query = "SELECT sk.* FROM skills sk"
+            if server_identifier is not None:
+                server = self._find_server_row(connection, str(server_identifier))
+                query += " JOIN server_skills ss ON ss.skill_id = sk.id WHERE ss.server_id = ?"
+                parameters = (server["id"],)
+            query += " ORDER BY sk.name COLLATE NOCASE"
+            rows = connection.execute(query, parameters).fetchall()
+            return [self._skill_dict(connection, row) for row in rows]
+
+    def get_skill(self, identifier: str) -> dict[str, Any]:
+        with self.connect() as connection:
+            row = self._find_skill_row(connection, identifier)
+            return self._skill_dict(connection, row)
+
+    def create_skill(
+        self,
+        *,
+        name: str,
+        path: str | Path,
+        description: str,
+        skill_id: str | None = None,
+        server_identifiers: list[str] | None = None,
+    ) -> dict[str, Any]:
+        name = validate_skill_name(name)
+        name_key = skill_name_key(name)
+        path = validate_skill_path(path)
+        description = validate_skill_description(description)
+        identifier = skill_id or str(uuid.uuid4())
+        now = utc_now()
+        try:
+            with self.transaction() as connection:
+                servers = self._resolve_server_rows(connection, server_identifiers or [])
+                connection.execute(
+                    """
+                    INSERT INTO skills
+                    (id, name, name_key, path, description, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (identifier, name, name_key, path, description, now, now),
+                )
+                connection.executemany(
+                    "INSERT INTO server_skills (server_id, skill_id, created_at) VALUES (?, ?, ?)",
+                    [(server["id"], identifier, now) for server in servers],
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ConflictError(f"skill name or path already exists: {name}") from exc
+        return self.get_skill(identifier)
+
+    def update_skill(self, identifier: str, **changes: Any) -> dict[str, Any]:
+        current = self.get_skill(identifier)
+        name = validate_skill_name(changes.get("name", current["name"]))
+        name_key = skill_name_key(name)
+        path = validate_skill_path(changes.get("path", current["path"]))
+        description = validate_skill_description(changes.get("description", current["description"]))
+        try:
+            with self.transaction() as connection:
+                connection.execute(
+                    """
+                    UPDATE skills
+                    SET name = ?, name_key = ?, path = ?, description = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (name, name_key, path, description, utc_now(), current["id"]),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ConflictError(f"skill name or path already exists: {name}") from exc
+        return self.get_skill(current["id"])
+
+    def delete_skill(self, identifier: str) -> dict[str, Any]:
+        current = self.get_skill(identifier)
+        try:
+            with self.transaction() as connection:
+                connection.execute("DELETE FROM skills WHERE id = ?", (current["id"],))
+        except sqlite3.IntegrityError as exc:
+            raise ConflictError("skill is still assigned to one or more servers") from exc
+        return current
+
+    def attach_skill(self, identifier: str, server_identifiers: list[str]) -> dict[str, Any]:
+        with self.transaction() as connection:
+            skill = self._find_skill_row(connection, identifier)
+            servers = self._resolve_server_rows(connection, server_identifiers)
+            now = utc_now()
+            connection.executemany(
+                "INSERT OR IGNORE INTO server_skills (server_id, skill_id, created_at) VALUES (?, ?, ?)",
+                [(server["id"], skill["id"], now) for server in servers],
+            )
+        return self.get_skill(skill["id"])
+
+    def detach_skill(self, identifier: str, server_identifiers: list[str]) -> dict[str, Any]:
+        with self.transaction() as connection:
+            skill = self._find_skill_row(connection, identifier)
+            servers = self._resolve_server_rows(connection, server_identifiers)
+            connection.executemany(
+                "DELETE FROM server_skills WHERE server_id = ? AND skill_id = ?",
+                [(server["id"], skill["id"]) for server in servers],
+            )
+        return self.get_skill(skill["id"])
+
+    def set_skill_servers(self, identifier: str, server_identifiers: list[str]) -> dict[str, Any]:
+        """Replace one skill's host bindings after validating every host."""
+        with self.transaction() as connection:
+            skill = self._find_skill_row(connection, identifier)
+            servers = self._resolve_server_rows(connection, server_identifiers)
+            connection.execute("DELETE FROM server_skills WHERE skill_id = ?", (skill["id"],))
+            now = utc_now()
+            connection.executemany(
+                "INSERT INTO server_skills (server_id, skill_id, created_at) VALUES (?, ?, ?)",
+                [(server["id"], skill["id"], now) for server in servers],
+            )
+        return self.get_skill(skill["id"])
+
+    def set_server_skills(
+        self, server_identifier: str, skill_identifiers: list[str]
+    ) -> list[dict[str, Any]]:
+        """Replace one host's skill bindings after validating every skill."""
+        with self.transaction() as connection:
+            server = self._find_server_row(connection, server_identifier)
+            skills = self._resolve_skill_rows(connection, skill_identifiers)
+            connection.execute("DELETE FROM server_skills WHERE server_id = ?", (server["id"],))
+            now = utc_now()
+            connection.executemany(
+                "INSERT INTO server_skills (server_id, skill_id, created_at) VALUES (?, ?, ?)",
+                [(server["id"], skill["id"], now) for skill in skills],
+            )
+        return self.list_skills(server["id"])
+
+    def resolve_skills(self, server_identifiers: list[str]) -> dict[str, Any]:
+        """Resolve host-specific skills in one read-only, multi-host operation."""
+        with self.connect() as connection:
+            servers = self._resolve_server_rows(connection, server_identifiers)
+            hosts: list[dict[str, Any]] = []
+            applies_to: dict[str, list[str]] = {}
+            skill_rows: dict[str, sqlite3.Row] = {}
+            for server in servers:
+                rows = connection.execute(
+                    """
+                    SELECT sk.*
+                    FROM server_skills ss JOIN skills sk ON sk.id = ss.skill_id
+                    WHERE ss.server_id = ?
+                    ORDER BY sk.name COLLATE NOCASE
+                    """,
+                    (server["id"],),
+                ).fetchall()
+                summaries = []
+                for row in rows:
+                    skill_rows[row["id"]] = row
+                    applies_to.setdefault(row["id"], []).append(server["alias"])
+                    summaries.append(
+                        {
+                            "id": row["id"],
+                            "name": row["name"],
+                            "path": row["path"],
+                            "description": row["description"],
+                            "status": "registered",
+                        }
+                    )
+                hosts.append({"id": server["id"], "alias": server["alias"], "skills": summaries})
+
+            skills = [
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "path": row["path"],
+                    "description": row["description"],
+                    "status": "registered",
+                    "applies_to": applies_to[row["id"]],
+                }
+                for row in sorted(skill_rows.values(), key=lambda item: item["name"].casefold())
+            ]
+        return {"ok": True, "hosts": hosts, "skills": skills}
 
     def list_servers(self) -> list[dict[str, Any]]:
         with self.connect() as connection:

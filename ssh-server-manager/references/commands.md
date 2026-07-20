@@ -63,6 +63,52 @@ than `test`, so run it on demand, not as a routine sweep.
 
 Secret input uses a local hidden prompt. There is deliberately no CLI command that reveals a saved secret.
 
+## Host-bound skills
+
+```bash
+./scripts/serverctl skill discover [--json]
+./scripts/serverctl skill list [--server ALIAS] [--json]
+./scripts/serverctl skill show NAME|ID [--json]
+./scripts/serverctl skill add PATH [--server ALIAS ...] [--json]
+./scripts/serverctl skill refresh NAME|ID [--path PATH] [--json]
+./scripts/serverctl skill attach NAME|ID SERVER [SERVER ...] [--json]
+./scripts/serverctl skill detach NAME|ID SERVER [SERVER ...] [--json]
+./scripts/serverctl skill remove NAME|ID [--yes] [--json]
+./scripts/serverctl skill resolve ALIAS [ALIAS ...] [--json]
+```
+
+`discover` scans the standard local skill roots (`~/.agents/skills`,
+`~/.codex/skills`, and `~/.claude/skills`) plus `SSM_SKILLS_DIRS`. It is
+read-only and offline: candidates are not installed, registered, or bound.
+The base `ssh-server-manager` transport skill is omitted and cannot be
+registered as host-bound guidance.
+`add` accepts either a skill directory or its `SKILL.md`; each repeated
+`--server` creates a binding in the same transaction. Skill names are
+case-insensitively unique, so same-name candidates at different paths are an
+explicit conflict rather than an arbitrary choice.
+
+`discover --json` returns `candidates` and `conflicts`. Candidate status is
+`available`, `registered`, `conflict`, or `invalid`; valid candidates include
+`name`, `description`, and `path`, registered matches include `registered_id`,
+and invalid candidates put the validation reason in `error`. Name conflicts
+contain `name` plus `paths`; path conflicts contain `path` plus `names`;
+registry conflicts also include `registered_id`.
+
+`refresh` re-reads the registered `SKILL.md`, optionally from a replacement
+path. `attach` and `detach` update bindings for all positional server aliases.
+`remove` is blocked while any host is bound; detach those hosts first.
+`remove --yes` skips only the confirmation and never deletes local skill
+files.
+
+Agents should call `resolve` after determining the target hosts and again
+whenever the target changes. The JSON contains both per-host skills and a
+deduplicated skill list whose `applies_to` aliases preserve multi-host scope.
+It returns metadata and paths, not skill bodies. `missing`, `invalid`, and
+`name_mismatch` registrations make `ok` false and the command exit `1`; do not
+silently reuse a previous host's skill context. `list` and `resolve` add
+`status_message` to non-ready entries; `show` returns stored metadata and host
+bindings without calculating readiness.
+
 ## Connections
 
 ```bash

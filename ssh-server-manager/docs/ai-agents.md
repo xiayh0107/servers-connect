@@ -62,6 +62,9 @@ The skill instructs the agent to:
   the agent hands you the `serverctl connect <alias>` command and runs
   follow-up commands on that host through `serverctl exec` on your behalf,
   instead of trying to hold a TTY it does not have.
+- resolve host-bound skills after it identifies the target aliases, apply each
+  result only to its `applies_to` hosts, and discard that environment-specific
+  context when the target changes.
 
 If an agent still reaches for raw `ssh` (typically because it searched for
 an `ssh-server-manager` binary, found nothing, and improvised), a one-line
@@ -74,6 +77,9 @@ so connection requests match it directly.
 ```bash
 # structured inventory
 serverctl server list --json
+
+# resolve local guidance only after choosing the target hosts
+serverctl skill resolve gpu-lab-01 gpu-lab-02 --json
 
 # server notes (local metadata only; never include secrets)
 serverctl server note web1 --text "Primary web node" --json
@@ -103,6 +109,53 @@ Exit codes are meaningful (`exec` mirrors the remote command; `test` and
 `doctor` return non-zero on failure), so agents can branch without parsing
 prose.
 
+## Host-specific Agent Skills
+
+The SSH manager handles inventory, authentication, host-key verification, and
+transport. A host-bound skill can then supply the details that should not be
+global: cluster topology, approved health checks, scheduler conventions,
+service paths, or project runbooks.
+
+The workflow is deliberately target-first:
+
+1. Call `serverctl server list --json` and identify the exact target alias or
+   aliases from the user's request.
+2. Call `serverctl skill resolve ALIAS [ALIAS ...] --json` once for that target
+   set.
+3. Treat the `ready` results as the eligible skill set. Load a skill through
+   the agent's normal mechanism when its description and trigger rules match
+   the current task. For a multi-host task, apply it only to the aliases in
+   `applies_to`.
+4. Perform only the work the user requested. If the user switches hosts,
+   discard the previous host-specific context and resolve again.
+
+For example, `yulab-gpu-node` could be bound to a login node and its GPU
+workers, while a storage skill is bound to only the nodes that mount that
+filesystem. These are ordinary user-managed relationships; the product does
+not special-case YuLab, GPU hosts, or any alias.
+
+Registering and binding are explicit local administration actions:
+
+```bash
+# inspect installed candidates without changing anything
+serverctl skill discover --json
+
+# register one local skill and bind two hosts atomically
+serverctl skill add ~/.agents/skills/gpu-ops \
+  --server gpu-lab-01 --server gpu-lab-02 --json
+
+# add or remove more host relationships later
+serverctl skill attach gpu-ops gpu-lab-03 --json
+serverctl skill detach gpu-ops gpu-lab-01 --json
+```
+
+Discovery never downloads or installs a skill. A binding is relevance
+metadata, not permission to execute commands or broaden the user's target
+scope. Resolution returns the registered name, description, path, status, and
+`applies_to` aliases—not the skill body. If a path is missing, invalid, renamed,
+or conflicts by name, agents must not guess or reuse a skill resolved for a
+different host.
+
 ## What agents must not do
 
 These rules are enforced by the skill instructions and, where possible, by
@@ -115,3 +168,6 @@ the tool itself:
 3. Never print the UI launch URL or token into chat or logs
    (`serverctl ui` withholds the token from stdout by design).
 4. Never store secrets in notes fields, files, or environment variables.
+5. Never treat a host-skill binding as authorization. It routes local
+   instructions after the user has chosen the hosts; it does not choose hosts
+   or approve remote changes.

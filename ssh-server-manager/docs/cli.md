@@ -106,6 +106,88 @@ Notes:
   read or displayed, and removing the credential never deletes the file.
 - A credential referenced by any server cannot be removed.
 
+## Host-bound skills
+
+```
+serverctl skill discover [--json]
+serverctl skill list [--server ALIAS] [--json]
+serverctl skill show NAME|ID [--json]
+serverctl skill add PATH [--server ALIAS ...] [--json]
+serverctl skill refresh NAME|ID [--path PATH] [--json]
+serverctl skill attach NAME|ID SERVER [SERVER ...] [--json]
+serverctl skill detach NAME|ID SERVER [SERVER ...] [--json]
+serverctl skill remove NAME|ID [--yes] [--json]
+serverctl skill resolve ALIAS [ALIAS ...] [--json]
+```
+
+Host-bound skills let environment-specific operating guidance follow the
+managed hosts where it is relevant. The relationship is many-to-many: one
+skill can cover a group of related nodes, and one host can use several skills.
+Nothing is hard-coded for a particular provider, cluster, or alias.
+
+- `discover` scans `~/.agents/skills`, `~/.codex/skills`,
+  `~/.claude/skills`, and directories in `SSM_SKILLS_DIRS`. It makes no
+  network requests and does not install, register, or bind anything. The base
+  `ssh-server-manager` transport skill is deliberately omitted and cannot be
+  registered as host-bound guidance.
+- `list` shows registered skills; `--server` filters by a bound host. `show`
+  accepts a case-insensitive name or skill ID and includes its host bindings.
+- `add` accepts a skill directory or its `SKILL.md`. It stores the normalized
+  absolute `SKILL.md` path and frontmatter metadata, not the skill body.
+  Repeated `--server` options register and bind atomically.
+- `refresh` re-reads one registered skill. `--path` moves the registration to
+  another local skill directory or `SKILL.md` after validation.
+- `attach` and `detach` accept one or more positional server aliases and
+  change all requested bindings atomically.
+- `remove` prompts unless `--yes` and is blocked while any host is still
+  bound; detach those hosts first. It removes only the registry entry, never
+  the local skill files. In a non-interactive context it fails closed without
+  `--yes`.
+- Names are case-insensitively unique. Discovery reports same-name candidates
+  at different paths as conflicts, and registration refuses to guess between
+  them.
+
+`discover --json` returns `{"candidates": [...], "conflicts": [...]}`. Every
+candidate has `path` and `status`; a valid candidate also has `name` and
+`description`. Candidate status is:
+
+- `available` — valid local skill that is not registered;
+- `registered` — its name and path match a registry entry, whose ID is in
+  `registered_id`;
+- `conflict` — its name or path disagrees with another candidate or registry
+  entry;
+- `invalid` — its frontmatter could not be validated; the reason is in
+  `error`.
+
+Each conflict has a `type`. A name conflict reports `name` and `paths`; a path
+conflict reports `path` and `names`. Conflicts against an existing registry
+entry also include `registered_id`. Discovery status describes candidates,
+not whether a registered skill is currently usable.
+
+Agents call `resolve` only after selecting the target alias or aliases. Its
+JSON has both a per-host view and a deduplicated view:
+
+```json
+{
+  "ok": true,
+  "hosts": [
+    {"id": "...", "alias": "gpu-lab-01", "skills": [{"id": "...", "name": "gpu-ops", "path": "/.../gpu-ops/SKILL.md", "description": "...", "status": "ready"}]}
+  ],
+  "skills": [
+    {"id": "...", "name": "gpu-ops", "path": "/.../gpu-ops/SKILL.md", "description": "...", "status": "ready", "applies_to": ["gpu-lab-01"]}
+  ]
+}
+```
+
+The response contains metadata and local paths, never skill bodies. Each
+skill's `applies_to` list is authoritative for a multi-host task. Current file
+status is `ready`, `missing`, `invalid`, or `name_mismatch`; any non-ready
+registration makes `ok` false and exits `1` instead of silently substituting a
+different path. `skill list` and both views in `skill resolve` include a
+`status_message` for non-ready entries; ready entries omit it. `skill show`
+returns stored registry metadata and host bindings without calculating
+readiness.
+
 ## Connect and execute
 
 ```
