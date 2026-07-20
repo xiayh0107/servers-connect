@@ -16,8 +16,9 @@ def test_marketing_page_declares_utf8_before_localized_copy():
 def test_marketing_page_stays_on_the_simple_paint_path():
     encoded = WEBSITE_HTML.encode()
 
-    assert len(encoded) <= 70_000
-    assert len(gzip.compress(encoded, compresslevel=9, mtime=0)) <= 18_000
+    # The scenario demo stays lightweight: no framework, SVG, or additional asset.
+    assert len(encoded) <= 90_000
+    assert len(gzip.compress(encoded, compresslevel=9, mtime=0)) <= 21_000
     assert "backdrop-filter" not in WEBSITE_HTML
     assert "color-mix(" not in WEBSITE_HTML
     assert "<svg" not in WEBSITE_HTML
@@ -42,6 +43,27 @@ def test_marketing_page_leads_with_the_human_agent_workflow():
     assert 'src="assets/human-agent-collaboration.webp"' in WEBSITE_HTML
     assert COLLABORATION_IMAGE.is_file()
     assert COLLABORATION_IMAGE.stat().st_size <= 100_000
+
+
+def test_marketing_page_has_bilingual_scenario_demos():
+    scenario_targets = set(re.findall(r'data-scenario-target="([^"]+)"', WEBSITE_HTML))
+    scenario_panels = set(re.findall(r'data-scenario-panel="([^"]+)"', WEBSITE_HTML))
+    scenarios = {"direct-connect", "incident-response", "research-compute", "multi-environment"}
+
+    assert 'id="use-cases"' in WEBSITE_HTML
+    assert 'aria-labelledby="useCaseTitle"' in WEBSITE_HTML
+    assert scenario_targets == scenario_panels == scenarios
+    for scenario in scenarios:
+        panel = WEBSITE_HTML.split(f'data-scenario-panel="{scenario}"', 1)[1].split("</article>", 1)[0]
+        assert 'lang="en"' in panel
+        assert 'lang="zh-CN"' in panel
+    scenario_section = WEBSITE_HTML.split('id="use-cases"', 1)[1].split('id="demo"', 1)[0]
+    assert "serverctl " not in scenario_section
+    assert "不讲命令" not in scenario_section
+    assert "连接 atlas-prod" in scenario_section
+    assert "data-scenario-target" in scenario_section
+    assert "function setScenario" in WEBSITE_HTML
+    assert 'scenarioSwitcher.addEventListener("click"' in WEBSITE_HTML
 
 
 def test_marketing_page_is_an_interactive_product_demo():

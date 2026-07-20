@@ -444,6 +444,55 @@
   .feature-number { color: var(--accent); font: 800 10px ui-monospace, monospace; }
   .feature-card h3 { margin: 46px 0 10px; font-size: 18px; }
   .feature-card p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
+  .use-case-section { padding: 22px 0 42px; }
+  .scenario-demo { overflow: hidden; display: grid; grid-template-columns: 270px minmax(0, 1fr); border: 1px solid #27364d; border-radius: 16px; background: #0b1421; box-shadow: 0 30px 80px -48px rgba(0, 0, 0, .9); }
+  .scenario-tabs { padding: 10px; display: grid; align-content: start; gap: 6px; border-right: 1px solid var(--line); background: #080f1a; }
+  .scenario-tab { width: 100%; min-width: 0; padding: 14px 12px; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 9px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); text-align: left; }
+  .scenario-tab:hover { background: var(--panel); color: var(--ink); }
+  .scenario-tab.active { background: var(--accent-soft); color: var(--ink); box-shadow: inset 2px 0 var(--accent); }
+  .scenario-index { color: var(--accent); font: 800 10px ui-monospace, monospace; }
+  .scenario-tab strong, .scenario-tab small { display: block; }
+  .scenario-tab strong { font-size: 12px; line-height: 1.35; }
+  .scenario-tab small { margin-top: 5px; color: var(--faint); font-size: 9px; line-height: 1.4; }
+  .scenario-stage { min-width: 0; padding: 20px; }
+  .scenario-panel { min-height: 345px; }
+  .scenario-bar { padding-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); }
+  .scenario-heading small, .scenario-heading strong { display: block; }
+  .scenario-heading small { color: var(--accent); font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+  .scenario-heading strong { margin-top: 6px; font-size: 18px; }
+  .scenario-status { padding: 7px 9px; display: inline-flex; align-items: center; gap: 7px; border: 1px solid rgba(74, 214, 160, .28); border-radius: 20px; background: rgba(74, 214, 160, .08); color: var(--green); font-size: 9px; font-weight: 750; }
+  .scenario-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .scenario-layout { padding-top: 16px; display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(230px, .88fr); gap: 12px; }
+  .scenario-list { display: grid; gap: 7px; }
+  .scenario-row { min-width: 0; padding: 11px 12px; display: grid; grid-template-columns: 7px minmax(0, 1fr) auto; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 8px; background: #09121e; }
+  .scenario-row.selected { border-color: rgba(135, 148, 255, .34); background: var(--accent-soft); box-shadow: inset 2px 0 var(--accent); }
+  .scenario-row.excluded { opacity: .46; }
+  .scene-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .scene-dot.good { background: var(--green); }
+  .scene-dot.warn { background: var(--amber); }
+  .scene-copy { min-width: 0; }
+  .scene-copy strong, .scene-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scene-copy strong { font-size: 11px; }
+  .scene-copy small { margin-top: 4px; color: var(--faint); font-size: 9px; }
+  .scene-state { color: var(--muted); font-size: 9px; }
+  .scene-state.good { color: var(--green); }
+  .scene-state.warn { color: var(--amber); }
+  .scene-card { min-width: 0; padding: 16px; border: 1px solid rgba(135, 148, 255, .28); border-radius: 10px; background: linear-gradient(145deg, rgba(135, 148, 255, .12), rgba(9, 18, 30, .72)); }
+  .scene-card > small { color: var(--accent); font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+  .scene-card h3 { margin: 12px 0 9px; font-size: 18px; line-height: 1.25; }
+  .scene-card p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+  .scene-metrics { margin: 14px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .scene-metrics > span { padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: rgba(7, 12, 20, .44); color: #c9d1df; font-size: 9px; line-height: 1.45; }
+  .scenario-instruction { max-width: 350px; margin: 0 0 12px auto; padding: 12px 14px; border: 1px solid rgba(135, 148, 255, .34); border-radius: 12px 12px 3px 12px; background: var(--accent-soft); }
+  .scenario-instruction small, .scenario-instruction strong { display: block; }
+  .scenario-instruction small { color: var(--accent); font-size: 8px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+  .scenario-instruction strong { margin-top: 5px; font-size: 13px; }
+  .connection-terminal { margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: #050a12; font: 10px/1.6 ui-monospace, monospace; }
+  .connection-terminal small, .connection-terminal strong, .connection-terminal span { display: block; }
+  .connection-terminal small { color: var(--faint); }
+  .connection-terminal strong { margin: 5px 0; color: var(--green); }
+  .connection-terminal span { color: #c7cffc; }
+  .scenario-guard { margin-top: 14px; padding-top: 12px; display: block; border-top: 1px solid rgba(135, 148, 255, .2); color: #c7cffc; font-size: 10px; line-height: 1.5; }
   .final-cta { margin-bottom: 70px; padding: 34px; display: flex; align-items: center; justify-content: space-between; gap: 30px; border: 1px solid rgba(135, 148, 255, .28); border-radius: 16px; background: linear-gradient(120deg, rgba(100, 116, 255, .14), rgba(14, 23, 37, .72)); }
   .final-cta h2 { margin: 0; font-size: clamp(23px, 3vw, 38px); letter-spacing: -.035em; }
   .final-cta p { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
@@ -494,6 +543,8 @@
     .demo-header { min-height: 82px; padding: 14px; }
     .demo-panel { padding: 12px; }
     .tag-library { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .scenario-demo { grid-template-columns: 1fr; }
+    .scenario-tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); border-right: 0; border-bottom: 1px solid var(--line); }
     .feature-grid { grid-template-columns: 1fr; }
     .feature-card { min-height: 150px; }
     .feature-card h3 { margin-top: 28px; }
@@ -525,6 +576,11 @@
     .file-toolbar .copy-directory { display: none; }
     .tag-library { grid-template-columns: 1fr; }
     .tag-create-bar { flex-direction: column; }
+    .scenario-tabs { grid-template-columns: 1fr; }
+    .scenario-stage { padding: 12px; }
+    .scenario-panel { min-height: 0; }
+    .scenario-bar { align-items: flex-start; flex-direction: column; }
+    .scenario-layout { grid-template-columns: 1fr; }
     .final-cta { padding: 25px; align-items: flex-start; flex-direction: column; }
     .site-footer { align-items: flex-start; flex-direction: column; }
     .tag-picker { width: min(280px, calc(100% - 20px)); }
@@ -543,6 +599,7 @@
     <span class="version-badge">v0.5.0</span>
   </a>
   <nav class="site-actions" aria-label="Primary navigation">
+    <a href="#use-cases"><span lang="en">Use cases</span><span lang="zh-CN">使用场景</span></a>
     <a href="#demo"><span lang="en">Live demo</span><span lang="zh-CN">在线体验</span></a>
     <a href="https://github.com/xiayh0107/servers-connect/tree/main/ssh-server-manager/docs">Docs</a>
     <a href="https://github.com/xiayh0107/servers-connect">GitHub</a>
@@ -578,6 +635,56 @@
         </ol>
       </div>
     </aside>
+  </section>
+
+  <section class="feature-section use-case-section" id="use-cases" aria-labelledby="useCaseTitle">
+    <div class="section-heading">
+      <div><p class="eyebrow"><span lang="en">Interactive scenarios</span><span lang="zh-CN">场景演示</span></p><h2 id="useCaseTitle"><span lang="en">From intent to evidence, see what your Agent did.</span><span lang="zh-CN">从目标到证据，看清 Agent 做了什么。</span></h2></div>
+      <p><span lang="en">Choose a scenario to inspect a sample result. No real host is contacted.</span><span lang="zh-CN">选择一个场景，查看模拟执行结果；不会连接任何真实主机。</span></p>
+    </div>
+    <div class="scenario-demo">
+      <div class="scenario-tabs" id="scenarioSwitcher" aria-label="Scenario demos">
+        <button class="scenario-tab active" id="scenarioConnectButton" type="button" data-scenario-target="direct-connect" aria-controls="scenarioConnect" aria-pressed="true"><span class="scenario-index">01</span><span><strong><span lang="en">Quick connect</span><span lang="zh-CN">快速连接</span></strong><small><span lang="en">Ask for a saved host by name</span><span lang="zh-CN">一句话连接已保存主机</span></small></span></button>
+        <button class="scenario-tab" id="scenarioIncidentButton" type="button" data-scenario-target="incident-response" aria-controls="scenarioIncident" aria-pressed="false"><span class="scenario-index">02</span><span><strong><span lang="en">On-call response</span><span lang="zh-CN">值班响应</span></strong><small><span lang="en">Investigate a production alert</span><span lang="zh-CN">定位线上告警</span></small></span></button>
+        <button class="scenario-tab" id="scenarioResearchButton" type="button" data-scenario-target="research-compute" aria-controls="scenarioResearch" aria-pressed="false"><span class="scenario-index">03</span><span><strong><span lang="en">Research compute</span><span lang="zh-CN">研究计算</span></strong><small><span lang="en">Review a failed training run</span><span lang="zh-CN">检查失败的训练任务</span></small></span></button>
+        <button class="scenario-tab" id="scenarioScopeButton" type="button" data-scenario-target="multi-environment" aria-controls="scenarioScope" aria-pressed="false"><span class="scenario-index">04</span><span><strong><span lang="en">Multi-environment</span><span lang="zh-CN">多环境交付</span></strong><small><span lang="en">Keep one task in scope</span><span lang="zh-CN">明确一次任务的范围</span></small></span></button>
+      </div>
+      <div class="scenario-stage">
+        <article class="scenario-panel" id="scenarioConnect" data-scenario-panel="direct-connect" aria-labelledby="scenarioConnectButton">
+          <header class="scenario-bar"><div class="scenario-heading"><small><span lang="en">Sample interaction · saved host</span><span lang="zh-CN">模拟交互 · 已保存主机</span></small><strong><span lang="en">Connect by name</span><span lang="zh-CN">一句话发起连接</span></strong></div><span class="scenario-status"><i></i><span lang="en">Session handed to your terminal</span><span lang="zh-CN">会话已交给本地终端</span></span></header>
+          <div class="scenario-layout"><div><div class="scenario-instruction"><small><span lang="en">You</span><span lang="zh-CN">你</span></small><strong><span lang="en">Connect me to atlas-prod.</span><span lang="zh-CN">连接 atlas-prod。</span></strong></div><div class="scenario-list">
+            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Saved host found</span><span lang="zh-CN">已找到保存的主机</span></strong><small>atlas-prod · deploy@10.24.8.12</small></span><b class="scene-state good"><span lang="en">Matched</span><span lang="zh-CN">已匹配</span></b></div>
+            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Credential ready</span><span lang="zh-CN">凭据已就绪</span></strong><small>deploy-key · <span lang="en">vault reference</span><span lang="zh-CN">保险库引用</span></small></span><b class="scene-state good"><span lang="en">Protected</span><span lang="zh-CN">受保护</span></b></div>
+            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Host identity</span><span lang="zh-CN">主机身份</span></strong><small><span lang="en">Known host key verified</span><span lang="zh-CN">已验证已知主机密钥</span></small></span><b class="scene-state good"><span lang="en">Verified</span><span lang="zh-CN">已验证</span></b></div>
+          </div></div><aside class="scene-card"><small><span lang="en">Interactive session</span><span lang="zh-CN">交互式会话</span></small><h3><span lang="en">Connected to atlas-prod</span><span lang="zh-CN">已连接 atlas-prod</span></h3><p><span lang="en">The shell belongs to your local terminal. The Agent receives connection context, never the raw secret.</span><span lang="zh-CN">Shell 位于你的本地终端；Agent 获得连接上下文，而不是原始秘密。</span></p><div class="connection-terminal"><small>LOCAL TERMINAL</small><strong>SSH session ready</strong><span>deploy@atlas-prod:~$</span></div><span class="scenario-guard"><span lang="en">You remain in control of the interactive shell.</span><span lang="zh-CN">交互式 Shell 始终由你掌控。</span></span></aside></div>
+        </article>
+        <article class="scenario-panel" id="scenarioIncident" data-scenario-panel="incident-response" aria-labelledby="scenarioIncidentButton" hidden>
+          <header class="scenario-bar"><div class="scenario-heading"><small><span lang="en">Sample evidence · atlas-prod</span><span lang="zh-CN">模拟证据 · atlas-prod</span></small><strong><span lang="en">Production alert review</span><span lang="zh-CN">生产告警排查</span></strong></div><span class="scenario-status"><i></i><span lang="en">Review complete · no changes</span><span lang="zh-CN">排查完成 · 未做变更</span></span></header>
+          <div class="scenario-layout"><div class="scenario-list">
+            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Connection</span><span lang="zh-CN">连接</span></strong><small><span lang="en">Reachable just now</span><span lang="zh-CN">刚刚验证可达</span> · 82 ms</small></span><b class="scene-state good">OK</b></div>
+            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Service</span><span lang="zh-CN">服务</span></strong><small>nginx · <span lang="en">active</span><span lang="zh-CN">运行中</span></small></span><b class="scene-state good">OK</b></div>
+            <div class="scenario-row"><i class="scene-dot warn" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Logs</span><span lang="zh-CN">日志</span></strong><small>upstream timed out · 14 / 10 min</small></span><b class="scene-state warn"><span lang="en">Review</span><span lang="zh-CN">需关注</span></b></div>
+            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong><span lang="en">Resources</span><span lang="zh-CN">资源</span></strong><small>load 0.82 · disk 68%</small></span><b class="scene-state good">OK</b></div>
+          </div><aside class="scene-card"><small><span lang="en">Evidence summary</span><span lang="zh-CN">证据结论</span></small><h3><span lang="en">Errors point to the upstream service.</span><span lang="zh-CN">异常集中在上游服务。</span></h3><p><span lang="en">The host and nginx remain available. Four read-only checks completed.</span><span lang="zh-CN">主机与 nginx 仍可用，4 项只读检查已经完成。</span></p><span class="scenario-guard"><span lang="en">You decide whether anything is restarted or changed.</span><span lang="zh-CN">是否重启或修改配置，仍由你决定。</span></span></aside></div>
+        </article>
+        <article class="scenario-panel" id="scenarioResearch" data-scenario-panel="research-compute" aria-labelledby="scenarioResearchButton" hidden>
+          <header class="scenario-bar"><div class="scenario-heading"><small><span lang="en">Sample evidence · gpu-lab-01</span><span lang="zh-CN">模拟证据 · gpu-lab-01</span></small><strong><span lang="en">Training run review</span><span lang="zh-CN">训练任务检查</span></strong></div><span class="scenario-status"><i></i><span lang="en">Run reviewed · job untouched</span><span lang="zh-CN">检查完成 · 任务未改动</span></span></header>
+          <div class="scenario-layout"><div class="scenario-list">
+            <div class="scenario-row selected"><i class="scene-dot warn" aria-hidden="true"></i><span class="scene-copy"><strong>train.log</strong><small>CUDA out of memory · 02:17:43</small></span><b class="scene-state warn"><span lang="en">Error</span><span lang="zh-CN">错误</span></b></div>
+            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong>config.yaml</strong><small>batch_size 64 · fp16 true</small></span><b class="scene-state">4 KB</b></div>
+            <div class="scenario-row"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong>ckpt-18000.pt</strong><small><span lang="en">Latest checkpoint</span><span lang="zh-CN">最近检查点</span> · 02:14</small></span><b class="scene-state good"><span lang="en">Ready</span><span lang="zh-CN">可用</span></b></div>
+          </div><aside class="scene-card"><small><span lang="en">Agent analysis</span><span lang="zh-CN">Agent 分析</span></small><h3><span lang="en">GPU memory was near its limit.</span><span lang="zh-CN">失败前显存已接近上限。</span></h3><div class="scene-metrics"><span>79.1 / 80 GB<br><span lang="en">GPU memory</span><span lang="zh-CN">GPU 显存</span></span><span>step 18,420<br><span lang="en">last step</span><span lang="zh-CN">最后步数</span></span></div><p><span lang="en">The latest checkpoint is still present.</span><span lang="zh-CN">最近检查点仍然保留。</span></p><span class="scenario-guard"><span lang="en">Logs stayed remote. Credentials stayed local.</span><span lang="zh-CN">日志留在远端，凭据留在本机。</span></span></aside></div>
+        </article>
+        <article class="scenario-panel" id="scenarioScope" data-scenario-panel="multi-environment" aria-labelledby="scenarioScopeButton" hidden>
+          <header class="scenario-bar"><div class="scenario-heading"><small><span lang="en">Sample scope · Acme / Checkout</span><span lang="zh-CN">模拟范围 · Acme / Checkout</span></small><strong><span lang="en">Staging release review</span><span lang="zh-CN">预发布环境检查</span></strong></div><span class="scenario-status"><i></i><span lang="en">Scope selected · 2 hosts</span><span lang="zh-CN">范围已选定 · 2 台主机</span></span></header>
+          <div class="scenario-layout"><div class="scenario-list">
+            <div class="scenario-row selected"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong>api-stg-01</strong><small>client-a · checkout · staging</small></span><b class="scene-state good"><span lang="en">Reachable</span><span lang="zh-CN">可达</span></b></div>
+            <div class="scenario-row selected"><i class="scene-dot good" aria-hidden="true"></i><span class="scene-copy"><strong>worker-stg-01</strong><small>client-a · checkout · staging</small></span><b class="scene-state good">18 min</b></div>
+            <div class="scenario-row excluded"><i class="scene-dot" aria-hidden="true"></i><span class="scene-copy"><strong>atlas-prod</strong><small>internal · api · prod</small></span><b class="scene-state"><span lang="en">Excluded</span><span lang="zh-CN">已排除</span></b></div>
+          </div><aside class="scene-card"><small><span lang="en">Task boundary</span><span lang="zh-CN">任务边界</span></small><h3><span lang="en">This view contains two staging hosts.</span><span lang="zh-CN">当前视图只聚焦 2 台预发布主机。</span></h3><div class="scene-metrics"><span>client-a<br><span lang="en">client</span><span lang="zh-CN">客户</span></span><span>staging<br><span lang="en">environment</span><span lang="zh-CN">环境</span></span></div><p><span lang="en">Production hosts stay outside this task view.</span><span lang="zh-CN">生产主机不在本次任务视图中。</span></p><span class="scenario-guard"><span lang="en">Tags organize scope; SSH accounts still govern access.</span><span lang="zh-CN">标签用于组织范围，实际权限仍由 SSH 账户决定。</span></span></aside></div>
+        </article>
+      </div>
+    </div>
   </section>
 
   <section class="demo-section" id="demo" aria-labelledby="demoTitle">
@@ -698,6 +805,7 @@
     var demoShell = document.getElementById("demoShell");
     var demoTagPicker = document.getElementById("demoTagPicker");
     var demoToast = document.getElementById("demoToast");
+    var scenarioSwitcher = document.getElementById("scenarioSwitcher");
     var toastTimer = 0;
     var storedLanguage = null;
     try { storedLanguage = localStorage.getItem("ssm-lang"); } catch (error) {}
@@ -757,6 +865,10 @@
 
     function byId(id) { return document.getElementById(id); }
     function escapeHtml(value) { return String(value).replace(/[&<>"']/g, function (character) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]; }); }
+    function setScenario(scenario) {
+      document.querySelectorAll("[data-scenario-target]").forEach(function (button) { var active = button.dataset.scenarioTarget === scenario; button.classList.toggle("active", active); button.setAttribute("aria-pressed", active ? "true" : "false"); });
+      document.querySelectorAll("[data-scenario-panel]").forEach(function (panel) { panel.hidden = panel.dataset.scenarioPanel !== scenario; });
+    }
     function uniqueTags() { return tags.slice().sort(function (a, b) { return a.localeCompare(b); }); }
     function tagHue(tag) { var index = uniqueTags().indexOf(tag); return " tg-" + (index < 0 ? 0 : index % 6); }
     function currentHost() { return hosts.find(function (host) { return host.id === state.hostId; }) || hosts[0]; }
@@ -914,6 +1026,7 @@
     }
 
     langButton.addEventListener("click", function () { useChinese = !useChinese; try { localStorage.setItem("ssm-lang", useChinese ? "zh" : "en"); } catch (error) {} applyLanguage(); });
+    scenarioSwitcher.addEventListener("click", function (event) { var button = event.target.closest("[data-scenario-target]"); if (button) setScenario(button.dataset.scenarioTarget); });
     document.querySelectorAll(".open-agent-dialog").forEach(function (button) { button.addEventListener("click", function () { agentDialog.showModal(); }); });
     byId("closeAgentDialog").addEventListener("click", function () { agentDialog.close(); });
     copyButton.addEventListener("click", function () { var text = promptText(); if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(copied, function () { fallbackCopy(text); }); else fallbackCopy(text); });
@@ -956,6 +1069,6 @@
     document.addEventListener("pointerdown", function (event) { if (!demoTagPicker.hidden && !demoTagPicker.contains(event.target) && !event.target.closest("[data-edit-host-tags], #bulkEditTags")) closeTagPicker(); }, true);
     document.addEventListener("keydown", function (event) { if (event.key === "Escape" && !demoTagPicker.hidden) closeTagPicker(); });
 
-    applyLanguage(); resetData();
+    applyLanguage(); setScenario("direct-connect"); resetData();
   })();
 </script>
