@@ -3,7 +3,11 @@ name: pages
 on:
   push:
     branches: [main]
-    paths: ["website/**", ".github/workflows/pages.yml"]
+    paths:
+      - "website/**"
+      - "ssh-server-manager/docs/**"
+      - "ssh-server-manager/references/**"
+      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -23,22 +27,14 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      # website/index.html is authored headless (no doctype/html/head/body)
-      # so the same file can be published as a Claude artifact; wrap it into
-      # a complete document for Pages. Everything up to </style> is head
-      # content, the rest is body.
-      - name: Assemble full HTML document
-        run: |
-          mkdir -p _site
-          awk 'BEGIN{h=1} h{print > "head.part"} !h{print > "body.part"} /<\/style>/{h=0}' website/index.html
-          {
-            printf '<!doctype html>\n<html lang="en">\n<head>\n'
-            cat head.part
-            printf '</head>\n<body>\n'
-            cat body.part
-            printf '</body>\n</html>\n'
-          } > _site/index.html
-          cp -R website/assets _site/assets
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install markdown
+      # Wraps the headless website/index.html into a full document and renders
+      # ssh-server-manager/{docs,references}/*.md into /docs/.
+      - name: Build site
+        run: python website/build.py --out _site
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

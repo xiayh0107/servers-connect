@@ -33,7 +33,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://xiayh0107.github.io/servers-connect/"
 Repository = "https://github.com/xiayh0107/servers-connect"
-Documentation = "https://github.com/xiayh0107/servers-connect/tree/main/ssh-server-manager/docs"
+Documentation = "https://xiayh0107.github.io/servers-connect/docs/"
 Changelog = "https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/CHANGELOG.md"
 
 [build-system]
