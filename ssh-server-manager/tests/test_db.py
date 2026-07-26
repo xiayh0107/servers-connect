@@ -167,7 +167,7 @@ def test_schema_one_database_is_upgraded_with_server_tags(tmp_path):
         columns = {row[1] for row in connection.execute("PRAGMA table_info(servers)")}
         version = connection.execute("PRAGMA user_version").fetchone()[0]
     assert "tags" in columns
-    assert version == 4
+    assert version == 5
 
 
 def test_host_skills_are_many_to_many_and_mutations_are_atomic(tmp_path):
@@ -293,7 +293,7 @@ def test_schema_two_database_is_upgraded_with_skill_tables(tmp_path):
         skill_columns = {row[1] for row in connection.execute("PRAGMA table_info(skills)")}
     assert {"skills", "server_skills"} <= tables
     assert "name_key" in skill_columns
-    assert version == 4
+    assert version == 5
 
 
 def test_schema_three_database_backfills_unicode_skill_identity(tmp_path):
@@ -336,7 +336,7 @@ def test_schema_three_database_backfills_unicode_skill_identity(tmp_path):
         name_key = connection.execute(
             "SELECT name_key FROM skills WHERE id = 'skill-1'"
         ).fetchone()[0]
-    assert version == 4
+    assert version == 5
     assert name_key == "Ågent:Ops".casefold()
 
 
@@ -370,15 +370,128 @@ def test_schema_three_upgrade_rejects_existing_casefold_ambiguity(tmp_path):
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
 
 
-def test_fresh_database_has_schema_four_skill_identity(tmp_path):
+def test_fresh_database_has_current_schema(tmp_path):
     path = tmp_path / "manager.db"
     Database(path)
 
     with sqlite3.connect(path) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         columns = {row[1] for row in connection.execute("PRAGMA table_info(skills)")}
-    assert version == 4
+    assert version == 5
     assert "name_key" in columns
+
+
+def test_saved_directories_are_scoped_to_one_host(tmp_path):
+    database = Database(tmp_path / "manager.db")
+    database.create_server(alias="web1", hostname="10.0.0.1", username="deploy")
+    database.create_server(alias="web2", hostname="10.0.0.2", username="deploy")
+
+    database.create_server_path("web1", label="app", path="/srv/app", notes="release root")
+    database.create_server_path("web1", label="logs", path="/var/log/app")
+    # The same path on a different host is a different saved directory.
+    database.create_server_path("web2", label="app", path="/srv/app")
+
+    assert [item["label"] for item in database.list_server_paths("web1")] == ["app", "logs"]
+    assert [item["path"] for item in database.list_server_paths("web2")] == ["/srv/app"]
+    assert database.get_server_path("web1", "app")["notes"] == "release root"
+    # Labels resolve case-insensitively, like skill names.
+    assert database.get_server_path("web1", "APP")["path"] == "/srv/app"
+
+    with pytest.raises(ConflictError):
+        database.create_server_path("web1", label="APP", path="/elsewhere")
+    with pytest.raises(ConflictError):
+        database.create_server_path("web1", label="another", path="/srv/app")
+    with pytest.raises(NotFoundError):
+        database.get_server_path("web2", "logs")
+
+    database.delete_server("web1")
+    assert [item["path"] for item in database.list_server_paths("web2")] == ["/srv/app"]
+    with pytest.raises(NotFoundError):
+        database.list_server_paths("web1")
+
+
+def test_saved_directories_sort_by_recent_use(tmp_path):
+    database = Database(tmp_path / "manager.db")
+    database.create_server(alias="web1", hostname="10.0.0.1", username="deploy")
+    database.create_server_path("web1", label="alpha", path="/a")
+    database.create_server_path("web1", label="beta", path="/b")
+    database.create_server_path("web1", label="gamma", path="/c")
+
+    # Never-used directories stay alphabetical rather than jumping to the front.
+    assert [item["label"] for item in database.list_server_paths("web1")] == [
+        "alpha",
+        "beta",
+        "gamma",
+    ]
+
+    database.touch_server_path("web1", "gamma")
+    listed = database.list_server_paths("web1")
+    assert [item["label"] for item in listed] == ["gamma", "alpha", "beta"]
+    assert listed[0]["last_used_at"] is not None
+
+
+def test_saved_directory_replacement_is_atomic_and_keeps_usage(tmp_path):
+    database = Database(tmp_path / "manager.db")
+    database.create_server(alias="web1", hostname="10.0.0.1", username="deploy")
+    database.create_server_path("web1", label="app", path="/srv/app")
+    database.touch_server_path("web1", "app")
+    used_at = database.get_server_path("web1", "app")["last_used_at"]
+
+    database.set_server_paths(
+        "web1",
+        [{"label": "application", "path": "/srv/app"}, {"label": "logs", "path": "/var/log"}],
+    )
+    survivor = database.get_server_path("web1", "application")
+    # Renaming a directory must not erase the fact that it is the one in use.
+    assert survivor["last_used_at"] == used_at
+    assert {item["label"] for item in database.list_server_paths("web1")} == {
+        "application",
+        "logs",
+    }
+
+    with pytest.raises(ConflictError):
+        database.set_server_paths(
+            "web1", [{"label": "a", "path": "/x"}, {"label": "A", "path": "/y"}]
+        )
+    with pytest.raises(ValidationError):
+        database.set_server_paths("web1", [{"label": "ok", "path": ""}])
+    # A rejected replacement leaves the previous set untouched.
+    assert {item["label"] for item in database.list_server_paths("web1")} == {
+        "application",
+        "logs",
+    }
+
+
+def test_saved_directory_resolution_groups_hosts_that_share_a_layout(tmp_path):
+    database = Database(tmp_path / "manager.db")
+    for alias in ("web1", "web2", "db1"):
+        database.create_server(alias=alias, hostname=f"{alias}.example.com", username="deploy")
+    database.create_server_path("web1", label="app", path="/srv/app")
+    database.create_server_path("web2", label="app", path="/srv/app")
+    database.create_server_path("db1", label="dumps", path="/var/backups")
+
+    resolution = database.resolve_server_paths(["web1", "web2", "db1", "web1"])
+
+    assert resolution["ok"] is True
+    # Duplicate identifiers collapse, order preserved.
+    assert [host["alias"] for host in resolution["hosts"]] == ["web1", "web2", "db1"]
+    shared = {item["path"]: item["applies_to"] for item in resolution["paths"]}
+    assert shared == {"/srv/app": ["web1", "web2"], "/var/backups": ["db1"]}
+
+
+def test_schema_four_database_is_upgraded_with_saved_directories(tmp_path):
+    path = tmp_path / "manager.db"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE servers (id TEXT PRIMARY KEY)")
+        connection.execute("PRAGMA user_version = 4")
+
+    Database(path)
+
+    with sqlite3.connect(path) as connection:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(server_paths)")}
+    assert version == 5
+    assert {"server_id", "label", "label_key", "path", "notes", "last_used_at"} <= columns
 
 
 def test_private_dir_rejects_symlink(tmp_path):

@@ -15,6 +15,8 @@ MAX_SKILL_DESCRIPTION_LENGTH = 4096
 MAX_SERVER_TAGS = 20
 MAX_SERVER_TAG_LENGTH = 40
 MAX_SERVER_NOTE_LENGTH = 10_000
+MAX_PATH_LABEL_LENGTH = 60
+MAX_PATH_NOTE_LENGTH = 500
 NOTE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 CASE_INSENSITIVE_SKILL_FILENAMES = os.name == "nt"
 
@@ -147,6 +149,41 @@ def validate_remote_path(value: str | None) -> str:
     if CONTROL_RE.search(value):
         raise ValidationError("remote path must not contain control characters")
     return value
+
+
+def validate_saved_remote_path(value: str | None) -> str:
+    """Validate a remote path that is being stored as a saved working directory.
+
+    Unlike validate_remote_path, empty input is an error rather than a shorthand
+    for the home directory: a saved directory has to name something explicitly,
+    and "~" is spelled out when that is what the user means.
+    """
+    if value is None or not str(value).strip():
+        raise ValidationError("saved directory path must not be empty")
+    return validate_remote_path(str(value))
+
+
+def validate_path_label(value: str) -> str:
+    value = str(value).strip()
+    if not value or len(value) > MAX_PATH_LABEL_LENGTH or not value.isprintable():
+        raise ValidationError(
+            f"directory label must be 1-{MAX_PATH_LABEL_LENGTH} printable characters"
+        )
+    return value
+
+
+def path_label_key(value: str) -> str:
+    """Return the persisted, Unicode-aware key used for saved-directory identity."""
+    return validate_path_label(value).casefold()
+
+
+def validate_path_note(value: str | None) -> str:
+    note = "" if value is None else str(value).strip()
+    if len(note) > MAX_PATH_NOTE_LENGTH:
+        raise ValidationError(f"directory note must be at most {MAX_PATH_NOTE_LENGTH} characters")
+    if NOTE_CONTROL_RE.search(note):
+        raise ValidationError("directory note must not contain control characters")
+    return note
 
 
 def validate_server_tags(values: Iterable[str] | None) -> list[str]:

@@ -25,12 +25,16 @@ from .validation import (
     validate_skill_path,
     validate_skill_name,
     validate_server_tags,
+    validate_path_label,
+    validate_path_note,
+    validate_saved_remote_path,
+    path_label_key,
     validate_server_note,
     validate_username,
 )
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 SERVER_CONTEXTS_SETTING = "server_contexts"
 
 
@@ -153,10 +157,24 @@ class Database:
                     PRIMARY KEY (server_id, skill_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS server_paths (
+                    id TEXT PRIMARY KEY,
+                    server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                    label TEXT NOT NULL,
+                    label_key TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    notes TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    last_used_at TEXT
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_servers_credential ON servers(credential_id);
                 CREATE INDEX IF NOT EXISTS idx_server_skills_skill ON server_skills(skill_id);
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_name_key ON skills(name_key);
-                PRAGMA user_version = 4;
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_server_paths_label ON server_paths(server_id, label_key);
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_server_paths_path ON server_paths(server_id, path);
+                PRAGMA user_version = 5;
                 """
                 )
             if version == 1:
@@ -188,6 +206,7 @@ class Database:
                     PRAGMA user_version = 4;
                     """
                 )
+                version = 4
             if version == 3:
                 rows = connection.execute("SELECT id, name FROM skills").fetchall()
                 names_by_key: dict[str, str] = {}
@@ -221,6 +240,27 @@ class Database:
                     "CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_name_key ON skills(name_key)"
                 )
                 connection.execute("PRAGMA user_version = 4")
+                version = 4
+            if version == 4:
+                connection.executescript(
+                    """
+                    CREATE TABLE IF NOT EXISTS server_paths (
+                        id TEXT PRIMARY KEY,
+                        server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                        label TEXT NOT NULL,
+                        label_key TEXT NOT NULL,
+                        path TEXT NOT NULL,
+                        notes TEXT NOT NULL DEFAULT '',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        last_used_at TEXT
+                    );
+
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_server_paths_label ON server_paths(server_id, label_key);
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_server_paths_path ON server_paths(server_id, path);
+                    PRAGMA user_version = 5;
+                    """
+                )
         if is_new and os.name != "nt":
             self.path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
@@ -781,6 +821,231 @@ class Database:
                 for row in sorted(skill_rows.values(), key=lambda item: item["name"].casefold())
             ]
         return {"ok": True, "hosts": hosts, "skills": skills}
+
+    # --- saved working directories -------------------------------------------------
+    #
+    # Unlike skills, a saved directory belongs to exactly one host: "/srv/app" is a
+    # statement about that machine's filesystem, so the relation is one-to-many and
+    # deleting the host takes its directories with it.
+
+    @staticmethod
+    def _find_server_path_row(
+        connection: sqlite3.Connection, server_id: str, identifier: str
+    ) -> sqlite3.Row:
+        row = connection.execute(
+            "SELECT * FROM server_paths WHERE server_id = ? AND id = ?",
+            (server_id, identifier),
+        ).fetchone()
+        if not row:
+            try:
+                key = path_label_key(identifier)
+            except ValidationError:
+                key = ""
+            row = connection.execute(
+                "SELECT * FROM server_paths WHERE server_id = ? AND label_key = ?",
+                (server_id, key),
+            ).fetchone()
+        if not row:
+            raise NotFoundError(f"saved directory not found: {identifier}")
+        return row
+
+    @staticmethod
+    def _server_path_dict(row: sqlite3.Row, alias: str) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "server": alias,
+            "label": row["label"],
+            "path": row["path"],
+            "notes": row["notes"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "last_used_at": row["last_used_at"],
+        }
+
+    # Most recently used first, then alphabetical. A directory that has never been
+    # used sorts after every used one rather than jumping to the top.
+    _PATH_ORDER = "ORDER BY last_used_at IS NULL, last_used_at DESC, label COLLATE NOCASE"
+
+    def list_server_paths(self, server_identifier: str) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            server = self._find_server_row(connection, str(server_identifier))
+            rows = connection.execute(
+                f"SELECT * FROM server_paths WHERE server_id = ? {self._PATH_ORDER}",
+                (server["id"],),
+            ).fetchall()
+            return [self._server_path_dict(row, server["alias"]) for row in rows]
+
+    def get_server_path(self, server_identifier: str, identifier: str) -> dict[str, Any]:
+        with self.connect() as connection:
+            server = self._find_server_row(connection, str(server_identifier))
+            row = self._find_server_path_row(connection, server["id"], str(identifier))
+            return self._server_path_dict(row, server["alias"])
+
+    def create_server_path(
+        self,
+        server_identifier: str,
+        *,
+        label: str,
+        path: str,
+        notes: str | None = None,
+        path_id: str | None = None,
+    ) -> dict[str, Any]:
+        label = validate_path_label(label)
+        label_key = path_label_key(label)
+        path = validate_saved_remote_path(path)
+        notes = validate_path_note(notes)
+        identifier = path_id or str(uuid.uuid4())
+        now = utc_now()
+        try:
+            with self.transaction() as connection:
+                server = self._find_server_row(connection, str(server_identifier))
+                connection.execute(
+                    """
+                    INSERT INTO server_paths
+                    (id, server_id, label, label_key, path, notes, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (identifier, server["id"], label, label_key, path, notes, now, now),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ConflictError(
+                f"this host already has a saved directory with that label or path: {label}"
+            ) from exc
+        return self.get_server_path(server_identifier, identifier)
+
+    def update_server_path(
+        self, server_identifier: str, identifier: str, **changes: Any
+    ) -> dict[str, Any]:
+        current = self.get_server_path(server_identifier, identifier)
+        label = validate_path_label(changes.get("label", current["label"]))
+        label_key = path_label_key(label)
+        path = validate_saved_remote_path(changes.get("path", current["path"]))
+        notes = validate_path_note(changes.get("notes", current["notes"]))
+        try:
+            with self.transaction() as connection:
+                connection.execute(
+                    """
+                    UPDATE server_paths
+                    SET label = ?, label_key = ?, path = ?, notes = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (label, label_key, path, notes, utc_now(), current["id"]),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ConflictError(
+                f"this host already has a saved directory with that label or path: {label}"
+            ) from exc
+        return self.get_server_path(server_identifier, current["id"])
+
+    def delete_server_path(self, server_identifier: str, identifier: str) -> dict[str, Any]:
+        current = self.get_server_path(server_identifier, identifier)
+        with self.transaction() as connection:
+            connection.execute("DELETE FROM server_paths WHERE id = ?", (current["id"],))
+        return current
+
+    def touch_server_path(self, server_identifier: str, identifier: str) -> dict[str, Any]:
+        current = self.get_server_path(server_identifier, identifier)
+        with self.transaction() as connection:
+            connection.execute(
+                "UPDATE server_paths SET last_used_at = ? WHERE id = ?",
+                (utc_now(), current["id"]),
+            )
+        return self.get_server_path(server_identifier, current["id"])
+
+    def set_server_paths(
+        self, server_identifier: str, entries: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Replace one host's saved directories in a single transaction."""
+        normalized: list[tuple[str, str, str, str]] = []
+        seen_labels: set[str] = set()
+        seen_paths: set[str] = set()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValidationError("each saved directory must be an object")
+            label = validate_path_label(entry.get("label", ""))
+            key = path_label_key(label)
+            path = validate_saved_remote_path(entry.get("path"))
+            notes = validate_path_note(entry.get("notes"))
+            if key in seen_labels:
+                raise ConflictError(f"duplicate saved directory label: {label}")
+            if path in seen_paths:
+                raise ConflictError(f"duplicate saved directory path: {path}")
+            seen_labels.add(key)
+            seen_paths.add(path)
+            normalized.append((label, key, path, notes))
+        now = utc_now()
+        with self.transaction() as connection:
+            server = self._find_server_row(connection, str(server_identifier))
+            # Carry last_used_at across a replace so reordering the list in the UI
+            # does not erase which directories the user actually works in.
+            previous = {
+                row["path"]: row["last_used_at"]
+                for row in connection.execute(
+                    "SELECT path, last_used_at FROM server_paths WHERE server_id = ?",
+                    (server["id"],),
+                ).fetchall()
+            }
+            connection.execute("DELETE FROM server_paths WHERE server_id = ?", (server["id"],))
+            connection.executemany(
+                """
+                INSERT INTO server_paths
+                (id, server_id, label, label_key, path, notes, created_at, updated_at, last_used_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        str(uuid.uuid4()),
+                        server["id"],
+                        label,
+                        key,
+                        path,
+                        notes,
+                        now,
+                        now,
+                        previous.get(path),
+                    )
+                    for label, key, path, notes in normalized
+                ],
+            )
+        return self.list_server_paths(server_identifier)
+
+    def resolve_server_paths(self, server_identifiers: list[str]) -> dict[str, Any]:
+        """Resolve saved working directories for one or more hosts, read-only.
+
+        The deduplicated view collapses identical paths across hosts so an agent can
+        see that several machines share a layout. This never touches the network:
+        it reports what the user saved, not what currently exists on disk.
+        """
+        with self.connect() as connection:
+            servers = self._resolve_server_rows(connection, server_identifiers)
+            hosts: list[dict[str, Any]] = []
+            applies_to: dict[str, list[str]] = {}
+            labels: dict[str, str] = {}
+            for server in servers:
+                rows = connection.execute(
+                    f"SELECT * FROM server_paths WHERE server_id = ? {self._PATH_ORDER}",
+                    (server["id"],),
+                ).fetchall()
+                summaries = []
+                for row in rows:
+                    applies_to.setdefault(row["path"], []).append(server["alias"])
+                    labels.setdefault(row["path"], row["label"])
+                    summaries.append(
+                        {
+                            "id": row["id"],
+                            "label": row["label"],
+                            "path": row["path"],
+                            "notes": row["notes"],
+                            "last_used_at": row["last_used_at"],
+                        }
+                    )
+                hosts.append({"id": server["id"], "alias": server["alias"], "paths": summaries})
+
+            paths = [
+                {"path": path, "label": labels[path], "applies_to": aliases}
+                for path, aliases in sorted(applies_to.items(), key=lambda item: item[0])
+            ]
+        return {"ok": True, "hosts": hosts, "paths": paths}
 
     def list_servers(self) -> list[dict[str, Any]]:
         with self.connect() as connection:
