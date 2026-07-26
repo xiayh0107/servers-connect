@@ -9,6 +9,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import sysconfig
 import time
 from pathlib import Path
 from typing import Any, Sequence
@@ -229,13 +230,37 @@ class SSHRunner:
         add(server)
         return descriptors
 
+    @staticmethod
+    def _windows_askpass_candidates() -> list[Path]:
+        """Every place pip may have put the askpass console script on Windows.
+
+        A virtualenv puts it beside python.exe, but a base or --user install
+        puts it in the sysconfig scripts directory instead, which is not the
+        interpreter's own directory. Only checking beside python.exe made
+        password authentication fail on those installs with a misleading
+        "run bootstrap.cmd".
+        """
+        name = "ssh-server-manager-askpass.exe"
+        candidates = [Path(sys.executable).parent / name]
+        for scheme in ("nt", "nt_user"):
+            try:
+                scripts = sysconfig.get_path("scripts", scheme=scheme)
+            except (KeyError, ValueError):
+                continue
+            if scripts:
+                candidates.append(Path(scripts) / name)
+        found = shutil.which(name)
+        if found:
+            candidates.append(Path(found))
+        return candidates
+
     def _askpass_launcher(self) -> Path:
         directory = runtime_dir()
         if os.name == "nt":
-            launcher = Path(sys.executable).parent / "ssh-server-manager-askpass.exe"
-            if not launcher.exists():
-                raise SSHError("Windows AskPass launcher is missing; run scripts\\bootstrap.cmd")
-            return launcher
+            for candidate in self._windows_askpass_candidates():
+                if candidate.exists():
+                    return candidate
+            raise SSHError("Windows AskPass launcher is missing; run scripts\\bootstrap.cmd")
         else:
             # Invoke the packaged module so the launcher works both from a
             # source checkout and from a pipx/uv tool install. The package

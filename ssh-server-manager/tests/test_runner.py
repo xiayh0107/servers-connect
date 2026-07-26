@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
+from pathlib import Path
 
 from ssh_server_manager.db import Database
 import pytest
@@ -427,8 +429,11 @@ def test_download_keeps_host_key_checks_and_quotes_both_paths(tmp_path, monkeypa
         "box", '/srv/app/a "quoted" name.yml', destination
     )
 
+    # Build the expected local half through the same quoting the runner uses:
+    # on Windows a local path carries backslashes, which sftp requires escaped.
+    local = SSHRunner._sftp_path(str(destination))
     assert observed["input"] == (
-        f'@get -p "/srv/app/a \\"quoted\\" name.yml" "{destination}"\n@quit\n'
+        f'@get -p "/srv/app/a \\"quoted\\" name.yml" {local}\n@quit\n'
     )
     assert result["direction"] == "download"
     assert result["bytes"] == len("port: 8080\n")
@@ -500,7 +505,9 @@ def test_upload_reports_size_and_streams_without_quiet(tmp_path, monkeypatch):
     )
 
     assert "-q" not in observed["command"]
-    assert observed["input"] == f'@put -p "{source}" "/srv/app/payload.txt"\n@quit\n'
+    assert observed["input"] == (
+        f'@put -p {SSHRunner._sftp_path(str(source))} "/srv/app/payload.txt"\n@quit\n'
+    )
     assert result == {
         "alias": "box",
         "direction": "upload",
@@ -530,3 +537,18 @@ def test_transfer_validates_before_spawning_a_process(tmp_path, monkeypatch):
     with pytest.raises(ValidationError):
         runner.upload("box", tmp_path / "does-not-exist", "/srv/x")
     assert called is False
+
+
+def test_windows_askpass_is_looked_up_where_pip_actually_installs_it():
+    import sysconfig
+
+    candidates = [str(path) for path in SSHRunner._windows_askpass_candidates()]
+
+    # A virtualenv puts the console script beside python.exe...
+    assert str(Path(sys.executable).parent / "ssh-server-manager-askpass.exe") in candidates
+    # ...but a base or --user install puts it in the sysconfig scripts directory,
+    # which is a different place. Checking only the first made password auth
+    # fail on those installs with a misleading "run bootstrap.cmd".
+    for scheme in ("nt", "nt_user"):
+        scripts = sysconfig.get_path("scripts", scheme=scheme)
+        assert str(Path(scripts) / "ssh-server-manager-askpass.exe") in candidates

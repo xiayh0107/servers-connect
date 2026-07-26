@@ -183,10 +183,18 @@ def test_mount_carries_vault_credentials_without_leaking_the_secret(tmp_path, mo
     from ssh_server_manager.service import CredentialService
     from ssh_server_manager.vault import MemoryVault
 
+    from ssh_server_manager.ssh_runner import SSHRunner
+
     database = _host(tmp_path, monkeypatch)
     credential = CredentialService(database, MemoryVault()).create_password("prod-pw", "s3cret")
     database.update_server("box", credential_id=credential["id"])
     _pretend_backend(monkeypatch)
+    # Whether the console script is installed is a separate question, covered by
+    # test_windows_askpass_is_looked_up_where_pip_actually_installs_it. What
+    # matters here is which descriptors the mount carries.
+    monkeypatch.setattr(
+        SSHRunner, "_askpass_launcher", lambda self: tmp_path / "askpass"
+    )
     observed = {}
     _record_run(monkeypatch, observed)
 
