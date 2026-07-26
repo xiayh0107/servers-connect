@@ -73,6 +73,7 @@ for label, names, lraw, lgz in (
     ("skills", ["skills.js", "skills.css"], 48_000, 11_500),
     ("diagnostics", ["diagnostics.js", "diagnostics.css"], 20_000, 8_000),
     ("notes", ["notes.js", "notes.css"], 24_000, 9_000),
+    ("workspace", ["workspace.js", "workspace.css"], 20_000, 7_000),
     ("themes", ["themes.css"], 8_000, 1_800),
 ):
     r, g = group(names)

@@ -17,6 +17,8 @@ DIAGNOSTICS_JAVASCRIPT = (UI_DIR / "diagnostics.js").read_text(encoding="utf-8")
 DIAGNOSTICS_STYLES = (UI_DIR / "diagnostics.css").read_text(encoding="utf-8")
 NOTES_JAVASCRIPT = (UI_DIR / "notes.js").read_text(encoding="utf-8")
 NOTES_STYLES = (UI_DIR / "notes.css").read_text(encoding="utf-8")
+WORKSPACE_JAVASCRIPT = (UI_DIR / "workspace.js").read_text(encoding="utf-8")
+WORKSPACE_STYLES = (UI_DIR / "workspace.css").read_text(encoding="utf-8")
 THEME_STYLES = (UI_DIR / "themes.css").read_text(encoding="utf-8")
 ACCENTS = ("teal", "emerald", "amber", "rose", "violet", "graphite")
 
@@ -174,6 +176,7 @@ def test_workspace_first_shell_has_navigation_and_responsive_states():
         "skillsView",
         "skillManagerMount",
         "hostSkillsMount",
+        "hostPathsMount",
         "credentialsView",
         "credentialSearchInput",
         "credentialKindFilter",
@@ -245,3 +248,40 @@ def test_notes_assets_are_local_and_dependency_free():
     assert "/notes" in NOTES_JAVASCRIPT
     assert "host-note" in NOTES_JAVASCRIPT
     assert "backdrop-filter" not in NOTES_STYLES
+
+
+def test_workspace_assets_are_local_and_dependency_free():
+    assets = [WORKSPACE_JAVASCRIPT.encode(), WORKSPACE_STYLES.encode()]
+
+    assert sum(map(len, assets)) <= 20_000
+    assert sum(len(gzip.compress(value, compresslevel=9, mtime=0)) for value in assets) <= 7_000
+    assert "https://" not in WORKSPACE_JAVASCRIPT + WORKSPACE_STYLES
+    assert "http://" not in WORKSPACE_JAVASCRIPT + WORKSPACE_STYLES
+    assert "@import" not in WORKSPACE_STYLES
+    assert "backdrop-filter" not in WORKSPACE_STYLES
+    # Responsive and motion rules are required of every stylesheet we ship.
+    assert re.search(r"@media\s*\((?:max-width:\s*820px|width\s*<=\s*820px)\)", WORKSPACE_STYLES)
+    assert re.search(r"@media\s*\((?:max-width:\s*640px|width\s*<=\s*640px)\)", WORKSPACE_STYLES)
+    assert re.search(r"@media\s*\(prefers-reduced-motion:\s*reduce\)", WORKSPACE_STYLES)
+
+
+def test_workspace_transfers_are_explicit_and_csrf_protected():
+    # Download must not be a GET: a link cannot carry the CSRF header.
+    assert '"/api/servers/${encodeURIComponent(serverId)}/download"' not in WORKSPACE_JAVASCRIPT
+    assert "/download`, {" in WORKSPACE_JAVASCRIPT
+    assert '"X-CSRF-Token"' in WORKSPACE_JAVASCRIPT
+    assert 'method: "POST"' in WORKSPACE_JAVASCRIPT
+    assert "/upload`" in WORKSPACE_JAVASCRIPT
+    assert "FormData" in WORKSPACE_JAVASCRIPT
+    # Saved directories are reachable and removable from the workspace.
+    assert "/paths" in WORKSPACE_JAVASCRIPT
+    assert "data-ws-go" in WORKSPACE_JAVASCRIPT
+    assert "data-ws-forget" in WORKSPACE_JAVASCRIPT
+    # Directories are opened, not downloaded.
+    assert "open-directory" in WORKSPACE_JAVASCRIPT
+
+
+def test_workspace_module_is_injected_and_mounted():
+    assert 'id=hostPathsMount' in HTML or 'id="hostPathsMount"' in HTML
+    # app.js must not reference the module; it attaches itself.
+    assert "workspace.js" not in JAVASCRIPT

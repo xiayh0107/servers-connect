@@ -223,6 +223,8 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
             '<script defer src="/assets/diagnostics.js"></script>'
             '<link rel="stylesheet" href="/assets/notes.css">'
             '<script defer src="/assets/notes.js"></script>'
+            '<link rel="stylesheet" href="/assets/workspace.css">'
+            '<script defer src="/assets/workspace.js"></script>'
         )
         html = html.replace('<div class=app-shell>', f"{injection}<div class=app-shell>", 1)
         response = HTMLResponse(html, headers={"Cache-Control": "no-store"})
@@ -252,6 +254,8 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
             "diagnostics.css",
             "notes.js",
             "notes.css",
+            "workspace.js",
+            "workspace.css",
         }:
             raise HTTPException(status_code=404)
         return FileResponse(asset_dir() / filename)

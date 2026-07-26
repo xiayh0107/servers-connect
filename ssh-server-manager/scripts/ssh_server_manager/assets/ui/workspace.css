@@ -1,0 +1,116 @@
+/* Saved working directories and transfer controls in the Host Workspace. */
+
+.ws-paths {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.ws-paths-label {
+  color: var(--faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ws-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.ws-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 22rem;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-size: 12px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.ws-chip:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.ws-chip.current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.ws-chip-forget {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  color: var(--faint);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.ws-chip-forget:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.ws-empty {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.ws-download svg,
+.ws-upload svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 820px) {
+  .ws-paths {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .ws-chip {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .ws-paths-label {
+    display: none;
+  }
+
+  .ws-upload span {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-chip {
+    transition: none;
+  }
+}
