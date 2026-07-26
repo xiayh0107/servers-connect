@@ -59,6 +59,29 @@ changing the registry. Same-name candidates at different paths are reported as
 conflicts; the registry's case-insensitive uniqueness constraint prevents an
 ambiguous registration.
 
+## Saved working directories
+
+Each record belongs to exactly one connection profile and holds a label, a
+remote path, and an optional note. The relationship is one-to-many rather than
+the many-to-many shape skills use, because a path describes one machine's
+filesystem: `/srv/app` on `web1` and `/srv/app` on `web2` are two records, and
+deleting a host deletes its own.
+
+Labels are unique per host under Unicode case folding, so `app` and `APP` are
+the same directory, and either spelling resolves it. Paths are unique per host
+as well, which stops the same directory being saved twice under two names.
+Both uniqueness rules are enforced by the database, not by the caller.
+
+Every record carries a last-used timestamp that listing sorts on, so the
+directories someone actually works in rise to the top while untouched ones stay
+alphabetical. Replacing a host's whole set preserves those timestamps by path,
+so renaming a directory in the UI does not reset what is known about it.
+
+Saved directories are local metadata and nothing more. They record where a
+person chose to work; they are not a cache of the remote filesystem, are never
+verified against it, and their presence is not evidence that a path still
+exists.
+
 ## SSH config
 
 Render managed entries first and include the original user config last so explicit managed values win while unrelated defaults remain available. Detect and reject an Include cycle involving the generated file. Write atomically with user-only permissions.

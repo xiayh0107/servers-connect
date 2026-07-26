@@ -13,10 +13,14 @@ ecosystem). Ordered by expected impact.
    in scope for the target hosts. The first version is deliberately local and
    explicit: it discovers installed Skills but never downloads or installs
    them.
-3. **Remote file workspace and transfer helpers** — the local UI now has a
-   read-only SFTP directory browser with Agent-friendly path references.
-   Still open: `serverctl cp ALIAS:remote local` / `serverctl get` plus
-   explicit upload and download actions using the same vault auth.
+3. ~~**Remote file workspace and transfer helpers**~~ **Done (0.7.0):**
+   `serverctl cp` / `get` / `put` move single files over the same SFTP path and
+   vault credentials, the web browser gained explicit download and upload
+   actions, and per-host saved working directories (`serverctl path`) let
+   people and agents recall where the work happens. Also shipped:
+   `serverctl mount` for sshfs, gated behind a `doctor` capability check
+   because the FUSE layer cannot be installed for the user. Still open:
+   recursive transfer of a whole tree.
 4. **Port forwarding profiles** — saved `-L/-R/-D` tunnels per server
    (`serverctl tunnel open db1-local`), with status and teardown.
 5. **Audit log** — local, append-only record of secret reveals and

@@ -1,6 +1,43 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — 2026-07-26
+
+### Added
+- Per-host saved working directories. `serverctl path list|add|edit|remove`
+  records where you actually work on a host, and the Host Workspace shows them
+  as chips ordered by recent use, with one click to save the directory you are
+  in. A directory belongs to one host, and removing the host removes its own.
+- `serverctl path resolve ALIAS [ALIAS ...] --json` for agents: one read, no
+  connection, and identical paths across hosts collapse into a single entry
+  listing every host that has them — so "where does this fleet keep its
+  application" is answered before anything is browsed or transferred.
+- File transfer: `serverctl cp`, `get`, and `put` move one file over the same
+  SFTP path and vault credentials as every other command. Previously the only
+  documented option was raw `scp`/`rsync`, which cannot see the vault and
+  prompts for a password the tool already holds.
+- The web UI browses read-only as before and now offers explicit per-file
+  download and upload-into-this-directory actions.
+- `serverctl mount ALIAS[:REMOTE] [MOUNTPOINT]`, `--list`, and
+  `serverctl unmount` expose a remote directory locally through sshfs, reusing
+  the managed config and credential boundary. `serverctl doctor` gained a
+  `mount` row that names the missing component — macFUSE, libfuse, or
+  SSHFS-Win — because sshfs installed without its FUSE layer looks installed
+  and fails every mount.
+- New `docs/mounting.md`, including when *not* to mount: a mount makes remote
+  latency look local, so repo-wide searches and builds belong in
+  `serverctl exec`.
+
+### Security
+- The web file browser is no longer read-only, and the four documents that
+  promised it were rewritten rather than left to drift. Browsing still returns
+  metadata only. Transfer is a separate, explicit action: CSRF-protected `POST`
+  routes (download included, since a link cannot carry the CSRF header), capped
+  at 100 MB, staged inside the 0700 runtime directory and cleared when the
+  request ends. Credential handling is unchanged — a transfer cannot reach a
+  secret that a listing could not.
+- Transfers validate the remote path before any process spawns, and treat both
+  of sftp's silent failures as errors: a diagnostic on stderr alongside exit
+  code 0, and a download that "succeeds" without writing the destination.
 
 ### Changed
 - UI colour tokens renamed for purpose rather than appearance: the generic
@@ -16,6 +53,9 @@
   `themes.css` changed; for example teal moves from `#0b8277` to `#0f766e`).
   Token names, theme modes, and every selector are unchanged, so this is a
   visual refresh rather than an API change.
+- Database schema 5 adds `server_paths`. Existing databases upgrade in place;
+  all four upgrade paths from schema 1 were verified.
+- `python-multipart` is now a dependency, required for the upload endpoint.
 
 ## 0.6.0 — 2026-07-20
 

@@ -130,7 +130,7 @@ which would be slow and could trigger many authentication prompts.
 The local UI deliberately stays framework-free and self-contained: its first
 view loads one stylesheet and one deferred JavaScript file, uses system fonts,
 and makes no CDN or third-party network requests. Automated tests keep those
-initial assets below 100 KB uncompressed and 25 KB compressed. Tag
+initial assets below 104 KB uncompressed and 26 KB compressed. Tag
 management, connection bulk actions, and the chip picker are separate
 dependency-free assets loaded only when one of those controls is opened (below
 48 KB uncompressed / 11.5 KB compressed together). The Agent Skills library

@@ -109,6 +109,56 @@ silently reuse a previous host's skill context. `list` and `resolve` add
 `status_message` to non-ready entries; `show` returns stored metadata and host
 bindings without calculating readiness.
 
+## Saved working directories
+
+```bash
+./scripts/serverctl path list ALIAS [--json]
+./scripts/serverctl path add ALIAS PATH --label LABEL [--note TEXT] [--json]
+./scripts/serverctl path edit ALIAS LABEL|ID [--label NEW] [--path NEW] [--note TEXT] [--json]
+./scripts/serverctl path remove ALIAS LABEL|ID [--yes] [--json]
+./scripts/serverctl path resolve ALIAS [ALIAS ...] [--json]
+```
+
+Call `path resolve` after choosing the target hosts and before browsing or
+transferring anything. It returns, in one read and without connecting, the
+directories the user has marked as theirs on those hosts — which is the
+difference between working in `/srv/app` and guessing at `/var/www`. The
+`paths` array collapses identical paths across hosts and lists every host that
+has one in `applies_to`, so a fleet-wide action can be scoped in a single step.
+
+Saved directories are one-to-many, unlike skills: each belongs to one host, and
+labels are unique per host case-insensitively. They are metadata the user
+wrote, not a directory listing — never present them as proof a path exists.
+
+## File transfer
+
+```bash
+./scripts/serverctl cp SOURCE DEST [--force] [--timeout SECONDS] [--json]
+./scripts/serverctl get ALIAS:REMOTE [LOCAL] [--force] [--timeout SECONDS] [--json]
+./scripts/serverctl put LOCAL ALIAS:REMOTE [--force] [--timeout SECONDS] [--json]
+```
+
+Use these instead of `scp`, `rsync`, or `sftp`. They run the same SFTP path as
+the rest of the tool, so a vault password or key passphrase is injected without
+prompting; the raw tools cannot see the vault and will prompt or fail.
+
+Exactly one side is `ALIAS:PATH`. One file per invocation. `get` refuses to
+overwrite an existing local file without `--force` — treat that refusal as a
+question for the user, not an obstacle to route around.
+
+## Mounting
+
+```bash
+./scripts/serverctl mount ALIAS[:REMOTE] [MOUNTPOINT] [--read-only] [--json]
+./scripts/serverctl mount --list [--json]
+./scripts/serverctl unmount ALIAS|MOUNTPOINT [--json]
+```
+
+Mounting needs a FUSE stack that may not be installed: macFUSE, libfuse, or
+SSHFS-Win with WinFsp. Check the `mount` row of `serverctl doctor` before
+offering it, and report the missing component instead of retrying. Prefer
+`--read-only` unless the user asked to write.
+
 ## Connections
 
 ```bash

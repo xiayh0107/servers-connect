@@ -188,6 +188,99 @@ different path. `skill list` and both views in `skill resolve` include a
 returns stored registry metadata and host bindings without calculating
 readiness.
 
+## Saved working directories
+
+```
+serverctl path list ALIAS [--json]
+serverctl path add ALIAS PATH --label LABEL [--note TEXT] [--json]
+serverctl path edit ALIAS LABEL|ID [--label NEW] [--path NEW] [--note TEXT] [--json]
+serverctl path remove ALIAS LABEL|ID [--yes] [--json]
+serverctl path resolve ALIAS [ALIAS ...] [--json]
+```
+
+A saved working directory records where you work on a host, so the browser and
+the agent both stop guessing. Unlike skills, the relationship is one-to-many: a
+path is a claim about one machine's filesystem, and removing the host removes
+its saved directories.
+
+- Labels are unique per host, case-insensitively, and resolve the same way
+  skill names do — `serverctl path edit web1 APP` finds the entry labelled
+  `app`. Paths are unique per host too, so the same directory cannot be saved
+  twice under different names.
+- `add` refuses an empty path. Everywhere else an empty remote path means the
+  home directory; a saved directory has to name something, so write `~`
+  explicitly if that is what you mean.
+- `resolve` is the command an agent should reach for before touching files.
+  It answers "where does this fleet keep its application" in one read, with no
+  connection: identical paths across hosts collapse into a single entry whose
+  `applies_to` lists every host that has it.
+- Ordering is by most recent use, then alphabetical. Directories that have
+  never been opened stay in alphabetical order rather than jumping to the top.
+
+Example `resolve` output:
+
+```json
+{
+  "ok": true,
+  "hosts": [
+    {"id": "...", "alias": "web1", "paths": [{"label": "app", "path": "/srv/app", "notes": "", "last_used_at": null}]},
+    {"id": "...", "alias": "web2", "paths": [{"label": "app", "path": "/srv/app", "notes": "", "last_used_at": null}]}
+  ],
+  "paths": [
+    {"path": "/srv/app", "label": "app", "applies_to": ["web1", "web2"]}
+  ]
+}
+```
+
+## File transfer
+
+```
+serverctl cp SOURCE DEST [--force] [--timeout SECONDS] [--json]
+serverctl get ALIAS:REMOTE [LOCAL] [--force] [--timeout SECONDS] [--json]
+serverctl put LOCAL ALIAS:REMOTE [--force] [--timeout SECONDS] [--json]
+```
+
+Transfers go through the same OpenSSH SFTP path as everything else, so vault
+passwords and key passphrases are injected for you. This is the reason to
+prefer them over `scp` and `rsync`, which prompt because they never see the
+vault.
+
+- Exactly one side names a host as `ALIAS:PATH`. Host-to-host copies are
+  refused rather than silently staged through this machine.
+- `ALIAS:PATH` splits on the first colon, so remote filenames may contain
+  colons. A Windows drive letter is never read as an alias: `C:\Users\me` is
+  local even though `C` is a legal alias.
+- A destination that is an existing directory receives the remote filename, the
+  way `cp` behaves. An existing local file is never overwritten without
+  `--force`.
+- Without `--json` the transfer streams sftp's own progress meter. With
+  `--json` it is captured and reported as bytes and duration.
+- One file at a time. Recursive transfers are not supported; use `serverctl
+  mount` or `rsync` over the managed config for a whole tree.
+
+## Mounting
+
+```
+serverctl mount ALIAS[:REMOTE] [MOUNTPOINT] [--read-only] [--json]
+serverctl mount --list [--json]
+serverctl unmount ALIAS|MOUNTPOINT [--json]
+```
+
+Mounting exposes a remote directory to Finder, Explorer, and your editor
+through sshfs, reusing the managed config and the same credential boundary as
+every other connection.
+
+- This is the only feature that needs software we cannot install for you:
+  macFUSE on macOS, libfuse and `fusermount` on Linux, SSHFS-Win plus WinFsp on
+  Windows. Run `serverctl doctor` first — the `mount` row names the missing
+  piece rather than failing at mount time.
+- The default mount point is `~/mnt/ALIAS`. It is created if missing and
+  refused if it already has contents.
+- `--list` reads the operating system's mount table rather than a stored list,
+  so unmounting in Finder or with `umount` can never leave it out of date.
+- `--read-only` is worth using whenever you only need to read; it removes the
+  possibility of an editor writing to production by accident.
+
 ## Connect and execute
 
 ```

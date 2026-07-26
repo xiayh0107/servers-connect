@@ -1,6 +1,6 @@
 ---
 name: ssh-server-manager
-description: Connect to saved SSH servers and run remote commands through the bundled `serverctl` CLI, with passwords and keys held in the OS credential vault. Use whenever the user asks to SSH into, connect to, log in to, or run/check something on a server, names a saved host alias, or reports an SSH failure (中文触发：连接/登录服务器、SSH 主机、远程执行命令) — always reach for this BEFORE raw ssh. Replaces ssh/scp/sshpass for managed hosts: serverctl injects vault credentials itself (never ask the user for a password) and applies its managed config, sidestepping ~/.ssh/config gaps and VPN/proxy fake-IP DNS traps that make bare `ssh <alias>` fail. Also use it to discover, register, attach, or resolve host-bound Agent Skills (主机专属 Skill、给 Host 绑定 Skill), and to add, import, list, edit, test, or diagnose connection profiles, ProxyJump hosts, and the local web management UI.
+description: Connect to saved SSH servers and run remote commands through the bundled `serverctl` CLI, with passwords and keys held in the OS credential vault. Use whenever the user asks to SSH into, connect to, log in to, or run/check something on a server, names a saved host alias, or reports an SSH failure (中文触发：连接/登录服务器、SSH 主机、远程执行命令) — always reach for this BEFORE raw ssh. Replaces ssh/scp/sshpass for managed hosts: serverctl injects vault credentials itself (never ask the user for a password) and applies its managed config, sidestepping ~/.ssh/config gaps and VPN/proxy fake-IP DNS traps that make bare `ssh <alias>` fail. Also use it to transfer files to or from a managed host (上传/下载文件、传文件), to recall a host's saved working directories (常用目录、工作目录), to mount a remote directory locally with sshfs (挂载远程目录), to discover, register, attach, or resolve host-bound Agent Skills (主机专属 Skill、给 Host 绑定 Skill), and to add, import, list, edit, test, or diagnose connection profiles, ProxyJump hosts, and the local web management UI.
 ---
 
 # SSH Server Manager
@@ -78,7 +78,10 @@ selection.
 - To diagnose access, run `serverctl server test <alias> --json` before connecting.
 - To identify a host's operating system — or before suggesting install/admin commands — run `serverctl server diagnose <alias> --json`: its remote check reports `os`, `os_family`, and `package_manager` (Linux distros, macOS, BSDs, and Windows hosts), so use the reported package manager instead of guessing `apt`.
 - To record a user or agent observation, use `serverctl server note <alias> --text "..." --append --json`; notes are local metadata and must never contain secrets.
+- To find where a host keeps its files, run `serverctl path resolve <alias> [<alias> ...] --json` before browsing or transferring. It reports the directories the user saved, in one read and without connecting; identical paths across hosts arrive grouped under `applies_to`.
 - To browse a host's files visually, run `serverctl ui`, choose the host under **Files**, and start from its remote home directory.
+- To copy one file, run `serverctl get <alias>:/remote/path ./local` or `serverctl put ./local <alias>:/remote/path`. Never use `scp`, `rsync`, or `sftp` against a managed host — they cannot see the vault and will prompt or fail.
+- To open a remote directory in a local editor, run `serverctl mount <alias>:/remote/path`. Check the `mount` row of `serverctl doctor` first: mounting needs macFUSE, libfuse, or SSHFS-Win, and if it is missing report that rather than retrying.
 - To open a live shell, hand `serverctl connect <alias>` to the user's own terminal — see **When the user says "connect"** below. Do not run `connect` from an agent tool call.
 - To execute a remote command, run `serverctl exec <alias> -- <command>`; add `--stdin` when piping UTF-8 text.
 - To execute one compound POSIX command string, use `serverctl exec <alias> --shell -- 'command && command'`; this avoids accidentally sending the whole string as an executable name.
@@ -145,6 +148,26 @@ numbered menu of connection modes.
 The manager stores metadata in a platform-local SQLite database and renders a managed OpenSSH config without editing the user's original `~/.ssh/config`. Passwords and key passphrases live in macOS Keychain, Windows Credential Locker, or Linux Secret Service.
 
 Read `references/security.md` before changing credential, reveal, AskPass, browser-session, or host-key behavior. Read `references/data-model.md` before changing schemas or import/render semantics.
+
+## Working with remote files
+
+Three tools, in the order to reach for them:
+
+1. `serverctl path resolve` tells you where the user works on a host. Saved
+   directories are metadata the user wrote — they are not proof a path still
+   exists, so treat a resolve result as a starting point, not a guarantee.
+2. `serverctl get` / `put` / `cp` move one file at a time over the same SFTP
+   path and vault credentials as everything else. Exactly one side is
+   `ALIAS:PATH`; host-to-host copies are refused. `get` will not overwrite an
+   existing local file without `--force`, and that refusal is a question for
+   the user, not something to force past.
+3. `serverctl mount` is for editing a handful of files in a local editor. It
+   depends on a FUSE stack that is often absent, and it makes remote latency
+   look local — anything that walks a large tree (a repo-wide search, a build,
+   an editor indexing a project) belongs in `serverctl exec` instead.
+
+Recursive transfer is deliberately unsupported. If the user needs a whole tree,
+say so and offer `serverctl exec` with a remote archive step, or a mount.
 
 ## Host-bound skills
 

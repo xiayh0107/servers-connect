@@ -75,6 +75,8 @@ SECTIONS: list[tuple[str, list[Page]]] = [
                  "The loopback management UI and its reveal protections."),
             Page(PKG / "docs/ai-agents.md", "ai-agents", "AI agents",
                  "How an agent uses the tool without ever seeing a secret."),
+            Page(PKG / "docs/mounting.md", "mounting", "Mounting",
+                 "Expose a host's directory locally through sshfs."),
         ],
     ),
     (

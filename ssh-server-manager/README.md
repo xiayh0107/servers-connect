@@ -95,16 +95,29 @@ browser with a one-time tokenized URL.
   for pipelines, `--stdin`/`--stdin-binary` for streaming files, `--reuse N`
   for ControlMaster connection sharing (macOS/Linux), and `--json` for
   machine-readable results.
+- **Saved working directories** — `serverctl path add web1 /srv/app --label
+  app` records where you work on a host; `serverctl path resolve` answers
+  "where does this fleet keep its application" in one read, with no connection,
+  grouping hosts that share a layout.
+- **File transfer** — `serverctl get web1:/srv/app/config.yml .` and
+  `serverctl put ./config.yml web1:/srv/app/` move single files over the same
+  SFTP path and vault credentials, so no password prompt appears where `scp`
+  and `rsync` would ask for one they cannot supply.
+- **Local mounting** — `serverctl mount web1:/srv/app` exposes a remote
+  directory to Finder, Explorer, and your editor through sshfs. Needs a FUSE
+  layer that `serverctl doctor` checks for; see
+  [docs/mounting.md](docs/mounting.md).
 - **Local web UI** — manage servers and credentials, test connections,
   create/rename/delete tags and bulk-assign searchable hosts, choose
   system/light/dark themes, import config, browse remote directories read-only
-  over SFTP, copy file references for an agent, and reveal a stored secret
+  over SFTP with explicit download and upload actions, keep a host's saved
+  directories one click away, copy file references for an agent, and reveal a stored secret
   after passkey or master-password re-authentication. Connection status expires
   instead of staying green. Inspect or shut down a background instance with
   `serverctl ui --status` / `--stop` — no pid bookkeeping.
 - **Diagnostics** — `serverctl doctor` checks ssh availability and version,
-  SFTP availability, vault backend safety, database and config paths, and
-  Python dependencies.
+  SFTP availability, mount backend availability, vault backend safety, database
+  and config paths, and Python dependencies.
 
 ## Platform support
 
@@ -170,6 +183,7 @@ uses `install.ps1`. See [docs/ai-agents.md](docs/ai-agents.md).
 | [docs/security.md](docs/security.md) | Threat model and security invariants |
 | [docs/platforms.md](docs/platforms.md) | Platform-specific behavior, headless Linux |
 | [docs/ai-agents.md](docs/ai-agents.md) | Using with Claude Code / Codex / MCP |
+| [docs/mounting.md](docs/mounting.md) | Mounting a host locally with sshfs |
 | [docs/faq.md](docs/faq.md) | Troubleshooting and common questions |
 
 ## License
