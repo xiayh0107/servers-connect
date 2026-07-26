@@ -39,11 +39,26 @@ What it does not defend against:
 | Passkey (WebAuthn) | Your platform authenticator (Touch ID, Windows Hello, security key) |
 | Database, rendered config | User-only file permissions; contain **no** secret values |
 
-The remote Files panel is deliberately read-only. It invokes the OpenSSH SFTP
-subsystem through the same rendered config and AskPass boundary as other
-connections, rejects control characters in paths, quotes paths as literal SFTP
-arguments, and returns directory metadata rather than file contents. Remote
-write operations are not exposed by the web API.
+The remote Files panel browses read-only and transfers only when you ask it to.
+Browsing invokes the OpenSSH SFTP subsystem through the same rendered config and
+AskPass boundary as other connections, rejects control characters in paths,
+quotes paths as literal SFTP arguments, and returns directory metadata rather
+than file contents.
+
+Downloading and uploading are separate, explicit actions with their own rules:
+
+- Both are `POST` routes that require the browser session **and** a matching
+  CSRF token. Download is deliberately not a `GET`: a link cannot carry the CSRF
+  header, and a request that moves bytes off one of your hosts is exactly what a
+  hostile page would try to forge.
+- Both are capped at 100 MB. Larger files belong on `serverctl get` / `put`,
+  which stream straight through sftp without staging.
+- Bytes are staged in a per-transfer temporary directory inside the private
+  runtime directory (`0700`, owner-checked) and removed when the request ends,
+  whether it succeeded or failed.
+- Nothing about credential handling changes. Transfers reuse the same rendered
+  config, host-key policy, ProxyJump chain, and AskPass boundary as every other
+  connection, so a transfer cannot see a secret that a listing could not.
 
 Unsafe keyring backends (null, plaintext file, `keyrings.alt`) are rejected
 as a hard error — the tool refuses to run rather than degrade to plaintext.

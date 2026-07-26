@@ -37,8 +37,14 @@ to get a new one. Sessions last 12 hours.
   over SFTP; use breadcrumbs, show/hide dotfiles, and copy an
   `ALIAS:/absolute/path` reference for an agent. Visible file references can be
   copied in one batch. Modification values use one visual format, and access
-  bits include owner/group/others labels and a full explanatory tooltip. This
-  browser is read-only.
+  bits include owner/group/others labels and a full explanatory tooltip.
+  Browsing is read-only; downloading a file and uploading into the current
+  directory are separate, explicit actions.
+- **Saved directories** — keep a host's working directories a click away
+  instead of retyping them. Save the directory you are in, jump straight back to
+  it later, and the list orders itself by what you actually use. Saved
+  directories are local metadata: they record where you work, never what is
+  there.
 - **Tags** — tag a host by project, environment, role, or any other useful
   dimension, then use the global tag selector to scope both the workspace and
   connection inventory to that subset. The last selection is stored on this
@@ -98,8 +104,13 @@ reveal: they consume vault secrets without returning them.
 
 Remote file browsing follows the same rule. It uses the managed OpenSSH
 configuration, normal host-key verification, ProxyJump chain, and AskPass
-credential flow. The browser returns directory metadata only; it does not read
-file contents or provide remote write actions.
+credential flow. Browsing returns directory metadata only; it never reads file
+contents.
+
+Transfers are the one place the browser touches file contents, and only when you
+click. Download and upload are CSRF-protected `POST` requests capped at 100 MB,
+staged inside the private runtime directory and cleared when the request ends.
+Anything larger belongs on `serverctl get` / `serverctl put`.
 
 The Skills workspace follows the same explicit-action model. The library shows
 registered name, description, local path, readiness, and bound hosts; discovery

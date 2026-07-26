@@ -5,6 +5,7 @@ import socket
 import subprocess
 import sys
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -445,3 +446,152 @@ def test_ui_host_skill_registry_and_atomic_bindings(tmp_path, monkeypatch):
         assert removed.status_code == 200
 
     assert manifest.exists()
+
+
+def _authenticated_client(database, tmp_path, monkeypatch):
+    monkeypatch.setattr("ssh_server_manager.webapp.get_vault", lambda: MemoryVault())
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing-config"))
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    return create_app(database, launch_token="launch", port=8765)
+
+
+def test_ui_manages_saved_working_directories(tmp_path, monkeypatch):
+    database = Database(tmp_path / "manager.db")
+    database.create_server(alias="web1", hostname="a.example", port=22, username="deploy")
+    app = _authenticated_client(database, tmp_path, monkeypatch)
+
+    with TestClient(app, base_url="http://localhost:8765") as client:
+        client.get("/?token=launch")
+        bootstrap = client.get("/api/bootstrap").json()
+        headers = {"X-CSRF-Token": bootstrap["csrf"], "Origin": "http://localhost:8765"}
+
+        # Saved directories are local metadata, so a write still needs the CSRF header.
+        assert client.post("/api/servers/web1/paths", json={"label": "app", "path": "/srv/app"}).status_code == 403
+
+        created = client.post(
+            "/api/servers/web1/paths",
+            json={"label": "app", "path": "/srv/app"},
+            headers=headers,
+        )
+        assert created.status_code == 200
+        assert created.json()["path"] == "/srv/app"
+
+        listed = client.get("/api/servers/web1/paths").json()
+        assert [item["label"] for item in listed] == ["app"]
+
+        replaced = client.put(
+            "/api/servers/web1/paths",
+            json={"paths": [{"label": "logs", "path": "/var/log"}]},
+            headers=headers,
+        )
+        assert [item["label"] for item in replaced.json()] == ["logs"]
+
+        assert client.put(
+            "/api/servers/web1/paths", json={"paths": "nope"}, headers=headers
+        ).status_code == 400
+
+        path_id = replaced.json()[0]["id"]
+        assert client.post(
+            f"/api/servers/web1/paths/{path_id}/used", headers=headers
+        ).json()["last_used_at"] is not None
+        assert client.delete(
+            f"/api/servers/web1/paths/{path_id}", headers=headers
+        ).status_code == 200
+        assert client.get("/api/servers/web1/paths").json() == []
+
+
+def test_ui_transfers_files_and_requires_csrf(tmp_path, monkeypatch):
+    database = Database(tmp_path / "manager.db")
+    database.create_server(alias="web1", hostname="a.example", port=22, username="deploy")
+    app = _authenticated_client(database, tmp_path, monkeypatch)
+
+    def fake_download(self, identifier, remote_path, local_path, **kwargs):
+        Path(local_path).write_bytes(b"port: 8080\n")
+        return {
+            "alias": identifier,
+            "direction": "download",
+            "remote_path": remote_path,
+            "local_path": str(local_path),
+            "bytes": 11,
+            "latency_ms": 4,
+        }
+
+    uploaded = {}
+
+    def fake_upload(self, identifier, local_path, remote_path, **kwargs):
+        uploaded["bytes"] = Path(local_path).read_bytes()
+        uploaded["remote_path"] = remote_path
+        # The staged copy must live under the private runtime dir, never a
+        # world-readable temp location.
+        uploaded["staged_under_runtime"] = str(tmp_path / "runtime") in str(local_path)
+        return {"alias": identifier, "direction": "upload", "bytes": len(uploaded["bytes"])}
+
+    monkeypatch.setattr(SSHRunner, "download", fake_download)
+    monkeypatch.setattr(SSHRunner, "upload", fake_upload)
+
+    with TestClient(app, base_url="http://localhost:8765") as client:
+        client.get("/?token=launch")
+        bootstrap = client.get("/api/bootstrap").json()
+        headers = {"X-CSRF-Token": bootstrap["csrf"], "Origin": "http://localhost:8765"}
+
+        # A download moves bytes off a host, so it is a POST and it is forgeable
+        # without the header — both halves matter.
+        assert client.post(
+            "/api/servers/web1/download", json={"path": "/srv/app/config.yml"}
+        ).status_code == 403
+
+        response = client.post(
+            "/api/servers/web1/download",
+            json={"path": "/srv/app/config.yml"},
+            headers=headers,
+        )
+        assert response.status_code == 200
+        assert response.content == b"port: 8080\n"
+        assert "config.yml" in response.headers["content-disposition"]
+        assert response.headers["cache-control"] == "no-store"
+
+        assert client.post(
+            "/api/servers/web1/download", json={}, headers=headers
+        ).status_code == 400
+
+        upload = client.post(
+            "/api/servers/web1/upload",
+            files={"file": ("config.yml", b"port: 9090\n", "text/plain")},
+            data={"path": "/srv/app/config.yml"},
+            headers=headers,
+        )
+        assert upload.status_code == 200
+        assert uploaded["bytes"] == b"port: 9090\n"
+        assert uploaded["remote_path"] == "/srv/app/config.yml"
+        assert uploaded["staged_under_runtime"] is True
+
+    # Nothing staged for a transfer may outlive the request.
+    leftovers = list((tmp_path / "runtime").glob("dl-*")) + list((tmp_path / "runtime").glob("ul-*"))
+    assert leftovers == []
+
+
+def test_ui_rejects_oversized_uploads(tmp_path, monkeypatch):
+    database = Database(tmp_path / "manager.db")
+    database.create_server(alias="web1", hostname="a.example", port=22, username="deploy")
+    app = _authenticated_client(database, tmp_path, monkeypatch)
+    monkeypatch.setattr("ssh_server_manager.webapp.MAX_WEB_TRANSFER_BYTES", 16)
+
+    def refuse_upload(self, *args, **kwargs):
+        raise AssertionError("sftp must not run for an oversized upload")
+
+    monkeypatch.setattr(SSHRunner, "upload", refuse_upload)
+
+    with TestClient(app, base_url="http://localhost:8765") as client:
+        client.get("/?token=launch")
+        bootstrap = client.get("/api/bootstrap").json()
+        headers = {"X-CSRF-Token": bootstrap["csrf"], "Origin": "http://localhost:8765"}
+        response = client.post(
+            "/api/servers/web1/upload",
+            files={"file": ("big.bin", b"x" * 64, "application/octet-stream")},
+            data={"path": "/srv/big.bin"},
+            headers=headers,
+        )
+    assert response.status_code == 400
+    assert "web transfer limit" in response.json()["message"]
+    assert list((tmp_path / "runtime").glob("ul-*")) == []

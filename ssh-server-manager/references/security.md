@@ -8,7 +8,8 @@
 - Require WebAuthn user verification before revealing a secret. When WebAuthn is unavailable, require the locally enrolled Argon2id master password.
 - Make reveal grants single-use and short-lived. Mark reveal responses `Cache-Control: no-store` and clear rendered secrets from the DOM after 15 seconds.
 - Allow connections and tests to consume a vault secret without returning it to the caller. UI reveal authentication protects plaintext display, not ordinary SSH use.
-- Keep the web file browser read-only. Use OpenSSH SFTP with literal quoted paths, reject path control characters, and return metadata rather than file contents.
+- Keep web file *browsing* read-only. Use OpenSSH SFTP with literal quoted paths, reject path control characters, and return metadata rather than file contents.
+- Expose transfer as an explicit action, never a side effect of browsing. Download and upload are CSRF-protected POST routes, size-capped, and staged only inside the private runtime directory, which is cleared when the request ends.
 - Treat host-skill bindings as routing metadata only. They do not authorize
   remote actions, install software, execute hooks, or expand the target hosts
   selected by the user.

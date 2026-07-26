@@ -1,10 +1,13 @@
 import asyncio
 import json
 import os
+import posixpath
 import secrets
+import shutil
 import signal
 import socket
 import stat
+import tempfile
 import threading
 import time
 import webbrowser
@@ -12,6 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from .auth import AuthenticationError, RevealAuth
 from .db import ConflictError, Database, DatabaseError, NotFoundError
@@ -25,6 +29,9 @@ from .vault import VaultError, get_vault
 
 
 SESSION_COOKIE = "ssm_session"
+# The browser stages transfers through memory and a temp file; large files
+# belong on the CLI path, which streams straight through sftp.
+MAX_WEB_TRANSFER_BYTES = 100 * 1024 * 1024
 
 
 class UIError(ValidationError):
@@ -126,7 +133,17 @@ class WebState:
 
 def create_app(database: Database, *, launch_token: str, port: int, launch_url_file: Path | None = None):
     try:
-        from fastapi import Body, Depends, FastAPI, HTTPException, Request, Response
+        from fastapi import (
+            Body,
+            Depends,
+            FastAPI,
+            File,
+            Form,
+            HTTPException,
+            Request,
+            Response,
+            UploadFile,
+        )
         from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
     except ImportError as exc:
         raise RuntimeError("UI dependencies are missing; run scripts/bootstrap") from exc
@@ -370,6 +387,112 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
         _session=Depends(browser_session),
     ):
         return await asyncio.to_thread(SSHRunner(database).list_directory, identifier, path)
+
+    @app.get("/api/servers/{identifier}/paths")
+    async def list_saved_paths(identifier: str, _session=Depends(browser_session)):
+        return await asyncio.to_thread(database.list_server_paths, identifier)
+
+    @app.post("/api/servers/{identifier}/paths")
+    async def create_saved_path(
+        identifier: str,
+        payload: dict[str, Any] = Body(...),
+        _session=Depends(csrf_session),
+    ):
+        return await asyncio.to_thread(
+            database.create_server_path,
+            identifier,
+            label=payload.get("label", ""),
+            path=payload.get("path"),
+            notes=payload.get("notes"),
+        )
+
+    @app.put("/api/servers/{identifier}/paths")
+    async def replace_saved_paths(
+        identifier: str,
+        payload: dict[str, Any] = Body(...),
+        _session=Depends(csrf_session),
+    ):
+        entries = payload.get("paths")
+        if not isinstance(entries, list):
+            raise ValidationError("paths must be a list")
+        return await asyncio.to_thread(database.set_server_paths, identifier, entries)
+
+    @app.post("/api/servers/{identifier}/paths/{path_id}/used")
+    async def touch_saved_path(
+        identifier: str, path_id: str, _session=Depends(csrf_session)
+    ):
+        return await asyncio.to_thread(database.touch_server_path, identifier, path_id)
+
+    @app.delete("/api/servers/{identifier}/paths/{path_id}")
+    async def delete_saved_path(
+        identifier: str, path_id: str, _session=Depends(csrf_session)
+    ):
+        return await asyncio.to_thread(database.delete_server_path, identifier, path_id)
+
+    # Transfers are POST, including the download. A plain <a href> cannot carry
+    # the CSRF header, and a GET that moves bytes off a host is exactly the
+    # request a hostile page would try to forge.
+    @app.post("/api/servers/{identifier}/download")
+    async def download_server_file(
+        identifier: str,
+        payload: dict[str, Any] = Body(...),
+        _session=Depends(csrf_session),
+    ):
+        remote_path = payload.get("path")
+        if not isinstance(remote_path, str) or not remote_path.strip():
+            raise ValidationError("path is required")
+        name = posixpath.basename(remote_path.rstrip("/")) or "download"
+        staging = Path(tempfile.mkdtemp(dir=runtime_dir(), prefix="dl-"))
+        target = staging / name
+        try:
+            result = await asyncio.to_thread(
+                SSHRunner(database).download, identifier, remote_path, target
+            )
+            if result["bytes"] > MAX_WEB_TRANSFER_BYTES:
+                raise ValidationError(
+                    f"file is larger than the {MAX_WEB_TRANSFER_BYTES // (1024 * 1024)} MB "
+                    "web transfer limit; use serverctl get instead"
+                )
+            data = await asyncio.to_thread(target.read_bytes)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+        return Response(
+            content=data,
+            media_type="application/octet-stream",
+            headers={
+                # RFC 5987 form so non-ASCII filenames survive the header.
+                "Content-Disposition": (
+                    "attachment; filename*=UTF-8''" + quote(name, safe="")
+                ),
+                "Cache-Control": "no-store",
+            },
+        )
+
+    @app.post("/api/servers/{identifier}/upload")
+    async def upload_server_file(
+        identifier: str,
+        file: UploadFile = File(...),
+        path: str = Form(...),
+        _session=Depends(csrf_session),
+    ):
+        staging = Path(tempfile.mkdtemp(dir=runtime_dir(), prefix="ul-"))
+        source = staging / (Path(file.filename or "upload").name or "upload")
+        try:
+            written = 0
+            with source.open("wb") as handle:
+                while chunk := await file.read(1024 * 1024):
+                    written += len(chunk)
+                    if written > MAX_WEB_TRANSFER_BYTES:
+                        raise ValidationError(
+                            f"upload exceeds the {MAX_WEB_TRANSFER_BYTES // (1024 * 1024)} MB "
+                            "web transfer limit; use serverctl put instead"
+                        )
+                    handle.write(chunk)
+            return await asyncio.to_thread(
+                SSHRunner(database).upload, identifier, source, path
+            )
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
 
     @app.post("/api/import/preview")
     async def import_preview(payload: dict[str, Any] = Body(default={}), _session=Depends(csrf_session)):

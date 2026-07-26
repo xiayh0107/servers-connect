@@ -135,7 +135,7 @@ numbered menu of connection modes.
 5. Preview imports and destructive operations. Do not overwrite an existing alias unless the user explicitly requests it.
 6. Use connection profiles for separate accounts on the same endpoint; keep one username and one default credential per alias.
 7. Treat UI launch tokens like credentials: keep them in the local browser or an explicitly requested mode-600 file, never in terminal output, logs, screenshots, or chat.
-8. Keep remote file browsing read-only unless the user explicitly requests a separate file mutation or transfer workflow.
+8. Keep remote file browsing read-only. Move a file only when the user asked for that file to move, and use `serverctl cp`, `get`, or `put` — never raw `scp`, `rsync`, or `sftp`, which bypass the vault. Confirm before overwriting anything; `get` refuses an existing local file unless `--force` is passed, and that refusal is a prompt for the user, not an obstacle to work around.
 9. Fail closed on host-skill ambiguity or stale registrations. Never choose
    between same-name paths, silently substitute a missing skill, or reuse a
    skill resolved for a previous host.
