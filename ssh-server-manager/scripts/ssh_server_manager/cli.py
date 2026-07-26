@@ -51,6 +51,10 @@ def format_item(item: Any) -> str:
     if "kind" in item:
         detail = item.get("key_path") or ("stored" if item.get("has_secret") else "not stored")
         return f"{item['label']:<22} {item['kind']:<8} {detail}"
+    if "label" in item and "path" in item:
+        used = item.get("last_used_at") or "never"
+        notes = f"  {item['notes']}" if item.get("notes") else ""
+        return f"{item['label']:<24} {item['path']:<32} used={used}{notes}"
     if "name" in item and "path" in item:
         servers = ",".join(server["alias"] for server in item.get("servers", [])) or "-"
         status = item.get("status")
@@ -188,6 +192,37 @@ def build_parser() -> argparse.ArgumentParser:
     skill_remove.add_argument("skill", help="Skill name or id")
     skill_remove.add_argument("--yes", action="store_true")
     add_json_option(skill_remove)
+
+    path_parser = commands.add_parser(
+        "path", help="manage a host's saved working directories"
+    )
+    path_commands = path_parser.add_subparsers(dest="path_command", required=True)
+    path_list = path_commands.add_parser("list", help="list a host's saved directories")
+    path_list.add_argument("server", help="server alias or id")
+    add_json_option(path_list)
+    path_add = path_commands.add_parser("add", help="save a working directory for a host")
+    path_add.add_argument("server", help="server alias or id")
+    path_add.add_argument("path", help="absolute remote directory, or ~ for the login directory")
+    path_add.add_argument("--label", required=True, help="short name used to recall the directory")
+    path_add.add_argument("--note", default=None, help="optional reminder of what lives there")
+    add_json_option(path_add)
+    path_edit = path_commands.add_parser("edit", help="change a saved directory")
+    path_edit.add_argument("server", help="server alias or id")
+    path_edit.add_argument("directory", help="saved directory label or id")
+    path_edit.add_argument("--label")
+    path_edit.add_argument("--path")
+    path_edit.add_argument("--note")
+    add_json_option(path_edit)
+    path_remove = path_commands.add_parser("remove", help="forget a saved directory")
+    path_remove.add_argument("server", help="server alias or id")
+    path_remove.add_argument("directory", help="saved directory label or id")
+    path_remove.add_argument("--yes", action="store_true")
+    add_json_option(path_remove)
+    path_resolve = path_commands.add_parser(
+        "resolve", help="resolve the saved directories for one or more target hosts"
+    )
+    path_resolve.add_argument("servers", nargs="+", metavar="SERVER", help="server alias or id")
+    add_json_option(path_resolve)
 
     credential = commands.add_parser("credential", help="manage reusable credentials")
     credential_commands = credential.add_subparsers(dest="credential_command", required=True)
@@ -464,6 +499,34 @@ def handle(args: argparse.Namespace) -> int:
             if not confirm(f"Unregister Skill {args.skill}?", args.yes):
                 raise DatabaseError("removal cancelled; use --yes for non-interactive removal")
             result = service.delete(args.skill)
+        else:
+            return 2
+        emit(result, as_json=args.json)
+        return 0
+    if args.command == "path":
+        if args.path_command == "list":
+            result = database.list_server_paths(args.server)
+        elif args.path_command == "add":
+            result = database.create_server_path(
+                args.server, label=args.label, path=args.path, notes=args.note
+            )
+        elif args.path_command == "edit":
+            changes = {
+                key: value
+                for key, value in (
+                    ("label", args.label),
+                    ("path", args.path),
+                    ("notes", args.note),
+                )
+                if value is not None
+            }
+            result = database.update_server_path(args.server, args.directory, **changes)
+        elif args.path_command == "remove":
+            if not confirm(f"Forget saved directory {args.directory}?", args.yes):
+                raise DatabaseError("removal cancelled; use --yes for non-interactive removal")
+            result = database.delete_server_path(args.server, args.directory)
+        elif args.path_command == "resolve":
+            result = database.resolve_server_paths(args.servers)
         else:
             return 2
         emit(result, as_json=args.json)

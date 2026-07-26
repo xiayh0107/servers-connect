@@ -108,3 +108,55 @@ def test_cli_skill_resolve_reports_missing_manifest(tmp_path, monkeypatch, capsy
     resolved = json.loads(capsys.readouterr().out)
     assert resolved["ok"] is False
     assert resolved["skills"][0]["status"] == "missing"
+
+
+def test_cli_saves_and_resolves_working_directories(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path / "data"))
+    database = Database()
+    database.create_server(alias="web1", hostname="a.example", port=22, username="deploy")
+    database.create_server(alias="web2", hostname="b.example", port=22, username="deploy")
+
+    assert main(["path", "add", "web1", "/srv/app", "--label", "app", "--note", "root", "--json"]) == 0
+    created = json.loads(capsys.readouterr().out)
+    assert created["path"] == "/srv/app"
+    assert created["notes"] == "root"
+    assert created["last_used_at"] is None
+
+    assert main(["path", "add", "web2", "/srv/app", "--label", "app", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["path", "add", "web1", "/var/log/app", "--label", "logs", "--json"]) == 0
+    capsys.readouterr()
+
+    assert main(["path", "list", "web1", "--json"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert [item["label"] for item in listed] == ["app", "logs"]
+
+    # Hosts that share a layout are grouped, so an agent can act on both at once.
+    assert main(["path", "resolve", "web1", "web2", "--json"]) == 0
+    resolved = json.loads(capsys.readouterr().out)
+    assert resolved["ok"] is True
+    shared = {item["path"]: item["applies_to"] for item in resolved["paths"]}
+    assert shared["/srv/app"] == ["web1", "web2"]
+    assert shared["/var/log/app"] == ["web1"]
+
+    # A label collides case-insensitively within one host but not across hosts.
+    assert main(["path", "add", "web1", "/elsewhere", "--label", "APP", "--json"]) == 2
+    assert json.loads(capsys.readouterr().out)["error"] == "ConflictError"
+
+    assert main(["path", "edit", "web1", "app", "--label", "application", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["label"] == "application"
+
+    assert main(["path", "remove", "web1", "application", "--yes", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["path", "list", "web1", "--json"]) == 0
+    assert [item["label"] for item in json.loads(capsys.readouterr().out)] == ["logs"]
+
+
+def test_cli_rejects_an_empty_saved_directory(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path / "data"))
+    Database().create_server(alias="box", hostname="box.example", port=22, username="alice")
+
+    # An empty remote path means "home" when browsing, but saving it would record
+    # a directory that names nothing.
+    assert main(["path", "add", "box", "", "--label", "nowhere", "--json"]) == 2
+    assert json.loads(capsys.readouterr().out)["error"] == "ValidationError"
