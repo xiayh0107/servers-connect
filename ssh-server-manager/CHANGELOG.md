@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Changed
+- UI colour tokens renamed for purpose rather than appearance: the generic
+  `--tint-soft`, `--tint-line`, `--tint-text`, and `--sidebar-soft` are replaced
+  by `--sidebar-hover`, `--sidebar-active`, `--sidebar-line`, `--sidebar-input`,
+  `--sidebar-input-line`, and `--terminal-bg` / `--terminal-text` /
+  `--terminal-line`. A token now says where it belongs, so changing the sidebar
+  cannot silently repaint the terminal block.
+- Runtime `color-mix()` calls folded into literal colours (23 to 10 in
+  `styles.css`, 4 to 3 in `contexts.css`), removing per-paint colour computation
+  from the busiest surfaces.
+- All six accent palettes re-tuned for contrast (66 of 97 colour values in
+  `themes.css` changed; for example teal moves from `#0b8277` to `#0f766e`).
+  Token names, theme modes, and every selector are unchanged, so this is a
+  visual refresh rather than an API change.
+
 ## 0.6.0 — 2026-07-20
 
 ### Added
