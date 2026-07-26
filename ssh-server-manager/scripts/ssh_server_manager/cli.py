@@ -16,6 +16,9 @@ from typing import Any, Sequence
 from . import __version__
 from .db import ConflictError, Database, DatabaseError, NotFoundError
 from .importer import apply_import, preview_import
+from .mounts import list_mounts, mount_capability
+from .mounts import mount as mount_host
+from .mounts import unmount as unmount_path
 from .paths import database_path, managed_ssh_config_path, original_ssh_config_path
 from .service import CredentialService, SkillService
 from .ssh_config import SSHConfigError, render_config
@@ -275,6 +278,21 @@ def build_parser() -> argparse.ArgumentParser:
     put.add_argument("destination", metavar="ALIAS:REMOTE", help="remote destination path")
     add_transfer_options(put)
 
+    mount = commands.add_parser("mount", help="mount a host's directory locally with sshfs")
+    # --list rather than a `mount list` subcommand: argparse cannot offer both a
+    # subcommand and an optional positional on the same parser, and
+    # `serverctl mount web1:/srv/app` is the form worth keeping.
+    mount.add_argument("--list", action="store_true", help="list active sshfs mounts and exit")
+    mount.add_argument(
+        "server", nargs="?", metavar="ALIAS[:REMOTE]", help="host to mount, optionally with a path"
+    )
+    mount.add_argument("mountpoint", nargs="?", default=None, help="local directory (default ~/mnt/ALIAS)")
+    mount.add_argument("--read-only", action="store_true", help="mount without write access")
+    add_json_option(mount)
+    unmount = commands.add_parser("unmount", help="unmount a directory mounted by serverctl")
+    unmount.add_argument("target", metavar="ALIAS|MOUNTPOINT")
+    add_json_option(unmount)
+
     credential = commands.add_parser("credential", help="manage reusable credentials")
     credential_commands = credential.add_subparsers(dest="credential_command", required=True)
     credential_list = credential_commands.add_parser("list")
@@ -419,6 +437,7 @@ def run_doctor(database: Database) -> dict[str, Any]:
         "original_config": {"ok": True, "path": str(original_ssh_config_path())},
         "managed_config": {"ok": True, "path": str(managed_ssh_config_path())},
         "agent_skill": skill_link_status(),
+        "mount": mount_capability(),
     }
     try:
         checks["vault"] = {"ok": True, **get_vault().diagnose()}
@@ -609,6 +628,29 @@ def handle(args: argparse.Namespace) -> int:
                 alias, source_file, remote_path, timeout=args.timeout, stream=not args.json
             )
         emit(result, as_json=args.json)
+        return 0
+    if args.command == "mount":
+        if args.list:
+            emit(list_mounts(), as_json=args.json)
+            return 0
+        if not args.server:
+            raise ValidationError("mount expects ALIAS[:REMOTE], or --list")
+        alias, remote = parse_remote_ref(args.server)
+        if alias is None:
+            alias, remote = args.server, None
+        emit(
+            mount_host(
+                database,
+                alias,
+                remote,
+                args.mountpoint,
+                read_only=args.read_only,
+            ),
+            as_json=args.json,
+        )
+        return 0
+    if args.command == "unmount":
+        emit(unmount_path(args.target), as_json=args.json)
         return 0
     if args.command == "credential":
         if args.credential_command == "list":
