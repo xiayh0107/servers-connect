@@ -421,7 +421,10 @@ def test_download_keeps_host_key_checks_and_quotes_both_paths(tmp_path, monkeypa
         assert "BatchMode=no" in command
         # Captured transfers keep -q; only streaming ones drop it for progress.
         assert "-q" in command
-        destination.write_text("port: 8080\n", encoding="utf-8")
+        # Bytes, not write_text: Windows would translate "\n" to "\r\n" and the
+        # size assertion below would be off by one for reasons unrelated to
+        # anything the runner does.
+        destination.write_bytes(b"port: 8080\n")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -436,7 +439,7 @@ def test_download_keeps_host_key_checks_and_quotes_both_paths(tmp_path, monkeypa
         f'@get -p "/srv/app/a \\"quoted\\" name.yml" {local}\n@quit\n'
     )
     assert result["direction"] == "download"
-    assert result["bytes"] == len("port: 8080\n")
+    assert result["bytes"] == len(b"port: 8080\n")
 
 
 def test_download_anchors_home_relative_paths_with_a_bare_cd(tmp_path, monkeypatch):
