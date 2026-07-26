@@ -52,7 +52,7 @@ packages = ["ssh_server_manager"]
 ssh_server_manager = ["assets/ui/*"]
 
 [project.optional-dependencies]
-test = ["httpx>=0.28", "pytest>=8.0"]
+test = ["httpx>=0.28", "markdown>=3.5", "pytest>=8.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -5,7 +5,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WEBSITE_HTML = (REPO_ROOT / "website" / "index.html").read_text(encoding="utf-8")
-COLLABORATION_IMAGE = REPO_ROOT / "website" / "assets" / "human-agent-collaboration.webp"
 
 
 def test_marketing_page_declares_utf8_before_localized_copy():
@@ -35,35 +34,33 @@ def test_marketing_page_has_copyable_agent_prompt():
 
 
 def test_marketing_page_leads_with_the_human_agent_workflow():
-    assert "Human + Agent SSH workspace" in WEBSITE_HTML
-    assert "One shared SSH workspace." in WEBSITE_HTML
-    assert "01 / INTENT" in WEBSITE_HTML
-    assert "02 / ACTION" in WEBSITE_HTML
-    assert "03 / REVIEW" in WEBSITE_HTML
-    assert 'src="assets/human-agent-collaboration.webp"' in WEBSITE_HTML
-    assert COLLABORATION_IMAGE.is_file()
-    assert COLLABORATION_IMAGE.stat().st_size <= 100_000
+    hero = WEBSITE_HTML.split('<section class="hero"', 1)[1].split("</section>", 1)[0]
+
+    assert "Human + Agent SSH workspace" in hero
+    assert "SSH workspace." in hero
+    assert "You and your Agent." in hero
+    # The hero sells the split of duties, not a feature list.
+    assert "not secrets" in hero
+    # It routes to the three things a visitor can do next: read, install, try.
+    assert 'href="docs/quickstart.html"' in hero
+    assert "open-agent-dialog" in hero
+    assert 'href="#demo"' in hero
 
 
-def test_marketing_page_has_bilingual_scenario_demos():
-    scenario_targets = set(re.findall(r'data-scenario-target="([^"]+)"', WEBSITE_HTML))
-    scenario_panels = set(re.findall(r'data-scenario-panel="([^"]+)"', WEBSITE_HTML))
-    scenarios = {"direct-connect", "incident-response", "research-compute", "multi-environment"}
+def test_marketing_page_is_bilingual_throughout():
+    # Every section a visitor reads carries both languages; the demo shell is
+    # sample data and stays English.
+    for marker in ('<section class="hero"', 'class="demo-intro"', '<section class="features"', '<section class="cta"'):
+        section = WEBSITE_HTML.split(marker, 1)[1].split("</section>", 1)[0]
+        assert 'lang="en"' in section, marker
+        assert 'lang="zh-CN"' in section, marker
 
-    assert 'id="use-cases"' in WEBSITE_HTML
-    assert 'aria-labelledby="useCaseTitle"' in WEBSITE_HTML
-    assert scenario_targets == scenario_panels == scenarios
-    for scenario in scenarios:
-        panel = WEBSITE_HTML.split(f'data-scenario-panel="{scenario}"', 1)[1].split("</article>", 1)[0]
-        assert 'lang="en"' in panel
-        assert 'lang="zh-CN"' in panel
-    scenario_section = WEBSITE_HTML.split('id="use-cases"', 1)[1].split('id="demo"', 1)[0]
-    assert "serverctl " not in scenario_section
-    assert "不讲命令" not in scenario_section
-    assert "连接 atlas-prod" in scenario_section
-    assert "data-scenario-target" in scenario_section
-    assert "function setScenario" in WEBSITE_HTML
-    assert 'scenarioSwitcher.addEventListener("click"' in WEBSITE_HTML
+    dialog = WEBSITE_HTML.split("<dialog", 1)[1].split("</dialog>", 1)[0]
+    assert 'lang="en"' in dialog
+    assert 'lang="zh-CN"' in dialog
+
+    assert 'id="langToggle"' in WEBSITE_HTML
+    assert 'localStorage.setItem("ssm-lang"' in WEBSITE_HTML
 
 
 def test_marketing_page_is_an_interactive_product_demo():
