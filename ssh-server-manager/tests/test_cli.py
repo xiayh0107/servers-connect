@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from ssh_server_manager import __version__
 from ssh_server_manager.cli import main, skill_link_status
 from ssh_server_manager.db import Database
+from ssh_server_manager.validation import ValidationError
 
 
 def make_skill_copy(root: Path, version: str) -> Path:
@@ -160,3 +163,43 @@ def test_cli_rejects_an_empty_saved_directory(tmp_path, monkeypatch, capsys):
     # a directory that names nothing.
     assert main(["path", "add", "box", "", "--label", "nowhere", "--json"]) == 2
     assert json.loads(capsys.readouterr().out)["error"] == "ValidationError"
+
+
+def test_transfer_resolution_picks_the_remote_side():
+    from ssh_server_manager.cli import resolve_transfer
+
+    assert resolve_transfer("web1:/srv/app.yml", "./local.yml") == (
+        "download",
+        "web1",
+        "/srv/app.yml",
+        "./local.yml",
+    )
+    assert resolve_transfer("./local.yml", "web1:/srv/app.yml") == (
+        "upload",
+        "web1",
+        "/srv/app.yml",
+        "./local.yml",
+    )
+    # A Windows drive letter is a local path even though "C" is a legal alias.
+    with pytest.raises(ValidationError, match="one side must name a host"):
+        resolve_transfer("C:\\Users\\me\\f.txt", "D:\\backup\\f.txt")
+    with pytest.raises(ValidationError, match="host-to-host"):
+        resolve_transfer("web1:/a", "web2:/b")
+    with pytest.raises(ValidationError, match="one side must name a host"):
+        resolve_transfer("./a", "./b")
+
+
+def test_local_destination_resolves_directories_and_guards_overwrites(tmp_path):
+    from ssh_server_manager.validation import validate_local_destination
+
+    # An existing directory receives the remote basename, the way cp behaves.
+    assert validate_local_destination(tmp_path, remote_name="config.yml") == (
+        tmp_path / "config.yml"
+    )
+    existing = tmp_path / "taken.yml"
+    existing.write_text("keep me", encoding="utf-8")
+    with pytest.raises(ValidationError, match="--force"):
+        validate_local_destination(existing, remote_name="taken.yml")
+    assert validate_local_destination(existing, remote_name="taken.yml", force=True) == existing
+    with pytest.raises(ValidationError, match="destination directory does not exist"):
+        validate_local_destination(tmp_path / "absent" / "f.yml", remote_name="f.yml")

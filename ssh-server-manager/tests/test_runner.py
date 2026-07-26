@@ -395,3 +395,138 @@ def test_sftp_directory_listing_allows_a_server_login_banner(tmp_path, monkeypat
     result = SSHRunner(database, sftp_binary="sftp").list_directory("box", "~")
     assert result["path"] == "/home/alice"
     assert result["entries"] == []
+
+
+def _transfer_host(tmp_path, monkeypatch):
+    database = Database(tmp_path / "manager.db")
+    database.create_server(alias="box", hostname="box.example", port=22, username="alice")
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing-config"))
+    return database
+
+
+def test_download_keeps_host_key_checks_and_quotes_both_paths(tmp_path, monkeypatch):
+    database = _transfer_host(tmp_path, monkeypatch)
+    destination = tmp_path / "config.yml"
+    observed = {}
+
+    def fake_run(command, **kwargs):
+        observed["command"] = command
+        observed["input"] = kwargs["input"]
+        assert command[0] == "sftp"
+        assert command[-1] == "box"
+        assert "StrictHostKeyChecking=yes" in command
+        assert "BatchMode=no" in command
+        # Captured transfers keep -q; only streaming ones drop it for progress.
+        assert "-q" in command
+        destination.write_text("port: 8080\n", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp").download(
+        "box", '/srv/app/a "quoted" name.yml', destination
+    )
+
+    assert observed["input"] == (
+        f'@get -p "/srv/app/a \\"quoted\\" name.yml" "{destination}"\n@quit\n'
+    )
+    assert result["direction"] == "download"
+    assert result["bytes"] == len("port: 8080\n")
+
+
+def test_download_anchors_home_relative_paths_with_a_bare_cd(tmp_path, monkeypatch):
+    database = _transfer_host(tmp_path, monkeypatch)
+    destination = tmp_path / "out.txt"
+
+    def fake_run(command, **kwargs):
+        # sftp does not expand "~", so a home-relative source has to return to the
+        # login directory first and then use a relative path.
+        assert kwargs["input"].startswith("@cd\n@get -p \"logs/today.txt\"")
+        destination.write_text("x", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp").download(
+        "box", "~/logs/today.txt", destination
+    )
+
+
+def test_download_treats_sftp_diagnostics_as_failure(tmp_path, monkeypatch):
+    database = _transfer_host(tmp_path, monkeypatch)
+
+    def fake_run(command, **kwargs):
+        # sftp exits 0 even when the file was never fetched.
+        return subprocess.CompletedProcess(
+            command, 0, stdout="", stderr="Couldn't stat remote file: No such file or directory"
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(SSHError, match="Couldn't stat remote file"):
+        SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp").download(
+            "box", "/srv/missing.yml", tmp_path / "missing.yml"
+        )
+
+
+def test_download_rejects_a_silent_no_op(tmp_path, monkeypatch):
+    database = _transfer_host(tmp_path, monkeypatch)
+
+    def fake_run(command, **kwargs):
+        # Clean exit, empty stderr, but nothing written: never report success.
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(SSHError, match="was not written"):
+        SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp").download(
+            "box", "/srv/app.yml", tmp_path / "never.yml"
+        )
+
+
+def test_upload_reports_size_and_streams_without_quiet(tmp_path, monkeypatch):
+    database = _transfer_host(tmp_path, monkeypatch)
+    source = tmp_path / "payload.txt"
+    source.write_text("hello world", encoding="utf-8")
+    observed = {}
+
+    def fake_run(command, **kwargs):
+        observed["command"] = command
+        observed["input"] = kwargs["input"]
+        # Streaming leaves stdout attached so sftp can draw its progress meter.
+        assert kwargs["capture_output"] is False
+        return subprocess.CompletedProcess(command, 0, stdout=None, stderr=None)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp").upload(
+        "box", source, "/srv/app/payload.txt", stream=True
+    )
+
+    assert "-q" not in observed["command"]
+    assert observed["input"] == f'@put -p "{source}" "/srv/app/payload.txt"\n@quit\n'
+    assert result == {
+        "alias": "box",
+        "direction": "upload",
+        "remote_path": "/srv/app/payload.txt",
+        "local_path": str(source),
+        "bytes": len("hello world"),
+        "latency_ms": result["latency_ms"],
+    }
+
+
+def test_transfer_validates_before_spawning_a_process(tmp_path, monkeypatch):
+    database = _transfer_host(tmp_path, monkeypatch)
+    called = False
+
+    def fake_run(command, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("sftp must not run for a rejected path")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    runner = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp")
+
+    with pytest.raises(ValidationError):
+        runner.download("box", "/srv/\nrm -rf /", tmp_path / "x")
+    with pytest.raises(ValidationError, match="not the home directory"):
+        runner.download("box", "~", tmp_path / "x")
+    with pytest.raises(ValidationError):
+        runner.upload("box", tmp_path / "does-not-exist", "/srv/x")
+    assert called is False

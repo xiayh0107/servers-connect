@@ -5,6 +5,7 @@ import getpass
 import json
 import os
 import platform
+import posixpath
 import re
 import shutil
 import subprocess
@@ -19,7 +20,12 @@ from .paths import database_path, managed_ssh_config_path, original_ssh_config_p
 from .service import CredentialService, SkillService
 from .ssh_config import SSHConfigError, render_config
 from .ssh_runner import SSHError, SSHRunner
-from .validation import ValidationError
+from .validation import (
+    ValidationError,
+    parse_remote_ref,
+    validate_local_destination,
+    validate_local_source,
+)
 from .vault import VaultError, get_vault
 
 
@@ -65,6 +71,36 @@ def format_item(item: Any) -> str:
 
 def add_json_option(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+
+
+def add_transfer_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--force", action="store_true", help="overwrite an existing local file")
+    parser.add_argument(
+        "--timeout", type=int, default=120, help="seconds to allow for the transfer (default 120)"
+    )
+    add_json_option(parser)
+
+
+def resolve_transfer(source: str, destination: str) -> tuple[str, str, str, str]:
+    """Work out which side of a copy is remote.
+
+    Returns (direction, alias, remote_path, local_path). Exactly one side may be
+    a remote reference: sftp cannot move bytes between two hosts without staging
+    them here, and silently doing that would hide the local copy from the user.
+    """
+    source_alias, source_path = parse_remote_ref(source)
+    destination_alias, destination_path = parse_remote_ref(destination)
+    if source_alias and destination_alias:
+        raise ValidationError(
+            "host-to-host copies are not supported; download to this machine first"
+        )
+    if source_alias:
+        return "download", source_alias, source_path, destination_path
+    if destination_alias:
+        return "upload", destination_alias, destination_path, source_path
+    raise ValidationError(
+        "one side must name a host as ALIAS:PATH, for example web1:/srv/app/config.yml"
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -223,6 +259,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     path_resolve.add_argument("servers", nargs="+", metavar="SERVER", help="server alias or id")
     add_json_option(path_resolve)
+
+    copy = commands.add_parser(
+        "cp", help="copy one file between this machine and a managed host"
+    )
+    copy.add_argument("source", help="LOCAL path or ALIAS:REMOTE path")
+    copy.add_argument("destination", help="LOCAL path or ALIAS:REMOTE path")
+    add_transfer_options(copy)
+    get = commands.add_parser("get", help="download one file from a managed host")
+    get.add_argument("source", metavar="ALIAS:REMOTE", help="remote file to download")
+    get.add_argument("destination", nargs="?", default=None, help="local path (default: .)")
+    add_transfer_options(get)
+    put = commands.add_parser("put", help="upload one file to a managed host")
+    put.add_argument("source", metavar="LOCAL", help="local file to upload")
+    put.add_argument("destination", metavar="ALIAS:REMOTE", help="remote destination path")
+    add_transfer_options(put)
 
     credential = commands.add_parser("credential", help="manage reusable credentials")
     credential_commands = credential.add_subparsers(dest="credential_command", required=True)
@@ -529,6 +580,34 @@ def handle(args: argparse.Namespace) -> int:
             result = database.resolve_server_paths(args.servers)
         else:
             return 2
+        emit(result, as_json=args.json)
+        return 0
+    if args.command in {"cp", "get", "put"}:
+        source, destination = args.source, args.destination
+        if args.command == "get":
+            # get always names the remote side first; default the local side to
+            # the working directory so "get web1:/etc/hosts" does the obvious thing.
+            if parse_remote_ref(source)[0] is None:
+                raise ValidationError("get expects ALIAS:REMOTE as its source")
+            destination = destination if destination is not None else "."
+        elif args.command == "put" and parse_remote_ref(destination)[0] is None:
+            raise ValidationError("put expects ALIAS:REMOTE as its destination")
+        direction, alias, remote_path, local_path = resolve_transfer(source, destination)
+        runner = SSHRunner(database)
+        if direction == "download":
+            target = validate_local_destination(
+                local_path,
+                remote_name=posixpath.basename(remote_path.rstrip("/")),
+                force=args.force,
+            )
+            result = runner.download(
+                alias, remote_path, target, timeout=args.timeout, stream=not args.json
+            )
+        else:
+            source_file = validate_local_source(local_path)
+            result = runner.upload(
+                alias, source_file, remote_path, timeout=args.timeout, stream=not args.json
+            )
         emit(result, as_json=args.json)
         return 0
     if args.command == "credential":

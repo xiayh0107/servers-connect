@@ -186,6 +186,78 @@ def validate_path_note(value: str | None) -> str:
     return note
 
 
+def parse_remote_ref(value: str) -> tuple[str | None, str]:
+    """Split an "ALIAS:/path" transfer argument into its host and path halves.
+
+    Returns (None, value) for anything that is not a remote reference, so the
+    caller can treat it as a local path.
+
+    Only the first colon separates: remote paths may contain colons, and
+    "web1:/var/log/a:b" means the file "a:b". A Windows drive letter is never an
+    alias — "C:\\Users" is local even though "C" satisfies ALIAS_RE.
+    """
+    head, separator, tail = value.partition(":")
+    if not separator or not tail:
+        return None, value
+    if len(head) == 1 and (tail.startswith("\\") or tail.startswith("/")):
+        return None, value
+    if not ALIAS_RE.match(head):
+        return None, value
+    return head, tail
+
+
+def validate_local_source(value: str | Path) -> Path:
+    """Resolve a local file that is about to be uploaded."""
+    raw_value = str(value).strip()
+    if not raw_value or CONTROL_RE.search(raw_value):
+        raise ValidationError("local source path must be a valid file path")
+    path = Path(raw_value).expanduser()
+    try:
+        path = path.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ValidationError("local source path cannot be resolved") from exc
+    if not path.exists():
+        raise ValidationError(f"local file does not exist: {path}")
+    if path.is_dir():
+        raise ValidationError(f"local path is a directory; transfer one file at a time: {path}")
+    if not path.is_file():
+        raise ValidationError(f"local path is not a regular file: {path}")
+    return path
+
+
+def validate_local_destination(
+    value: str | Path | None, *, remote_name: str, force: bool = False
+) -> Path:
+    """Resolve where a downloaded file should land.
+
+    A destination that is an existing directory receives the remote basename, so
+    "serverctl get web1:/srv/app/config.yml ." behaves the way cp does. An
+    existing file is refused unless force, because a download that silently
+    overwrites local work is not recoverable.
+    """
+    raw_value = "." if value is None or not str(value).strip() else str(value).strip()
+    if CONTROL_RE.search(raw_value):
+        raise ValidationError("local destination path must not contain control characters")
+    path = Path(raw_value).expanduser()
+    # A trailing separator means the user meant a directory even if it is missing.
+    wants_directory = raw_value.endswith(("/", os.sep))
+    try:
+        path = path.resolve(strict=False)
+    except (OSError, RuntimeError) as exc:
+        raise ValidationError("local destination path cannot be resolved") from exc
+    if path.is_dir() or wants_directory:
+        if not remote_name:
+            raise ValidationError("cannot infer a destination filename from the remote path")
+        path = path / remote_name
+    if not path.parent.is_dir():
+        raise ValidationError(f"local destination directory does not exist: {path.parent}")
+    if path.is_dir():
+        raise ValidationError(f"local destination is a directory: {path}")
+    if path.exists() and not force:
+        raise ValidationError(f"local file already exists; pass --force to overwrite: {path}")
+    return path
+
+
 def validate_server_tags(values: Iterable[str] | None) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()

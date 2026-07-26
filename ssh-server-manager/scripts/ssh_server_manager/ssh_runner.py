@@ -16,7 +16,7 @@ from typing import Any, Sequence
 from .db import Database, NotFoundError, utc_now
 from .paths import runtime_dir
 from .ssh_config import render_config
-from .validation import validate_remote_path
+from .validation import ValidationError, validate_remote_path
 
 
 class SSHError(RuntimeError):
@@ -39,6 +39,9 @@ SFTP_OPERATION_ERROR_RE = re.compile(
     re.MULTILINE,
 )
 MAX_DIRECTORY_ENTRIES = 5000
+# Transfers get a wider wall-clock margin than the connect timeout: a large
+# file is slow for reasons that have nothing to do with reachability.
+TRANSFER_TIMEOUT_GRACE = 30
 
 
 def redact(text: str) -> str:
@@ -295,11 +298,16 @@ class SSHRunner:
         command.append(server["alias"])
         return command
 
-    def _sftp_command(self, server: dict[str, Any], *, timeout: int, reuse: int) -> list[str]:
+    def _sftp_command(
+        self, server: dict[str, Any], *, timeout: int, reuse: int, quiet: bool = True
+    ) -> list[str]:
         config = render_config(self.database)
         command = [
             self.sftp_binary,
-            "-q",
+            # -q also suppresses the transfer progress meter, so transfers that
+            # stream to a terminal turn it off. Parsed callers keep it: the
+            # listing parser assumes stdout carries nothing but sftp output.
+            *(["-q"] if quiet else []),
             "-F",
             str(config),
             "-o",
@@ -350,6 +358,27 @@ class SSHRunner:
         else:
             changes = [f"@cd {cls._sftp_path(path)}"]
         return "\n".join([*changes, "@pwd", "@ls -lan", "@quit", ""])
+
+    @classmethod
+    def _transfer_batch(cls, verb: str, first: str, second: str) -> str:
+        """Build the sftp command stream for one get/put.
+
+        "~" is never handed to sftp literally — it does not expand it — so a
+        remote path anchored at home is reached by returning to the login
+        directory with a bare @cd first, exactly as _directory_batch does.
+        """
+        prefix: list[str] = []
+        remote_is_first = verb == "get"
+        remote = first if remote_is_first else second
+        if remote == "~" or remote.startswith("~/"):
+            prefix.append("@cd")
+            remote = remote[2:] if remote.startswith("~/") else "."
+            if remote_is_first:
+                first = remote
+            else:
+                second = remote
+        transfer = f"@{verb} -p {cls._sftp_path(first)} {cls._sftp_path(second)}"
+        return "\n".join([*prefix, transfer, "@quit", ""])
 
     @staticmethod
     def _parse_directory_listing(stdout: str) -> tuple[str, list[dict[str, Any]], int]:
@@ -475,6 +504,124 @@ class SSHRunner:
             "unparsed": unparsed,
             "latency_ms": latency,
             "connection_checked_at": connection["last_test_at"],
+        }
+
+    def _run_transfer(
+        self,
+        server: dict[str, Any],
+        *,
+        batch: str,
+        timeout: int,
+        reuse: int,
+        stream: bool,
+    ) -> tuple[int, str, str]:
+        """Run one sftp transfer, either streaming to the terminal or captured.
+
+        Streaming keeps sftp's own progress meter, which is the only progress
+        signal available without reimplementing the protocol.
+        """
+        command = self._sftp_command(server, timeout=timeout, reuse=reuse, quiet=not stream)
+        try:
+            result = subprocess.run(
+                command,
+                input=batch,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=not stream,
+                env=self._environment(server),
+                timeout=timeout + TRANSFER_TIMEOUT_GRACE,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise SSHError(
+                f"transfer exceeded {timeout + TRANSFER_TIMEOUT_GRACE} seconds"
+            ) from exc
+        except OSError as exc:
+            raise SSHError("sftp is unavailable; install the OpenSSH client and retry") from exc
+        return result.returncode, result.stdout or "", result.stderr or ""
+
+    def _finish_transfer(self, returncode: int, stderr: str) -> None:
+        diagnostics = redact(stderr.strip())
+        if returncode != 0:
+            raise SSHError(diagnostics or f"SFTP exited with status {returncode}")
+        # sftp exits 0 even when the transfer itself failed, so stderr is the
+        # only reliable signal. Same trap list_directory works around.
+        if SFTP_OPERATION_ERROR_RE.search(diagnostics):
+            raise SSHError(diagnostics or "remote file transfer failed")
+
+    def download(
+        self,
+        identifier: str,
+        remote_path: str,
+        local_path: str | Path,
+        *,
+        timeout: int = 120,
+        reuse: int = 300,
+        stream: bool = False,
+    ) -> dict[str, Any]:
+        """Copy one remote file to a local path over SFTP."""
+        remote = validate_remote_path(remote_path)
+        if remote == "~":
+            raise ValidationError("remote source must name a file, not the home directory")
+        destination = Path(local_path)
+        server = self.database.get_server(identifier)
+        start = time.monotonic()
+        returncode, _stdout, stderr = self._run_transfer(
+            server,
+            batch=self._transfer_batch("get", remote, str(destination)),
+            timeout=timeout,
+            reuse=reuse,
+            stream=stream,
+        )
+        self._finish_transfer(returncode, stderr)
+        latency = round((time.monotonic() - start) * 1000)
+        # sftp reports a failed get on stderr rather than by exit code, so a
+        # missing destination here means the transfer silently did nothing.
+        if not destination.exists():
+            raise SSHError(f"transfer reported success but {destination} was not written")
+        return {
+            "alias": server["alias"],
+            "direction": "download",
+            "remote_path": remote,
+            "local_path": str(destination),
+            "bytes": destination.stat().st_size,
+            "latency_ms": latency,
+        }
+
+    def upload(
+        self,
+        identifier: str,
+        local_path: str | Path,
+        remote_path: str,
+        *,
+        timeout: int = 120,
+        reuse: int = 300,
+        stream: bool = False,
+    ) -> dict[str, Any]:
+        """Copy one local file to a remote path over SFTP."""
+        remote = validate_remote_path(remote_path)
+        source = Path(local_path)
+        if not source.is_file():
+            raise ValidationError(f"local file does not exist: {source}")
+        size = source.stat().st_size
+        server = self.database.get_server(identifier)
+        start = time.monotonic()
+        returncode, _stdout, stderr = self._run_transfer(
+            server,
+            batch=self._transfer_batch("put", str(source), remote),
+            timeout=timeout,
+            reuse=reuse,
+            stream=stream,
+        )
+        self._finish_transfer(returncode, stderr)
+        return {
+            "alias": server["alias"],
+            "direction": "upload",
+            "remote_path": remote,
+            "local_path": str(source),
+            "bytes": size,
+            "latency_ms": round((time.monotonic() - start) * 1000),
         }
 
     def test(self, identifier: str, *, timeout: int = 8) -> dict[str, Any]:
