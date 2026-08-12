@@ -45,6 +45,53 @@ prints an `agent_skill` warning whenever a linked copy is older than the
 CLI you are running, which is the usual reason an agent falls back to
 hand-rolled `ssh`.
 
+## When an agent installs this for a user
+
+If a user gives you this page and asks you to install or configure SSH Server
+Manager, **a successful `serverctl doctor` is not the end of the task**.
+The user may never read this documentation or learn the CLI. Treat the install
+as capability injection and finish with a short first-run handoff.
+
+After `doctor` succeeds:
+
+1. Run `serverctl server list --json` once and inspect the current local
+   inventory. Do not run remote connection tests only for onboarding.
+2. Tell the user which hosts are already managed, using their aliases rather
+   than leading with IP addresses, database paths, config paths, or raw JSON.
+3. Give 3–5 concrete examples of things the user can now ask **in natural
+   language**, ideally using the real aliases you just found. Examples:
+   - “check GPU usage on `gpu-lab`”
+   - “show me what is in `/data` on `web1`”
+   - “upload this file to `web1`”
+   - “download the latest result from `analysis`”
+   - “connect me to `prod`”
+4. Explain in one sentence that saved passwords/passphrases stay in the local
+   OS credential vault and do not need to be pasted into chat or exposed to
+   the model.
+5. Be precise about status: `doctor` verifies the **local installation**. If
+   you have not run `server test` for a host, do not imply that its remote
+   login was verified.
+
+Adapt the handoff to the inventory:
+
+- **No managed hosts:** say the tool is ready, then offer to import the user's
+  existing OpenSSH config or add the first host.
+- **One managed host:** name it and make the examples about that host.
+- **Several managed hosts:** summarize the fleet compactly and use a few real
+  aliases in the examples.
+
+A good installation completion message sounds like this:
+
+> SSH Server Manager is ready, and I found your `yulab` host. From now on you
+> can just ask me things like “check yulab's GPU”, “show me files under /data”,
+> or “upload this file to yulab”; I will route those actions through the
+> manager automatically. Your saved SSH secret stays in the local OS vault and
+> does not need to be sent to me. The local installation passed its health
+> check; I have not tested the remote login unless I explicitly say so.
+
+The CLI is an agent-facing capability surface. Do not turn the first-run
+handoff into a CLI tutorial unless the user asks how to operate it manually.
+
 The skill instructs the agent to:
 
 - treat `serverctl` as the only SSH path for managed hosts — no raw
