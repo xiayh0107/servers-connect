@@ -63,12 +63,22 @@ if ($linked.Count) { Write-Host "Skill linked into:`n  $($linked -join "`n  ")" 
 else { Write-Host "No agent skills directory detected. Link manually:`n  New-Item -ItemType Junction -Path `"$env:USERPROFILE\.claude\skills\$SkillName`" -Value `"$Source`"" }
 
 # 4. Health check.
+$Launcher = Join-Path $Source "scripts\serverctl.cmd"
 Write-Host ""
 Write-Host "Running serverctl doctor ..."
-& (Join-Path $Source "scripts\serverctl.cmd") doctor
+& $Launcher doctor
 if ($LASTEXITCODE -ne 0) {
     Write-Host "doctor reported issues above - see $Source\docs\installation.md"
     exit 1
 }
+
 Write-Host ""
-Write-Host "Done. Your agent can now use the '$SkillName' skill."
+Write-Host "SSH Server Manager is installed and the local health check passed."
+Write-Host ""
+Write-Host "If you are an AI agent running this installer, do not stop here:"
+Write-Host "  1. Run: $Launcher server list --json"
+Write-Host "  2. Tell the user which managed hosts are available (or that none are configured yet)."
+Write-Host "  3. Give 3-5 short examples of things they can ask you to do using the real host aliases."
+Write-Host "  4. Explain that saved SSH secrets stay in the local OS vault and do not need to enter chat."
+Write-Host "  5. Say that doctor verified local readiness only; do not claim remote login works unless tested."
+Write-Host "Do not make the user learn serverctl commands unless they ask for the CLI."
