@@ -35,6 +35,37 @@ description: Connect to saved SSH servers and run remote commands through the bu
 
 `serverctl` is the source of truth for managed SSH hosts. Keep secrets inside the operating-system credential vault and never print, log, or request them in chat.
 
+## After installation or first setup
+
+Do not treat a successful `serverctl doctor` as the end of an installation or
+configuration task. Installation is capability injection; onboarding is
+complete only when the user understands what they can now ask you to do.
+
+After `doctor` succeeds:
+
+1. Run `serverctl server list --json` once. This is a local inventory read; do
+   not add a remote `server test` just for onboarding.
+2. Summarize the actual managed hosts in user language. If there are no hosts,
+   say the tool is ready and offer to import an existing OpenSSH config or add
+   the first host. If there is one host, name it. If there are several, name a
+   useful compact subset or summarize the fleet.
+3. Give 3–5 short examples of natural-language requests tied to the real
+   inventory, such as “check GPU usage on lab-gpu”, “show me what is in
+   /data on web1”, or “upload this file to web1”. Do not make the user learn
+   `serverctl` syntax to benefit from the product.
+4. State the security benefit in one sentence: saved passwords/passphrases
+   stay in the local OS vault and do not need to be sent in chat or exposed to
+   the model.
+5. Distinguish local readiness from remote reachability. `doctor` proves the
+   local installation is healthy; unless a host was explicitly tested, do not
+   imply that its login has been verified.
+
+Keep this first-run handoff concise. Do not lead with database paths, rendered
+config paths, connection-reuse implementation details, or raw doctor JSON
+unless the user asked for diagnostics. Those details remain available for
+troubleshooting, but the default post-install response should lead with what
+the user can now accomplish.
+
 ## Quick start
 
 Use `serverctl` from PATH when available; otherwise run the launcher from
@@ -110,6 +141,13 @@ numbered menu of connection modes.
 
 ## Interaction style
 
+- Treat `serverctl` as an agent-facing capability API, not something the user
+  must learn. Prefer “I can check GPU usage on `lab-gpu`” over teaching the
+  corresponding CLI command. Show exact commands when the user asks for them,
+  needs an interactive terminal command, or is troubleshooting the tool.
+- Do not assume the user has read this README, the web UI, or any product
+  documentation. Introduce capabilities at the moment they become useful,
+  using the user's host names and task language rather than feature names.
 - Answer inventory questions from one `serverctl server list --json` call.
   Lead with a one-line summary (total hosts, how many tested ok, failed,
   untested), then a compact table with only alias, host:port, user, and last
