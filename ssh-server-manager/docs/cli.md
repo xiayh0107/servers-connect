@@ -16,6 +16,13 @@ is available), database path, ssh / sftp / ssh-keygen presence and client versio
 original and managed config paths, vault backend safety, and the Python
 dependencies needed by the UI. Exit code is `0` only if every check passes.
 
+For agent-driven installation, that exit code means the **local installation**
+is healthy; it is not the end of first-run onboarding and does not prove any
+remote host login works. After a successful `doctor`, an installing agent
+should read `serverctl server list --json`, summarize the real inventory, and
+give the user a few natural-language examples using those aliases. Do not add
+remote tests only for onboarding or turn the handoff into a CLI tutorial.
+
 ## UI
 
 ```
