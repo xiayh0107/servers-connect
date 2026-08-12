@@ -21,6 +21,17 @@ different port.
 command is idempotent, so use it to clean up when the user is done with the UI
 instead of tracking pids by hand.
 
+### Agent post-install handoff
+
+`doctor` is a local health check, not the completion condition for an
+agent-driven installation. After it succeeds, an installing agent should run
+`serverctl server list --json` once, summarize the actual managed hosts, and
+teach the user what they can now ask for in natural language using those real
+aliases. Do not add remote `server test` calls only for onboarding, do not lead
+with database/config paths or raw JSON, and do not require the user to learn
+CLI syntax. Make clear that stored secrets remain in the local OS vault and
+that a successful `doctor` does not prove a host login has been tested.
+
 ## Servers
 
 ```bash
