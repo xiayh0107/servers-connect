@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- Agent-driven installation now treats `serverctl doctor` as a local health
+  checkpoint rather than the end of onboarding. After a healthy install,
+  agents are instructed to read the managed host inventory, summarize the
+  actual aliases, give a few natural-language examples of what the user can
+  ask next, and explain that saved SSH secrets stay in the local OS vault.
+- `SKILL.md`, `docs/ai-agents.md`, both one-line installers, and the CLI/command
+  references now explicitly avoid first-run CLI tutorials and diagnostic dumps
+  by default. They also distinguish local readiness from an untested remote
+  login and forbid adding remote tests merely to make onboarding look complete.
+
 ## 0.7.0 — 2026-07-26
 
 ### Added
