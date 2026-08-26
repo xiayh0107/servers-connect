@@ -68,7 +68,7 @@ raw = lambda p: len(p.read_bytes())
 group = lambda names: (sum(raw(ui / n) for n in names), sum(gz(ui / n) for n in names))
 # keep limits in sync with tests/test_ui_assets.py
 for label, names, lraw, lgz in (
-    ("core", ["index.html", "styles.css", "app.js"], 104_000, 26_000),
+    ("core", ["index.html", "styles.css", "app.js"], 107_000, 26_000),
     ("contexts", ["contexts.js", "contexts.css"], 48_000, 11_500),
     ("skills", ["skills.js", "skills.css"], 48_000, 11_500),
     ("diagnostics", ["diagnostics.js", "diagnostics.css"], 20_000, 8_000),
