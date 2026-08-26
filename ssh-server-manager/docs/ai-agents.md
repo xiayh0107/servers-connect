@@ -74,8 +74,16 @@ After `doctor` succeeds:
 
 Adapt the handoff to the inventory:
 
-- **No managed hosts:** say the tool is ready, then offer to import the user's
-  existing OpenSSH config or add the first host.
+- **No managed hosts:** say the tool is ready, then get the user their first
+  host instead of stopping at the offer. Run `serverctl server import`
+  (without `--apply` it is always a preview) and show the user which aliases
+  their own `~/.ssh/config` already provides; apply only after they confirm.
+  With nothing to import, follow the skill's **When the user wants to add a
+  server** playbook: collect the non-secret fields in chat, create the
+  profile, route credential entry through `serverctl ui --credential ALIAS`
+  (or hand the two terminal commands to the user), and run
+  `serverctl server test ALIAS --json` before calling that one new host
+  usable. Never ask for the password in chat.
 - **One managed host:** name it and make the examples about that host.
 - **Several managed hosts:** summarize the fleet compactly and use a few real
   aliases in the examples.

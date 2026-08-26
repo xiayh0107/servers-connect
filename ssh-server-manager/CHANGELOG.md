@@ -42,7 +42,10 @@
   brand choice rather than the statistical default of generated interfaces.
   Indigo remains available as an accent option (now backed by explicit
   `themes.css` blocks for every color theme), and existing users keep the
-  accent already stored in their browser.
+  accent already stored in their browser. The landing page makes the same
+  choice: teal accents, flat primary buttons without the glow halo, solid
+  headline color instead of gradient text, and the embedded product demo
+  now defaults to the accent the product actually ships.
 - Border radii and spacing moved from ~90 ad-hoc literals onto design-token
   scales (`--radius-sm/md/lg/xl`, `--space-1..7`), consolidating eleven
   radius values and the odd one-off spacings into coherent steps; the
@@ -55,6 +58,16 @@
   renders with the system sans font it was already using in practice.
 
 ### Fixed
+- The generated docs pages' footer showed a hand-maintained version that had
+  gone stale (`v0.6.0` under a `0.7.0` product); `website/build.py` now
+  derives it from the package, and a test pins the two together.
+- The landing page's agent install prompt stopped at "installed and checked",
+  leaving first-time users with an empty inventory and no next step. The
+  prompt (both languages) now asks the agent to walk the user through first
+  use — previewing what their `~/.ssh/config` could import or guiding a
+  first server with proper credential routing — and `docs/ai-agents.md`'s
+  no-managed-hosts branch spells out that procedure instead of a vague
+  "offer to import".
 - **"Save server" silently did nothing** when adding a server with an
   existing credential (or OpenSSH default): the inline credential composer's
   password/key inputs kept `required` while hidden, and an invisible required
