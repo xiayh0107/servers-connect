@@ -42,6 +42,20 @@ That usually means the AskPass helper couldn't classify the prompt (unusual
 server banner) or the vault is locked. Run `server test ALIAS --json` and
 check `error_code`; run `doctor` to confirm the vault backend.
 
+## Profiles & credentials
+
+**`server add` says "server alias already exists".**
+`add` only creates; it never overwrites an existing profile. Update it with
+`serverctl server edit ALIAS` instead — for example `--credential LABEL` to
+switch the attached credential, or `--hostname`/`--port` to fix the endpoint.
+No need to remove and re-add.
+
+**I typed the wrong password, and `credential add-password` now says the label exists.**
+Replace the stored secret with `serverctl credential edit LABEL
+--replace-secret` — it prompts hidden again. Labels are unique, and a taken
+label is refused *before* the password prompt runs, so you never type the
+secret twice for nothing.
+
 ## Web UI
 
 **The URL says "use the one-time URL opened by serverctl ui".**

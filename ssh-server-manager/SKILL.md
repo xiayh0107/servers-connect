@@ -1,6 +1,6 @@
 ---
 name: ssh-server-manager
-description: Connect to saved SSH servers and run remote commands through the bundled `serverctl` CLI, with passwords and keys held in the OS credential vault. Use whenever the user asks to SSH into, connect to, log in to, or run/check something on a server, names a saved host alias, or reports an SSH failure (中文触发：连接/登录服务器、SSH 主机、远程执行命令) — always reach for this BEFORE raw ssh. Replaces ssh/scp/sshpass for managed hosts: serverctl injects vault credentials itself (never ask the user for a password) and applies its managed config, sidestepping ~/.ssh/config gaps and VPN/proxy fake-IP DNS traps that make bare `ssh <alias>` fail. Also use it to transfer files to or from a managed host (上传/下载文件、传文件), to recall a host's saved working directories (常用目录、工作目录), to mount a remote directory locally with sshfs (挂载远程目录), to discover, register, attach, or resolve host-bound Agent Skills (主机专属 Skill、给 Host 绑定 Skill), and to add, import, list, edit, test, or diagnose connection profiles, ProxyJump hosts, and the local web management UI.
+description: Connect to saved SSH servers and run remote commands through the bundled `serverctl` CLI, with passwords and keys held in the OS credential vault. Use whenever the user asks to SSH into, connect to, log in to, or run/check something on a server, names a saved host alias, or reports an SSH failure (中文触发：连接/登录服务器、新建/添加/登记服务器、SSH 主机、远程执行命令) — always reach for this BEFORE raw ssh. Replaces ssh/scp/sshpass for managed hosts: serverctl injects vault credentials itself (never ask the user for a password) and applies its managed config, sidestepping ~/.ssh/config gaps and VPN/proxy fake-IP DNS traps that make bare `ssh <alias>` fail. Also use it to transfer files to or from a managed host (上传/下载文件、传文件), to recall a host's saved working directories (常用目录、工作目录), to mount a remote directory locally with sshfs (挂载远程目录), to discover, register, attach, or resolve host-bound Agent Skills (主机专属 Skill、给 Host 绑定 Skill), and to add, import, list, edit, test, or diagnose connection profiles, ProxyJump hosts, and the local web management UI.
 ---
 
 # SSH Server Manager
@@ -105,7 +105,8 @@ selection.
   --server <alias>`; `--server` may repeat. Discovery is local and read-only:
   it neither installs nor binds a skill.
 - To import OpenSSH aliases, preview with `serverctl server import`, then apply with `serverctl server import --apply`.
-- To add or update secrets, prefer the local UI. When using the CLI, let `getpass` prompt locally; never pass a password as an argument or environment variable.
+- To add a server that is not managed yet, follow **When the user wants to add a server** below: collect the fields in chat, create the profile, then route secret entry through `serverctl ui --credential ALIAS`.
+- To add or update secrets, prefer the local UI — `serverctl ui --credential ALIAS` opens the browser directly on that server's credential form. When using the CLI, let `getpass` prompt locally; never pass a password as an argument or environment variable.
 - To diagnose access, run `serverctl server test <alias> --json` before connecting.
 - To identify a host's operating system — or before suggesting install/admin commands — run `serverctl server diagnose <alias> --json`: its remote check reports `os`, `os_family`, and `package_manager` (Linux distros, macOS, BSDs, and Windows hosts), so use the reported package manager instead of guessing `apt`.
 - To record a user or agent observation, use `serverctl server note <alias> --text "..." --append --json`; notes are local metadata and must never contain secrets.
@@ -138,6 +139,43 @@ run a `server test` first just to stall — respond in seconds, not minutes:
 
 Keep the whole explanation to two or three sentences. Do not present a
 numbered menu of connection modes.
+
+## When the user wants to add a server
+
+Drive the whole onboarding yourself instead of waiting for the user to
+discover the commands. Reach for this flow whenever the user asks to add,
+register, or set up a server (中文：新建/添加/登记服务器) — and offer it when a
+task names a host that is not in `serverctl server list --json`, instead of
+falling back to raw ssh.
+
+1. Collect the non-secret fields in chat: alias, hostname or IP, port,
+   username, and any ProxyJump hop. Ask only for what is missing. If the host
+   already lives in the user's `~/.ssh/config`, offer `server import` instead.
+2. Create the profile:
+   `serverctl server add ALIAS --hostname HOST --username USER --json`.
+   `add` only creates: if it reports the alias already exists, the profile is
+   already there — switch to `serverctl server edit ALIAS ...` for the change
+   the user actually wants (for example `--credential LABEL`). Never remove
+   and re-create to work around a conflict, and never treat a taken
+   credential label as anything other than a `credential edit` task.
+3. Route the credential by kind. You may create `agent` credentials and
+   passphrase-less key credentials yourself (`credential add-agent`,
+   `credential add-key` without `--store-passphrase`) and attach them with
+   `server edit ALIAS --credential LABEL`. A password or key passphrase is
+   different: the CLI prompt needs a local TTY an agent tool call does not
+   have, and asking for the secret in chat is forbidden. Launch
+   `serverctl ui --credential ALIAS` as a background command — the browser
+   opens directly on that server's edit dialog with the new-credential form
+   expanded, so the user types the password once and clicks **Save and use**.
+   When no browser is available, hand two commands to the user's own terminal
+   (the same delivery rule as `connect`): `serverctl credential add-password
+   LABEL`, then `serverctl server edit ALIAS --credential LABEL`.
+4. Once the user says the secret is saved, run
+   `serverctl server test ALIAS --json` and report the result. Do not treat
+   the host as usable before the test passes.
+
+Keep the guidance to a sentence or two per step, and never paste a menu of
+onboarding options.
 
 ## Interaction style
 

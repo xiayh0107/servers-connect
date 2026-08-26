@@ -27,12 +27,16 @@ remote tests only for onboarding or turn the handoff into a CLI tutorial.
 
 ```
 serverctl ui [--port PORT] [--no-open --url-file PATH]
+serverctl ui --credential ALIAS [--port PORT] [--no-open --url-file PATH]
 serverctl ui --status [--json]
 serverctl ui --stop [--json]
 ```
 
 - Default `--port 0` picks a free loopback port and opens your browser with
   a one-time tokenized URL. The token is never printed to the terminal.
+- `--credential ALIAS` opens the browser directly on that server's edit
+  dialog with the new-credential form expanded — the shortest path to
+  entering a password after `server add`.
 - `--no-open` requires `--url-file`; the URL is written to a mode-600 file
   that is deleted once the token is used or the server stops.
 - If an explicit port is busy the command fails fast; retry with `--port 0`.
@@ -48,7 +52,7 @@ serverctl ui --stop [--json]
 serverctl server list [--json]
 serverctl server show ALIAS [--json]
 serverctl server add ALIAS --hostname HOST --username USER [--port PORT]
-    [--credential LABEL|ID] [--proxy-jump ALIAS ...] [--tag TAG ...] [--notes TEXT]
+    [--credential LABEL|ID | --password-credential LABEL] [--proxy-jump ALIAS ...] [--tag TAG ...] [--notes TEXT]
 serverctl server edit ALIAS [--new-alias A] [--hostname H] [--username U]
     [--port P] [--credential LABEL|'none'] [--proxy-jump ALIAS ...]
     [--tag TAG ... | --clear-tags] [--notes TEXT]
@@ -68,6 +72,10 @@ Notes:
   whole chain.
 - `--tag` may repeat to assign project, environment, or role tags. On
   `edit`, supplied tags replace the existing set; `--clear-tags` removes all.
+- `add --password-credential LABEL` creates a password credential with the
+  hidden local prompt and attaches it in one step. It requires a real
+  terminal; without a TTY it fails fast and points to
+  `serverctl ui --credential ALIAS`.
 - `import` without `--apply` is always a preview. Conflicting aliases are
   skipped unless `--overwrite`.
 - `test` runs a real `ssh` handshake (`NumberOfPasswordPrompts=1`,

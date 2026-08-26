@@ -14,6 +14,7 @@ tokenized URL.
 | Situation | Command |
 |---|---|
 | Normal use | `serverctl ui` |
+| Enter a server's password right after adding it | `serverctl ui --credential ALIAS` (opens directly on that server's edit dialog with the new-credential form expanded) |
 | Fixed port | `serverctl ui --port 8422` |
 | Browser can't be auto-opened (e.g. remote desktop) | `serverctl ui --no-open --url-file /path/to/private-url` then open the URL from that mode-600 file yourself |
 | Check whether the UI is running | `serverctl ui --status` |
@@ -21,7 +22,9 @@ tokenized URL.
 
 The launch token is single-use: once a browser session is established, the
 URL stops working (and the `--url-file` is deleted). Restart `serverctl ui`
-to get a new one. Sessions last 12 hours.
+to get a new one. Sessions last 12 hours. The `--credential` target travels
+in the URL fragment, which browsers never send to the server — it only
+steers which dialog the page opens.
 
 ## What you can do
 

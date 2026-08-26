@@ -12,6 +12,57 @@
   references now explicitly avoid first-run CLI tutorials and diagnostic dumps
   by default. They also distinguish local readiness from an untested remote
   login and forbid adding remote tests merely to make onboarding look complete.
+- Duplicate-name errors now name the way out: `server add` with an existing
+  alias answers with the matching `serverctl server edit` command, and a
+  taken credential label points to `credential edit` (failing *before* the
+  hidden password prompt, so correcting a typo no longer means typing the
+  secret twice for nothing). The `add`/`add-*` help texts say the same up
+  front, and the FAQ gained the two most-hit confusion entries, so the
+  edit path is discoverable before the error ever happens.
+
+### Added
+- `serverctl ui --credential ALIAS` deep-links first-time credential entry:
+  the browser opens directly on that server's edit dialog with the
+  new-credential form expanded and the password field focused, instead of
+  landing on the dashboard. The target travels in the URL fragment, which
+  browsers never send to the server; the one-time token flow is unchanged.
+- `serverctl server add --password-credential LABEL` creates a password
+  credential through the hidden local prompt and attaches it in one command.
+  Without a TTY it fails fast and points to the UI path, so agent tool calls
+  get a clear error instead of a hanging `getpass`.
+- SKILL.md gained a "When the user wants to add a server" playbook: agents
+  now drive onboarding proactively — collect non-secret fields in chat,
+  create the profile, route password entry through
+  `serverctl ui --credential ALIAS` (or hand terminal commands to the user),
+  and finish with `server test` — instead of leaving users to discover the
+  commands.
+
+### Changed
+- The UI's default accent is now **teal** instead of indigo — a deliberate
+  brand choice rather than the statistical default of generated interfaces.
+  Indigo remains available as an accent option (now backed by explicit
+  `themes.css` blocks for every color theme), and existing users keep the
+  accent already stored in their browser.
+- Border radii and spacing moved from ~90 ad-hoc literals onto design-token
+  scales (`--radius-sm/md/lg/xl`, `--space-1..7`), consolidating eleven
+  radius values and the odd one-off spacings into coherent steps. The raw
+  asset budget grew ~2.6% for the longer `var()` names; the gzipped wire
+  size grew only ~0.4%. Rationale is recorded in
+  `docs/ui-ux-research.md` ("Design tokens").
+- The font stack no longer names Inter, which was never bundled — the UI
+  renders with the system sans font it was already using in practice.
+
+### Fixed
+- **"Save server" silently did nothing** when adding a server with an
+  existing credential (or OpenSSH default): the inline credential composer's
+  password/key inputs kept `required` while hidden, and an invisible required
+  control blocks form submission with no visible feedback. `required` now
+  follows composer visibility. This was the real wall behind "adding a server
+  is hard" for anyone not creating a credential inline.
+- The alias `pattern` attribute never validated anything in current Chrome:
+  since M136 Chrome compiles `pattern` with the RegExp `v` flag, under which
+  a bare class hyphen is a syntax error that also aborts interactive
+  validation. The hyphen is now escaped.
 
 ## 0.7.0 — 2026-07-26
 

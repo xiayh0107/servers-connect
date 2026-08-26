@@ -6,6 +6,7 @@
 ./scripts/bootstrap
 ./scripts/serverctl doctor [--json]
 ./scripts/serverctl ui [--port PORT] [--no-open --url-file PATH]
+./scripts/serverctl ui --credential ALIAS [--port PORT] [--no-open --url-file PATH]
 ./scripts/serverctl ui --status [--json]
 ./scripts/serverctl ui --stop [--json]
 ```
@@ -15,6 +16,11 @@ When `--no-open` is used, `--url-file` is required; the file is created with
 mode `600` and contains the one-time tokenized URL. The token is never printed.
 If an explicitly requested port is occupied, retry with `--port 0` or choose a
 different port.
+
+`ui --credential ALIAS` opens the browser directly on that server's edit
+dialog with the new-credential form expanded, so entering a password is one
+field and one click. Use it right after `server add` when guiding a user
+through first-time setup.
 
 `ui --status` reports the managed UI process (pid, port, start time) and exits
 `0` while it runs. `ui --stop` terminates it and deletes its `--url-file`; the
@@ -38,7 +44,7 @@ that a successful `doctor` does not prove a host login has been tested.
 ./scripts/serverctl server list [--json]
 ./scripts/serverctl server show ALIAS [--json]
 ./scripts/serverctl server add ALIAS --hostname HOST --username USER [--port PORT]
-  [--credential CREDENTIAL] [--proxy-jump ALIAS ...] [--notes TEXT]
+  [--credential CREDENTIAL | --password-credential LABEL] [--proxy-jump ALIAS ...] [--notes TEXT]
 ./scripts/serverctl server edit ALIAS [field options]
 ./scripts/serverctl server remove ALIAS [--yes]
 ./scripts/serverctl server import [--config PATH] [--apply] [--overwrite] [--json]
@@ -48,6 +54,11 @@ that a successful `doctor` does not prove a host login has been tested.
 ```
 
 An import without `--apply` is always a preview. Literal aliases are resolved with `ssh -G`; wildcard-only patterns are reported but not imported.
+
+`server add --password-credential LABEL` creates a password credential and
+attaches it in one step, using the same hidden local prompt as
+`credential add-password`. It needs a real terminal; without a TTY it fails
+fast and points to `serverctl ui --credential ALIAS` instead.
 
 `diagnose` identifies the host's system: its remote check reports `os`,
 `os_id`, `os_version`, `os_family`, and `package_manager` (Linux distros via

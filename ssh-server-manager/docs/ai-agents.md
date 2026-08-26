@@ -105,6 +105,10 @@ The skill instructs the agent to:
   diagnose failures;
 - route secret entry to the local UI or hidden `getpass` prompts, both of
   which happen outside the model's context;
+- drive first-time server onboarding itself: collect the non-secret fields in
+  chat, run `server add`, then open `serverctl ui --credential ALIAS` so the
+  browser lands directly on that server's credential form — the agent never
+  runs the `getpass` commands itself, because its tool calls have no TTY;
 - keep interactive shells in the human's terminal: when asked to "connect",
   the agent hands you the `serverctl connect <alias>` command and runs
   follow-up commands on that host through `serverctl exec` on your behalf,
@@ -150,6 +154,11 @@ serverctl exec web1 --reuse 300 --json -- uptime
 # UI lifecycle without pid bookkeeping
 serverctl ui --status --json
 serverctl ui --stop --json
+
+# first-time onboarding: create the profile, then land the human on its
+# credential form (launch in the background; the URL keeps its one-time token)
+serverctl server add web1 --hostname web1.example.com --username deploy --json
+serverctl ui --credential web1
 ```
 
 Exit codes are meaningful (`exec` mirrors the remote command; `test` and

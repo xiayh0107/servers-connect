@@ -42,6 +42,23 @@ serverctl server add web1 \
   --credential prod-password --notes "primary web node"
 ```
 
+Or do both steps at once — this creates the password credential through the
+same hidden prompt and attaches it in a single command:
+
+```bash
+serverctl server add web1 \
+  --hostname web1.example.com --username deploy \
+  --password-credential prod-password
+```
+
+Already created the server without a credential? `serverctl ui --credential
+web1` opens the browser directly on web1's credential form.
+
+Note that `add` only creates — it refuses an alias that already exists. To
+change anything later (including the attached credential), use
+`serverctl server edit web1 ...`; to replace a stored password, use
+`serverctl credential edit prod-password --replace-secret`.
+
 Behind a bastion? Model the hop as its own alias and chain it:
 
 ```bash

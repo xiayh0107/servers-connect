@@ -55,6 +55,12 @@ literal `<div class=app-shell>`, which the minify step asserts is preserved.
 Always finish with `tests/test_ui_assets.py`: it greps the minified output
 for exact tokens.
 
+Radius and spacing are tokenized: use the `--radius-sm/md/lg/xl` and
+`--space-1..7` scales from `styles.css` `:root` instead of adding new pixel
+literals, and keep the shipped default accent teal (Indigo stays a
+user-selectable option via explicit `themes.css` blocks). The rationale
+lives in `docs/ui-ux-research.md` ("Design tokens").
+
 ## Documentation must stay in sync
 
 Any change to the CLI surface or agent-facing behavior updates all of:
