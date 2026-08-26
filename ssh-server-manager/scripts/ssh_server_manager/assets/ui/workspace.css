@@ -3,9 +3,9 @@
 .ws-paths {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-3);
   flex-wrap: wrap;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-3);
 }
 
 .ws-paths-label {
@@ -19,7 +19,7 @@
 .ws-chip-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   flex-wrap: wrap;
   flex: 1;
   min-width: 0;
@@ -28,11 +28,11 @@
 .ws-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   max-width: 22rem;
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: var(--surface-soft);
   color: var(--ink);
   font-size: 12px;
@@ -91,7 +91,7 @@
   .ws-paths {
     align-items: flex-start;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--space-2);
   }
 
   .ws-chip {

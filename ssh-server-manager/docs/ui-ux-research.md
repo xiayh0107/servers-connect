@@ -139,7 +139,8 @@ pixel values. The interface now pins both to explicit scales:
 
 Cost accounting: the longer `var()` names added ~2.6 KB raw (~2.6%) to the
 core assets, but only ~0.1 KB (~0.4%) gzipped — the budgets in
-`tests/test_ui_assets.py` record both numbers. Future UI work should extend
-the same scales (including the lazily loaded contexts/skills/workspace
-modules, which still carry their own literals) rather than adding new literal
-values.
+`tests/test_ui_assets.py` record both numbers. The same scales now also cover
+the lazily loaded modules (contexts, skills, workspace, notes, diagnostics —
+a parallel five-way cleanup pass substituted ~190 declarations with zero
+selectors touched). Future UI work should extend the scales rather than
+adding new literal values.

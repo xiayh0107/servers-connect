@@ -45,7 +45,9 @@
   accent already stored in their browser.
 - Border radii and spacing moved from ~90 ad-hoc literals onto design-token
   scales (`--radius-sm/md/lg/xl`, `--space-1..7`), consolidating eleven
-  radius values and the odd one-off spacings into coherent steps. The raw
+  radius values and the odd one-off spacings into coherent steps; the
+  lazily loaded contexts/skills/workspace/notes/diagnostics modules then
+  moved onto the same scales (~190 more declarations). The raw
   asset budget grew ~2.6% for the longer `var()` names; the gzipped wire
   size grew only ~0.4%. Rationale is recorded in
   `docs/ui-ux-research.md` ("Design tokens").
