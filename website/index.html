@@ -16,9 +16,10 @@
   --text-tertiary: #737373;
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.12);
-  --accent: #6366f1;
-  --accent-strong: #818cf8;
-  --accent-glow: rgba(99, 102, 241, 0.25);
+  --accent: #45b8ab;
+  --on-accent: #06231d;
+  --accent-strong: #63cabd;
+  --accent-glow: rgba(69, 184, 171, 0.25);
   --success: #10b981;
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -28,7 +29,6 @@
   --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.6);
   --shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.7);
   --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.8);
-  --shadow-glow: 0 0 24px var(--accent-glow);
   --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 
   /* Aliases consumed by the embedded product demo below. */
@@ -38,7 +38,7 @@
   --muted: #a1a1a1;
   --faint: #737373;
   --line: rgba(255, 255, 255, 0.08);
-  --accent-soft: rgba(99, 102, 241, 0.15);
+  --accent-soft: rgba(69, 184, 171, 0.15);
   --green: #10b981;
   --amber: #f59e0b;
   --red: #ef4444;
@@ -52,8 +52,8 @@ html { scroll-behavior: smooth; }
 body {
   min-width: 320px;
   background:
-    radial-gradient(circle at 50% 0%, rgba(99, 102, 241, 0.08), transparent 600px),
-    radial-gradient(circle at 100% 100%, rgba(99, 102, 241, 0.05), transparent 600px),
+    radial-gradient(circle at 50% 0%, rgba(69, 184, 171, 0.07), transparent 600px),
+    radial-gradient(circle at 100% 100%, rgba(69, 184, 171, 0.045), transparent 600px),
     var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -180,12 +180,12 @@ html[data-lang="zh"] body [lang="en"] { display: none; }
 .btn-primary {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
-  box-shadow: var(--shadow-md), var(--shadow-glow);
+  color: var(--on-accent);
+  box-shadow: var(--shadow-md);
 }
 .btn-primary:hover {
   background: var(--accent-strong);
-  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  box-shadow: var(--shadow-lg);
 }
 
 /* Hero */
@@ -214,11 +214,8 @@ html[data-lang="zh"] body [lang="en"] { display: none; }
   line-height: 1.1;
   letter-spacing: -0.04em;
 }
-.hero-gradient {
-  background: linear-gradient(to bottom, var(--text), var(--text-tertiary));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+.hero-dim {
+  color: var(--text-secondary);
 }
 .hero-description {
   max-width: 640px;
@@ -742,8 +739,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.75); }
     <div class="container">
       <div class="hero-badge"><span lang="en">Human + Agent SSH workspace</span><span lang="zh-CN">用户与 Agent 共用的 SSH 工作区</span></div>
       <h1>
-        <span lang="en">One shared <span class="hero-gradient">SSH workspace.</span><br>You and your Agent.</span>
-        <span lang="zh-CN">你和 Agent，<span class="hero-gradient">共用 SSH 工作区。</span></span>
+        <span lang="en">One shared <span class="hero-dim">SSH workspace.</span><br>You and your Agent.</span>
+        <span lang="zh-CN">你和 Agent，<span class="hero-dim">共用 SSH 工作区。</span></span>
       </h1>
       <p class="hero-description">
         <span lang="en">You control hosts and approvals. Your Agent executes with context, not secrets. Everything stays local. No credentials enter the chat.</span>
@@ -775,7 +772,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.75); }
           <span class="window-dots" aria-hidden="true"><i></i><i></i><i></i></span>
           <span class="demo-address">ssh-manager.local / sample workspace</span>
           <span class="sample-pill"><i></i><span>Sample data</span></span>
-          <button class="demo-accent-button" id="demoAccentButton" type="button" aria-label="Switch accent color"><i></i><span>Indigo</span></button><button class="demo-theme-button" id="demoThemeButton" type="button" aria-label="Switch demo theme">Light</button>
+          <button class="demo-accent-button" id="demoAccentButton" type="button" aria-label="Switch accent color"><i></i><span>Teal</span></button><button class="demo-theme-button" id="demoThemeButton" type="button" aria-label="Switch demo theme">Light</button>
         </div>
         <div class="demo-app">
           <aside class="demo-sidebar">
@@ -908,11 +905,11 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.75); }
     <div class="dialog-head">
       <div>
         <h2 id="agentDialogTitle"><span lang="en">Connect your Agent</span><span lang="zh-CN">Agent 一键接入</span></h2>
-        <p><span lang="en">Send this prompt to your Agent. It will install and verify the tool for you.</span><span lang="zh-CN">将下面的提示词发送给 Agent，它会帮你完成安装和检查。</span></p>
+        <p><span lang="en">Send this prompt to your Agent. It will install the tool, verify it, and walk you through first use.</span><span lang="zh-CN">将下面的提示词发送给 Agent，它会帮你完成安装、检查和首次使用引导。</span></p>
       </div>
       <button class="close-button" id="closeAgentDialog" type="button" aria-label="Close">×</button>
     </div>
-    <div class="prompt" id="agentInstallCommand"><span lang="en">Read https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md and follow it to install and configure SSH Server Manager for me. When finished, run serverctl doctor and report the results.</span><span lang="zh-CN">请阅读 https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md，按照文档为我安装并配置 SSH Server Manager。完成后运行 serverctl doctor，并告诉我检查结果。</span></div>
+    <div class="prompt" id="agentInstallCommand"><span lang="en">Read https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md and follow it to install and configure SSH Server Manager for me. Then: 1) run serverctl doctor and report the results; 2) walk me through first use — if no hosts are managed yet, preview what my ~/.ssh/config could import or guide me through adding a first server (never ask for my password in chat); 3) give me a few example requests I can make next, using the real aliases.</span><span lang="zh-CN">请阅读 https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/docs/ai-agents.md，按照文档为我安装并配置 SSH Server Manager。完成后：1）运行 serverctl doctor 并告诉我检查结果；2）带我完成首次使用——如果还没有托管服务器，先预览我的 ~/.ssh/config 里有哪些可以导入，或引导我添加第一台服务器（密码不要让我在聊天里发送）；3）用真实的别名给我几个接下来可以下达的指令示例。</span></div>
     <button class="btn btn-primary copy-button" id="copyAgentCommand" type="button"><span lang="en">Copy prompt</span><span lang="zh-CN">复制提示词</span></button>
   </div>
 </dialog>
@@ -1162,7 +1159,7 @@ document.querySelectorAll(".open-agent-dialog").forEach(function (button) { butt
 byId("closeAgentDialog").addEventListener("click", function () { agentDialog.close(); });
 copyButton.addEventListener("click", function () { var text = promptText(); if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(copied, function () { fallbackCopy(text); }); else fallbackCopy(text); });
 byId("demoThemeButton").addEventListener("click", function () { var light = demoShell.dataset.demoTheme !== "light"; demoShell.dataset.demoTheme = light ? "light" : "dark"; this.textContent = light ? "Dark" : "Light"; });
-var demoAccents = [["Indigo", "#6366f1", "#818cf8", "rgba(99, 102, 241, .15)"], ["Teal", "#38c8b6", "#63dccd", "rgba(56, 200, 182, .17)"], ["Emerald", "#43cd87", "#6fdfa4", "rgba(67, 205, 135, .17)"], ["Amber", "#e3aa46", "#f0c26b", "rgba(227, 170, 70, .17)"], ["Rose", "#ef7fa4", "#ff9fc0", "rgba(239, 127, 164, .17)"]];
+var demoAccents = [["Teal", "#45b8ab", "#63cabd", "rgba(69, 184, 171, .17)"], ["Indigo", "#6366f1", "#818cf8", "rgba(99, 102, 241, .15)"], ["Emerald", "#43cd87", "#6fdfa4", "rgba(67, 205, 135, .17)"], ["Amber", "#e3aa46", "#f0c26b", "rgba(227, 170, 70, .17)"], ["Rose", "#ef7fa4", "#ff9fc0", "rgba(239, 127, 164, .17)"]];
 var demoAccentIndex = 0;
 byId("demoAccentButton").addEventListener("click", function () {
 demoAccentIndex = (demoAccentIndex + 1) % demoAccents.length;

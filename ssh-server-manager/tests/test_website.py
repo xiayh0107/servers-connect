@@ -103,3 +103,14 @@ def test_marketing_page_uses_clearly_labeled_sample_data():
     assert host_block.count('{ id: "') == 11
     assert "Sample data" in WEBSITE_HTML
     assert "Nothing connects to a real machine." in WEBSITE_HTML
+
+
+def test_marketing_page_defaults_to_the_product_teal():
+    # The shipped product default is teal; the page leads with the same choice
+    # (Indigo survives only as a demo switcher option).
+    assert "--accent: #45b8ab" in WEBSITE_HTML
+    assert "--on-accent" in WEBSITE_HTML
+    assert "shadow-glow" not in WEBSITE_HTML
+    assert "background-clip: text" not in WEBSITE_HTML
+    demo_accents = WEBSITE_HTML.split("var demoAccents = [", 1)[1].split("];", 1)[0]
+    assert demo_accents.startswith('["Teal"')

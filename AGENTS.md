@@ -87,7 +87,9 @@ against command coverage.
 
 Version lives in **four places** — bump all of them together:
 `ssh-server-manager/pyproject.toml`, `scripts/ssh_server_manager/__init__.py`,
-and two spots in `website/index.html` (version badge + footer). Then:
+and two spots in `website/index.html` (version badge + footer).
+`website/build.py` derives its docs-footer version from the package — never
+hand-edit it there. Then:
 
 1. Move `CHANGELOG.md` `## Unreleased` into a dated `## X.Y.Z` section.
 2. Run the full test suite; build with

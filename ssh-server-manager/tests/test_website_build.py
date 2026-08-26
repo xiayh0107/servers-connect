@@ -80,3 +80,10 @@ def test_markdown_cross_links_are_rewritten(site):
     agents = (site / "docs" / "ai-agents.html").read_text(encoding="utf-8")
     for target in re.findall(r'href="([^"]*\.md[^"]*)"', agents):
         assert target.startswith("https://github.com/"), target
+
+
+def test_docs_footer_version_tracks_the_package(site):
+    init = (REPO_ROOT / "ssh-server-manager/scripts/ssh_server_manager/__init__.py").read_text(encoding="utf-8")
+    version = re.search(r'__version__\s*=\s*"([^"]+)"', init).group(1)
+    docs_index = (site / "docs" / "index.html").read_text(encoding="utf-8")
+    assert f"v{version}" in docs_index

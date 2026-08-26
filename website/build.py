@@ -31,7 +31,18 @@ WEBSITE = REPO / "website"
 PKG = REPO / "ssh-server-manager"
 GITHUB = "https://github.com/xiayh0107/servers-connect"
 BLOB = f"{GITHUB}/blob/main"
-VERSION = "0.6.0"
+
+
+def _package_version() -> str:
+    """Derive the docs footer version from the package, so it can't go stale."""
+    init = PKG / "scripts/ssh_server_manager/__init__.py"
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', init.read_text(encoding="utf-8"))
+    if not match:
+        sys.exit(f"cannot read __version__ from {init}")
+    return match.group(1)
+
+
+VERSION = _package_version()
 
 
 @dataclass
