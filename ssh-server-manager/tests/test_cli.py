@@ -7,7 +7,7 @@ import pytest
 
 from ssh_server_manager import __version__
 from ssh_server_manager.cli import main, skill_link_status
-from ssh_server_manager.db import Database
+from ssh_server_manager.db import Database, NotFoundError
 from ssh_server_manager.validation import ValidationError
 
 
@@ -203,3 +203,160 @@ def test_local_destination_resolves_directories_and_guards_overwrites(tmp_path):
     assert validate_local_destination(existing, remote_name="taken.yml", force=True) == existing
     with pytest.raises(ValidationError, match="destination directory does not exist"):
         validate_local_destination(tmp_path / "absent" / "f.yml", remote_name="f.yml")
+
+
+def test_cli_ui_credential_deep_links_into_the_server_dialog(tmp_path, monkeypatch, capsys):
+    pytest.importorskip("uvicorn")
+    monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    database = Database()
+    database.create_server(alias="web1", hostname="a.example", port=22, username="deploy")
+    url_file = tmp_path / "launch-url"
+    observed = {}
+
+    def fake_run(*args, **kwargs):
+        observed["url"] = url_file.read_text(encoding="utf-8").strip()
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+
+    assert main(["ui", "--credential", "web1", "--no-open", "--url-file", str(url_file)]) == 0
+    assert "token=" in observed["url"]
+    assert observed["url"].endswith("#servers/web1/credential")
+    assert "token=" not in capsys.readouterr().out
+
+    assert main(["ui", "--credential", "ghost", "--no-open", "--url-file", str(url_file)]) == 2
+    assert "server not found" in capsys.readouterr().err
+
+
+def test_cli_server_add_password_credential_in_one_shot(tmp_path, monkeypatch, capsys):
+    import getpass
+    from types import SimpleNamespace
+
+    from ssh_server_manager.vault import MemoryVault
+
+    monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing-config"))
+    vault = MemoryVault()
+    monkeypatch.setattr("ssh_server_manager.cli.get_vault", lambda: vault)
+    prompts = iter(["s3cret", "s3cret"])
+    monkeypatch.setattr(getpass, "getpass", lambda prompt: next(prompts))
+    monkeypatch.setattr("sys.stdin", SimpleNamespace(isatty=lambda: True))
+
+    assert (
+        main(
+            [
+                "server",
+                "add",
+                "web1",
+                "--hostname",
+                "a.example",
+                "--username",
+                "deploy",
+                "--password-credential",
+                "web-pass",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    database = Database()
+    server = database.get_server("web1")
+    credential = database.get_credential("web-pass")
+    assert server["credential_id"] == credential["id"]
+    assert credential["kind"] == "password"
+    assert credential["has_secret"] is True
+    assert vault.get_secret(credential["id"], "password") == "s3cret"
+
+    # Without a TTY the hidden prompt cannot run, so fail fast with a pointer
+    # to the browser path instead of hanging an agent tool call.
+    monkeypatch.setattr("sys.stdin", SimpleNamespace(isatty=lambda: False))
+    assert (
+        main(
+            [
+                "server",
+                "add",
+                "web2",
+                "--hostname",
+                "b.example",
+                "--username",
+                "ops",
+                "--password-credential",
+                "ops-pass",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    refused = json.loads(capsys.readouterr().out)
+    assert "ui --credential" in refused["message"]
+    with pytest.raises(NotFoundError):
+        database.get_server("web2")
+
+    # --credential and --password-credential are mutually exclusive.
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "server",
+                "add",
+                "web3",
+                "--hostname",
+                "c.example",
+                "--username",
+                "ops",
+                "--credential",
+                "web-pass",
+                "--password-credential",
+                "other",
+            ]
+        )
+    capsys.readouterr()
+
+
+def test_cli_duplicate_conflicts_point_to_the_edit_commands(tmp_path, monkeypatch, capsys):
+    import getpass
+
+    from ssh_server_manager.vault import MemoryVault
+
+    monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing-config"))
+    monkeypatch.setattr("ssh_server_manager.cli.get_vault", lambda: MemoryVault())
+
+    assert main(["server", "add", "t_rna", "--hostname", "h.example", "--username", "ops", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["server", "add", "t_rna", "--hostname", "h2.example", "--username", "ops", "--json"]) == 2
+    conflict = json.loads(capsys.readouterr().out)
+    assert "server alias already exists" in conflict["message"]
+    assert "serverctl server edit t_rna" in conflict["message"]
+
+    assert main(["credential", "add-agent", "trna", "--json"]) == 0
+    capsys.readouterr()
+    assert main(["credential", "add-agent", "trna", "--json"]) == 2
+    conflict = json.loads(capsys.readouterr().out)
+    assert "credential label already exists" in conflict["message"]
+    assert "serverctl credential edit trna" in conflict["message"]
+
+    # A taken label fails before the hidden prompt runs, so users correcting a
+    # typo never type the secret twice for nothing.
+    def forbidden_prompt(prompt):
+        raise AssertionError("getpass must not run for a taken label")
+
+    monkeypatch.setattr(getpass, "getpass", forbidden_prompt)
+    assert main(["credential", "add-password", "trna", "--json"]) == 2
+    conflict = json.loads(capsys.readouterr().out)
+    assert "--replace-secret" in conflict["message"]
+
+
+def test_add_help_text_points_to_the_edit_commands(capsys):
+    with pytest.raises(SystemExit) as server_help:
+        main(["server", "add", "--help"])
+    assert server_help.value.code == 0
+    assert "serverctl server edit" in capsys.readouterr().out
+
+    with pytest.raises(SystemExit) as credential_help:
+        main(["credential", "add-password", "--help"])
+    assert credential_help.value.code == 0
+    assert "serverctl credential edit" in capsys.readouterr().out

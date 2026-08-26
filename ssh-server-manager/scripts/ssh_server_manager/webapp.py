@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import posixpath
+import re
 import secrets
 import shutil
 import signal
@@ -32,6 +33,19 @@ SESSION_COOKIE = "ssm_session"
 # The browser stages transfers through memory and a temp file; large files
 # belong on the CLI path, which streams straight through sftp.
 MAX_WEB_TRANSFER_BYTES = 100 * 1024 * 1024
+
+# Allowed shapes for the optional client-side launch fragment. The fragment
+# never reaches the server (browsers do not send it), so it can only steer the
+# page the one-time URL opens — keep it free of anything sensitive anyway.
+_LAUNCH_FRAGMENT_RE = re.compile(r"^servers/[A-Za-z0-9][A-Za-z0-9._-]{0,62}/credential$")
+
+
+def _validate_launch_fragment(fragment: str | None) -> str | None:
+    if fragment is None:
+        return None
+    if not _LAUNCH_FRAGMENT_RE.fullmatch(fragment):
+        raise UIError(f"unsupported launch view: {fragment!r}")
+    return fragment
 
 
 class UIError(ValidationError):
@@ -738,7 +752,12 @@ def ui_stop(*, timeout: float = 5.0) -> dict[str, Any]:
 
 
 def run_ui(
-    *, database: Database, port: int = 0, open_browser: bool = True, url_file: Path | None = None
+    *,
+    database: Database,
+    port: int = 0,
+    open_browser: bool = True,
+    url_file: Path | None = None,
+    launch_fragment: str | None = None,
 ) -> None:
     try:
         import uvicorn
@@ -746,9 +765,12 @@ def run_ui(
         raise RuntimeError("UI dependencies are missing; run scripts/bootstrap") from exc
     if not open_browser and url_file is None:
         raise UIError("--no-open requires --url-file so the one-time URL stays out of terminal output")
+    fragment = _validate_launch_fragment(launch_fragment)
     actual_port = _select_loopback_port(port)
     launch_token = secrets.token_urlsafe(32)
     url = f"http://localhost:{actual_port}/?token={launch_token}"
+    if fragment is not None:
+        url = f"{url}#{fragment}"
     written: Path | None = None
     if url_file is not None:
         written = _write_private_url(url_file, url)

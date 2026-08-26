@@ -130,6 +130,11 @@ def build_parser() -> argparse.ArgumentParser:
     ui_action = ui.add_mutually_exclusive_group()
     ui_action.add_argument("--status", action="store_true", help="report the managed UI process instead of launching")
     ui_action.add_argument("--stop", action="store_true", help="stop the managed UI process and clean up its URL file")
+    ui_action.add_argument(
+        "--credential",
+        metavar="ALIAS",
+        help="open the UI directly on ALIAS's edit dialog with the new-credential form expanded",
+    )
     add_json_option(ui)
 
     server = commands.add_parser("server", help="manage connection profiles")
@@ -140,12 +145,22 @@ def build_parser() -> argparse.ArgumentParser:
     server_show.add_argument("alias")
     add_json_option(server_show)
 
-    server_add = server_commands.add_parser("add")
+    server_add = server_commands.add_parser(
+        "add",
+        epilog="add only creates and refuses an existing alias; "
+        "to change a server use 'serverctl server edit ALIAS'.",
+    )
     server_add.add_argument("alias")
     server_add.add_argument("--hostname", required=True)
     server_add.add_argument("--username", required=True)
     server_add.add_argument("--port", type=int, default=22)
-    server_add.add_argument("--credential")
+    server_add_credential = server_add.add_mutually_exclusive_group()
+    server_add_credential.add_argument("--credential")
+    server_add_credential.add_argument(
+        "--password-credential",
+        metavar="LABEL",
+        help="create a password credential via a hidden local prompt and attach it (terminal only)",
+    )
     server_add.add_argument("--proxy-jump", action="append", default=[])
     server_add.add_argument("--tag", action="append", default=[], help="project/context tag; repeat as needed")
     server_add.add_argument("--notes", default="")
@@ -297,15 +312,20 @@ def build_parser() -> argparse.ArgumentParser:
     credential_commands = credential.add_subparsers(dest="credential_command", required=True)
     credential_list = credential_commands.add_parser("list")
     add_json_option(credential_list)
-    add_password = credential_commands.add_parser("add-password")
+    credential_edit_hint = (
+        "add only creates and refuses an existing label; "
+        "to update a credential use 'serverctl credential edit LABEL' "
+        "(--replace-secret for a new password)."
+    )
+    add_password = credential_commands.add_parser("add-password", epilog=credential_edit_hint)
     add_password.add_argument("label")
     add_json_option(add_password)
-    add_key = credential_commands.add_parser("add-key")
+    add_key = credential_commands.add_parser("add-key", epilog=credential_edit_hint)
     add_key.add_argument("label")
     add_key.add_argument("--key-path", required=True)
     add_key.add_argument("--store-passphrase", action="store_true")
     add_json_option(add_key)
-    add_agent = credential_commands.add_parser("add-agent")
+    add_agent = credential_commands.add_parser("add-agent", epilog=credential_edit_hint)
     add_agent.add_argument("label")
     add_json_option(add_agent)
     edit_credential = credential_commands.add_parser("edit")
@@ -353,6 +373,24 @@ def resolve_credential(database: Database, value: str | None) -> str | None:
     if not value or value.casefold() == "none":
         return None
     return database.get_credential(value)["id"]
+
+
+def require_new_credential_label(database: Database, label: str) -> None:
+    """Fail before any hidden prompt when a credential label is taken.
+
+    Entering a password twice only to learn the label exists is a dead end
+    for users who actually wanted to *update* the secret — point them at the
+    edit command instead.
+    """
+    try:
+        database.get_credential(label)
+    except NotFoundError:
+        return
+    raise ConflictError(
+        f"credential label already exists: {label}; "
+        f"to update it use 'serverctl credential edit {label}' "
+        "(--replace-secret for a new password)"
+    )
 
 
 def confirm(prompt: str, forced: bool) -> bool:
@@ -475,6 +513,11 @@ def handle(args: argparse.Namespace) -> int:
             port=args.port,
             open_browser=not args.no_open,
             url_file=args.url_file,
+            launch_fragment=(
+                f"servers/{database.get_server(args.credential)['alias']}/credential"
+                if args.credential
+                else None
+            ),
         )
         return 0
     if args.command == "server":
@@ -483,16 +526,38 @@ def handle(args: argparse.Namespace) -> int:
         elif args.server_command == "show":
             emit(database.get_server(args.alias), as_json=args.json)
         elif args.server_command == "add":
-            result = database.create_server(
-                alias=args.alias,
-                hostname=args.hostname,
-                port=args.port,
-                username=args.username,
-                credential_id=resolve_credential(database, args.credential),
-                proxy_jumps=args.proxy_jump,
-                tags=args.tag,
-                notes=args.notes,
-            )
+            credential_id = resolve_credential(database, args.credential)
+            if args.password_credential is not None:
+                if not sys.stdin.isatty():
+                    raise VaultError(
+                        "--password-credential needs a local terminal for the hidden password "
+                        "prompt; run this command in your own terminal, or add the server "
+                        "without it and enter the password via 'serverctl ui --credential ALIAS'"
+                    )
+                require_new_credential_label(database, args.password_credential)
+                first = getpass.getpass("Password: ")
+                second = getpass.getpass("Confirm password: ")
+                if first != second:
+                    raise VaultError("password confirmation does not match")
+                credential_id = (
+                    CredentialService(database, get_vault())
+                    .create_password(args.password_credential, first)["id"]
+                )
+            try:
+                result = database.create_server(
+                    alias=args.alias,
+                    hostname=args.hostname,
+                    port=args.port,
+                    username=args.username,
+                    credential_id=credential_id,
+                    proxy_jumps=args.proxy_jump,
+                    tags=args.tag,
+                    notes=args.notes,
+                )
+            except ConflictError as exc:
+                raise ConflictError(
+                    f"{exc}; to update it use 'serverctl server edit {args.alias}'"
+                ) from exc
             render_config(database)
             emit(result, as_json=args.json)
         elif args.server_command == "edit":
@@ -658,15 +723,18 @@ def handle(args: argparse.Namespace) -> int:
             return 0
         service = CredentialService(database, get_vault())
         if args.credential_command == "add-password":
+            require_new_credential_label(database, args.label)
             first = getpass.getpass("Password: ")
             second = getpass.getpass("Confirm password: ")
             if first != second:
                 raise VaultError("password confirmation does not match")
             result = service.create_password(args.label, first)
         elif args.credential_command == "add-key":
+            require_new_credential_label(database, args.label)
             passphrase = getpass.getpass("Private-key passphrase: ") if args.store_passphrase else None
             result = service.create_key(args.label, args.key_path, passphrase or None)
         elif args.credential_command == "add-agent":
+            require_new_credential_label(database, args.label)
             result = service.create_agent(args.label)
         elif args.credential_command == "edit":
             secret = getpass.getpass("New password: ") if args.replace_secret else None

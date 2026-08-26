@@ -595,3 +595,38 @@ def test_ui_rejects_oversized_uploads(tmp_path, monkeypatch):
     assert response.status_code == 400
     assert "web transfer limit" in response.json()["message"]
     assert list((tmp_path / "runtime").glob("ul-*")) == []
+
+
+def test_run_ui_appends_launch_fragment_after_the_token(tmp_path, monkeypatch):
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    database = Database(tmp_path / "manager.db")
+    url_file = tmp_path / "launch-url"
+    observed = {}
+
+    def fake_run(*args, **kwargs):
+        observed["url"] = url_file.read_text(encoding="utf-8").strip()
+
+    monkeypatch.setattr("uvicorn.run", fake_run)
+
+    run_ui(
+        database=database,
+        port=0,
+        open_browser=False,
+        url_file=url_file,
+        launch_fragment="servers/web1/credential",
+    )
+
+    assert "token=" in observed["url"]
+    assert observed["url"].endswith("#servers/web1/credential")
+
+
+def test_run_ui_rejects_an_invalid_launch_fragment(tmp_path):
+    database = Database(tmp_path / "manager.db")
+    with pytest.raises(UIError):
+        run_ui(
+            database=database,
+            port=0,
+            open_browser=False,
+            url_file=tmp_path / "launch-url",
+            launch_fragment="servers/../../etc/passwd",
+        )
