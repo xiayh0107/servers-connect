@@ -114,3 +114,11 @@ def test_marketing_page_defaults_to_the_product_teal():
     assert "background-clip: text" not in WEBSITE_HTML
     demo_accents = WEBSITE_HTML.split("var demoAccents = [", 1)[1].split("];", 1)[0]
     assert demo_accents.startswith('["Teal"')
+
+
+def test_marketing_page_footer_version_tracks_the_package():
+    init = (REPO_ROOT / "ssh-server-manager/scripts/ssh_server_manager/__init__.py").read_text(encoding="utf-8")
+    version = re.search(r'__version__\s*=\s*"([^"]+)"', init).group(1)
+    assert f"v{version}" in WEBSITE_HTML
+
+

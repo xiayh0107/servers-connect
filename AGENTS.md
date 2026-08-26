@@ -85,9 +85,10 @@ against command coverage.
 
 ## Releases
 
-Version lives in **four places** — bump all of them together:
+Version lives in **three places** — bump all of them together:
 `ssh-server-manager/pyproject.toml`, `scripts/ssh_server_manager/__init__.py`,
-and two spots in `website/index.html` (version badge + footer).
+and the footer in `website/index.html` (guarded by
+`test_marketing_page_footer_version_tracks_the_package`).
 `website/build.py` derives its docs-footer version from the package — never
 hand-edit it there. Then:
 

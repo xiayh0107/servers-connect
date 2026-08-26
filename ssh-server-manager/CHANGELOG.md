@@ -1,24 +1,6 @@
 # Changelog
 
-## Unreleased
-
-### Changed
-- Agent-driven installation now treats `serverctl doctor` as a local health
-  checkpoint rather than the end of onboarding. After a healthy install,
-  agents are instructed to read the managed host inventory, summarize the
-  actual aliases, give a few natural-language examples of what the user can
-  ask next, and explain that saved SSH secrets stay in the local OS vault.
-- `SKILL.md`, `docs/ai-agents.md`, both one-line installers, and the CLI/command
-  references now explicitly avoid first-run CLI tutorials and diagnostic dumps
-  by default. They also distinguish local readiness from an untested remote
-  login and forbid adding remote tests merely to make onboarding look complete.
-- Duplicate-name errors now name the way out: `server add` with an existing
-  alias answers with the matching `serverctl server edit` command, and a
-  taken credential label points to `credential edit` (failing *before* the
-  hidden password prompt, so correcting a typo no longer means typing the
-  secret twice for nothing). The `add`/`add-*` help texts say the same up
-  front, and the FAQ gained the two most-hit confusion entries, so the
-  edit path is discoverable before the error ever happens.
+## 0.8.0 — 2026-08-26
 
 ### Added
 - `serverctl ui --credential ALIAS` deep-links first-time credential entry:
@@ -38,6 +20,22 @@
   commands.
 
 ### Changed
+- Agent-driven installation now treats `serverctl doctor` as a local health
+  checkpoint rather than the end of onboarding. After a healthy install,
+  agents are instructed to read the managed host inventory, summarize the
+  actual aliases, give a few natural-language examples of what the user can
+  ask next, and explain that saved SSH secrets stay in the local OS vault.
+- `SKILL.md`, `docs/ai-agents.md`, both one-line installers, and the CLI/command
+  references now explicitly avoid first-run CLI tutorials and diagnostic dumps
+  by default. They also distinguish local readiness from an untested remote
+  login and forbid adding remote tests merely to make onboarding look complete.
+- Duplicate-name errors now name the way out: `server add` with an existing
+  alias answers with the matching `serverctl server edit` command, and a
+  taken credential label points to `credential edit` (failing *before* the
+  hidden password prompt, so correcting a typo no longer means typing the
+  secret twice for nothing). The `add`/`add-*` help texts say the same up
+  front, and the FAQ gained the two most-hit confusion entries, so the
+  edit path is discoverable before the error ever happens.
 - The UI's default accent is now **teal** instead of indigo — a deliberate
   brand choice rather than the statistical default of generated interfaces.
   Indigo remains available as an accent option (now backed by explicit
