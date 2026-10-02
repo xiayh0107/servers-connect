@@ -20,6 +20,8 @@ NOTES_STYLES = (UI_DIR / "notes.css").read_text(encoding="utf-8")
 WORKSPACE_JAVASCRIPT = (UI_DIR / "workspace.js").read_text(encoding="utf-8")
 WORKSPACE_STYLES = (UI_DIR / "workspace.css").read_text(encoding="utf-8")
 THEME_STYLES = (UI_DIR / "themes.css").read_text(encoding="utf-8")
+HOST_JAVASCRIPT = (UI_DIR / "hosts.js").read_text(encoding="utf-8")
+HOST_STYLES = (UI_DIR / "hosts.css").read_text(encoding="utf-8")
 ACCENTS = ("teal", "indigo", "emerald", "amber", "rose", "violet", "graphite")
 
 
@@ -147,7 +149,7 @@ def test_host_skill_summary_is_not_a_repeated_live_region():
     assert "aria-live" not in mount.group(0)
 
 
-def test_workspace_first_shell_has_navigation_and_responsive_states():
+def test_hosts_first_shell_has_navigation_and_responsive_states():
     required_ids = {
         "hostNavigation",
         "labelNavigation",
@@ -174,7 +176,12 @@ def test_workspace_first_shell_has_navigation_and_responsive_states():
         "viewAllHostsButton",
         "serversView",
         "connectionToolbarMount",
-        "summaryReachableHosts",
+        "hostsLoadState",
+        "hostsLoadMessage",
+        "hostsRetryButton",
+        "emptyInventoryAddButton",
+        "emptyInventoryImportButton",
+        "emptyInventoryResetButton",
         "contextsView",
         "contextManagerMount",
         "skillsView",
@@ -329,3 +336,47 @@ def test_server_dialog_save_is_not_blocked_by_hidden_controls():
     # to pattern attributes (a bare class-range hyphen throws since M136).
     match = re.search(r"\bpattern=([^\s>]+)", HTML)
     assert match and "\\-" in match.group(1)
+
+
+def test_inventory_starts_with_actionable_hosts_instead_of_summary_cards():
+    assert 'view:"servers"' in JAVASCRIPT
+    assert "connection-summary" not in HTML
+    assert "summaryTotalHosts" not in HTML + JAVASCRIPT
+    assert "host-detail-link" in JAVASCRIPT
+    assert "data-host-details" in JAVASCRIPT
+    assert "Copy SSH command for" in JAVASCRIPT
+    assert "No hosts yet" in HTML + JAVASCRIPT
+    assert "Could not load hosts" in JAVASCRIPT
+    assert "Try again" in HTML
+    assert 'import("/assets/hosts.js")' in JAVASCRIPT
+    # Identity, endpoint, tags, status and actions; bulk selection is enhanced.
+    table = re.search(r'<table class="management-table connection-table">(.*?)<tbody', HTML).group(1)
+    assert len(re.findall(r"<th(?:>|\s)", table)) == 5
+    assert "Search hosts, endpoints, tags, or notes" in CONTEXT_JAVASCRIPT
+
+
+def test_accent_setter_and_tag_color_have_distinct_names():
+    # A duplicated tc() declaration previously silently shadowed the setter.
+    declarations = re.findall(r"function ([A-Za-z_$][\w$]*)\(", JAVASCRIPT)
+    assert len(declarations) == len(set(declarations))
+
+
+def test_host_details_are_small_read_only_and_theme_aware():
+    assets = [HOST_JAVASCRIPT.encode(), HOST_STYLES.encode()]
+    assert sum(map(len, assets)) <= 22_000
+    assert sum(len(gzip.compress(value, 9, mtime=0)) for value in assets) <= 7_000
+    assert "export function syncHostDetails" in HOST_JAVASCRIPT
+    assert "export function openHostDetails" in HOST_JAVASCRIPT
+    assert "fetch(" not in HOST_JAVASCRIPT
+    assert "/api/" not in HOST_JAVASCRIPT
+    assert "navigator.clipboard.writeText" in HOST_JAVASCRIPT
+    assert "showModal" in HOST_JAVASCRIPT
+    assert '"popstate"' in HOST_JAVASCRIPT
+    assert "textContent" in HOST_JAVASCRIPT
+    assert "aria-labelledby" in HOST_JAVASCRIPT
+    assert "backdrop-filter" not in HOST_STYLES
+    assert "https://" not in HOST_STYLES + HOST_JAVASCRIPT
+    assert "http://" not in HOST_STYLES + HOST_JAVASCRIPT
+    for width in (820, 640):
+        assert re.search(rf"@media\s*\((?:max-width:\s*{width}px|width\s*<=\s*{width}px)\)", HOST_STYLES)
+    assert "prefers-reduced-motion" in HOST_STYLES

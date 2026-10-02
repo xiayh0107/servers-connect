@@ -258,6 +258,8 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
     async def assets(filename: str, _session=Depends(browser_session)):
         if filename not in {
             "app.js",
+            "hosts.js",
+            "hosts.css",
             "styles.css",
             "themes.css",
             "contexts.js",

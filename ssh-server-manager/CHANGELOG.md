@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Open the local UI on a searchable Hosts inventory, replacing overview cards
+  with a compact actionable list and explicit empty/loading/error states.
+- Add read-only host details with full notes, saved connection status, focus and
+  browser-history handling, and a one-click managed SSH command with clipboard retry.
+- Keep existing connection APIs and loopback/session/CSRF/Origin/vault protections;
+  add isolated no-network fixtures and UI interaction/security regressions.
+- Fix accent selection being shadowed by the categorical tag-color helper.
+
+
 ## 0.8.0 — 2026-08-26
 
 ### Added

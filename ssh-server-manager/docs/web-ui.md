@@ -26,9 +26,28 @@ to get a new one. Sessions last 12 hours. The `--credential` target travels
 in the URL fragment, which browsers never send to the server — it only
 steers which dialog the page opens.
 
+## Start with your hosts
+
+The UI opens on **Hosts**. The inventory shows host, endpoint, tags, last saved
+connection status, and actions without overview cards. Search matches aliases,
+hostnames, usernames, tags, and notes; the tag filter scopes the same list.
+
+Select a host name to open its read-only details: full notes, endpoint, port,
+ProxyJump route, credential label and the latest saved check. Opening details
+never starts SSH or SFTP and never reveals a secret. **Copy SSH command** copies
+`serverctl connect ALIAS`, so the existing managed authentication and host-key
+checks apply when you run it in your terminal. **Browse files** and **Edit host**
+remain explicit actions. Close or Escape returns focus to the host list; browser
+Back and Forward follow the detail view.
+
+An empty inventory offers **Add host** and **Import config**. A failed inventory
+load shows an error and **Try again**, rather than presenting an empty list as
+success. Existing light/dark/high-contrast themes and accent choices apply to
+both the list and details.
+
 ## What you can do
 
-- **Servers** — add, edit, remove; assign reusable project/environment tags;
+- **Hosts** — add, edit, remove; assign reusable project/environment tags;
   manage ordered ProxyJump chains; run individual or selected-host connection
   tests with latency and classified errors; open **Diagnostics** on a host to
   inspect its local profile, SSH, SFTP, and remote system summary. Use **Note**
@@ -52,7 +71,7 @@ steers which dialog the page opens.
   dimension, then use the global tag selector to scope both the workspace and
   connection inventory to that subset. The last selection is stored on this
   device. **Tags** is a dedicated library for inline creation, rename, deletion,
-  usage counts, and host previews. In **Connections**, select one or more hosts
+  usage counts, and host previews. In **Hosts**, select one or more hosts
   and open the single **Edit tags** picker: checked, mixed, and empty states
   show current membership, and clicking an item adds or removes it. Search for
   an existing tag or type a new name and choose **Create** to create and assign
@@ -71,7 +90,7 @@ steers which dialog the page opens.
   registering or binding never installs a skill or runs its instructions.
   Missing, invalid, renamed, and same-name conflicting paths remain visible as
   errors instead of being silently replaced. Host-first management is available
-  without visiting the library: every row in **Connections** shows an
+  without visiting the library: every row in **Hosts** shows an
   **Assign skills** or skill-count control, and the active Host Workspace shows
   its attached Skills, readiness, and a host-scoped picker. Bindings make a
   Skill eligible for that Host; normal Skill trigger rules still decide whether
@@ -130,21 +149,24 @@ which would be slow and could trigger many authentication prompts.
 
 ## Performance baseline
 
-The local UI deliberately stays framework-free and self-contained: its first
-view loads one stylesheet and one deferred JavaScript file, uses system fonts,
-and makes no CDN or third-party network requests. Automated tests keep those
-initial assets below 104 KB uncompressed and 26 KB compressed. Tag
-management, connection bulk actions, and the chip picker are separate
-dependency-free assets loaded only when one of those controls is opened (below
-48 KB uncompressed / 11.5 KB compressed together). The Agent Skills library
-and host-binding picker use their own lazy asset pair under the same budget;
-they load only when the Skills view or an active host needs them.
+The local UI stays framework-free and self-contained, uses system fonts, and
+makes no CDN or third-party network requests. Automated tests keep the core
+HTML, stylesheet and app script below 107 KB uncompressed / 26 KB compressed.
+The initial Hosts view also loads the dependency-free tag/search/selection
+assets (below 48 KB / 11.5 KB) and host-details assets (below 22 KB / 7 KB).
+Existing diagnostics, notes, and workspace helpers remain separate local assets.
+The Agent Skills library and host-binding picker stay lazy: they load only when
+the Skills view or an active host needs them.
 
-Opening the UI does not initiate an SSH connection. Remote work begins only
-after a host is selected. Directory filtering and sorting happen locally, while
+Opening the UI and selecting host details do not initiate an SSH connection.
+Remote work begins only after an explicit **Browse files**, **Test**, diagnostics
+or transfer action. Directory filtering and sorting happen locally, while
 large results render in batches of 250 rows so a directory with thousands of
 entries does not create thousands of DOM nodes at once. Motion is limited to a
 lightweight loading pulse and is disabled by the reduced-motion preference.
+
+Host details read the existing bootstrap state and make no additional API
+requests.
 
 See [ui-ux-research.md](ui-ux-research.md) for the evidence and task-model
 audit behind the host and tag interaction.

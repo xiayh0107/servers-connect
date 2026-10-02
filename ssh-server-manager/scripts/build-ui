@@ -28,7 +28,7 @@ WORK="${2:-}"
 [ -n "$MODE" ] && [ -n "$WORK" ] || { echo "usage: build-ui beautify|minify <workdir>" >&2; exit 2; }
 command -v npx >/dev/null || { echo "error: node/npx required" >&2; exit 1; }
 
-# Tracked-minified core; diagnostics/notes are committed readable and stay put.
+# Tracked-minified core; diagnostics/notes/workspace/hosts stay readable.
 CSS_FILES="styles contexts skills themes"
 JS_FILES="app contexts skills"
 
@@ -75,6 +75,7 @@ for label, names, lraw, lgz in (
     ("notes", ["notes.js", "notes.css"], 24_000, 9_000),
     ("workspace", ["workspace.js", "workspace.css"], 20_000, 7_000),
     ("themes", ["themes.css"], 8_000, 1_800),
+    ("hosts", ["hosts.js", "hosts.css"], 22_000, 7_000),
 ):
     r, g = group(names)
     flag = "" if r <= lraw and g <= lgz else "  <-- OVER BUDGET"

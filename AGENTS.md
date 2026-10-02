@@ -61,6 +61,15 @@ literals, and keep the shipped default accent teal (Indigo stays a
 user-selectable option via explicit `themes.css` blocks). The rationale
 lives in `docs/ui-ux-research.md` ("Design tokens").
 
+`hosts.js` / `hosts.css` are readable, dependency-free detail sidecars, like
+`notes` and `workspace`; edit them directly. `hosts.js` only reads bootstrap
+state. Keep opening host details free of network/SSH/vault operations.
+For interaction regressions, run `node tests/test_host_details_node.mjs` and
+`npm ci --prefix tests/ui && npm test --prefix tests/ui` from
+`ssh-server-manager/`. These are development-only dependencies; shipped UI
+assets remain dependency-free. See `tests/manual/README.md` for disposable
+loopback browser fixtures.
+
 ## Documentation must stay in sync
 
 Any change to the CLI surface or agent-facing behavior updates all of:
