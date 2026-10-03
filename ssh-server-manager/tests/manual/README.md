@@ -50,6 +50,9 @@ used only for bootstrap/error/retry checks. They do not simulate remote health.
 
 1. At desktop and narrow viewport widths, scan all eight hosts and verify status,
    alias/address, username, port, tags and credential summary are understandable
+   (the inventory scrolls horizontally on narrow screens). With visible system
+   scrollbars, confirm the detail drawer keeps both edges inside the viewport
+   and the tag filter still displays its selected value.
 2. Search by alias, address, username and context where supported; try mixed
    case, whitespace, a long query, and a query with no matches; clear search
 3. Filter production, staging and the empty `archived-empty` context; verify

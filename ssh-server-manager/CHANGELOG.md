@@ -9,6 +9,8 @@
 - Keep existing connection APIs and loopback/session/CSRF/Origin/vault protections;
   add isolated no-network fixtures and UI interaction/security regressions.
 - Fix accent selection being shadowed by the categorical tag-color helper.
+- Keep narrow-screen host details inside the available viewport when scrollbars
+  are visible, and give the tag filter a readable full-width row.
 
 
 ## 0.8.0 — 2026-08-26
