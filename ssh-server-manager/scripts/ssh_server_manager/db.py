@@ -5,7 +5,7 @@ import os
 import sqlite3
 import stat
 import uuid
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -61,6 +61,7 @@ class Database:
         self._initialize()
 
     def connect(self) -> sqlite3.Connection:
+        # SQLite context exit commits/rolls back; callers must also close the handle.
         connection = sqlite3.connect(self.path, timeout=10)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
@@ -82,7 +83,7 @@ class Database:
 
     def _initialize(self) -> None:
         is_new = not self.path.exists()
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             if version < 0 or version > SCHEMA_VERSION:
                 raise DatabaseError(f"database schema {version} is newer than supported {SCHEMA_VERSION}")
@@ -302,12 +303,12 @@ class Database:
         }
 
     def list_credentials(self) -> list[dict[str, Any]]:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             rows = connection.execute("SELECT * FROM credentials ORDER BY label COLLATE NOCASE").fetchall()
         return [self._credential_dict(row) for row in rows]
 
     def get_credential(self, identifier: str) -> dict[str, Any]:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             row = connection.execute(
                 "SELECT * FROM credentials WHERE id = ? OR label = ? COLLATE NOCASE", (identifier, identifier)
             ).fetchone()
@@ -432,7 +433,7 @@ class Database:
         self._write_context_registry(connection, contexts)
 
     def list_server_contexts(self) -> list[dict[str, Any]]:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             contexts = self._read_context_registry(connection)
             rows = connection.execute("SELECT tags FROM servers").fetchall()
         names = {name.casefold(): name for name in contexts}
@@ -649,7 +650,7 @@ class Database:
         }
 
     def list_skills(self, server_identifier: str | None = None) -> list[dict[str, Any]]:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             parameters: tuple[str, ...] = ()
             query = "SELECT sk.* FROM skills sk"
             if server_identifier is not None:
@@ -661,7 +662,7 @@ class Database:
             return [self._skill_dict(connection, row) for row in rows]
 
     def get_skill(self, identifier: str) -> dict[str, Any]:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             row = self._find_skill_row(connection, identifier)
             return self._skill_dict(connection, row)
 
@@ -779,7 +780,7 @@ class Database:
 
     def resolve_skills(self, server_identifiers: list[str]) -> dict[str, Any]:
         """Resolve host-specific skills in one read-only, multi-host operation."""
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             servers = self._resolve_server_rows(connection, server_identifiers)
             hosts: list[dict[str, Any]] = []
             applies_to: dict[str, list[str]] = {}
@@ -867,7 +868,7 @@ class Database:
     _PATH_ORDER = "ORDER BY last_used_at IS NULL, last_used_at DESC, label COLLATE NOCASE"
 
     def list_server_paths(self, server_identifier: str) -> list[dict[str, Any]]:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             server = self._find_server_row(connection, str(server_identifier))
             rows = connection.execute(
                 f"SELECT * FROM server_paths WHERE server_id = ? {self._PATH_ORDER}",
@@ -876,7 +877,7 @@ class Database:
             return [self._server_path_dict(row, server["alias"]) for row in rows]
 
     def get_server_path(self, server_identifier: str, identifier: str) -> dict[str, Any]:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             server = self._find_server_row(connection, str(server_identifier))
             row = self._find_server_path_row(connection, server["id"], str(identifier))
             return self._server_path_dict(row, server["alias"])
@@ -1016,7 +1017,7 @@ class Database:
         see that several machines share a layout. This never touches the network:
         it reports what the user saved, not what currently exists on disk.
         """
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             servers = self._resolve_server_rows(connection, server_identifiers)
             hosts: list[dict[str, Any]] = []
             applies_to: dict[str, list[str]] = {}
@@ -1048,12 +1049,12 @@ class Database:
         return {"ok": True, "hosts": hosts, "paths": paths}
 
     def list_servers(self) -> list[dict[str, Any]]:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             rows = connection.execute(self._server_query() + " ORDER BY s.alias COLLATE NOCASE").fetchall()
         return [self._server_dict(row) for row in rows]
 
     def get_server(self, identifier: str) -> dict[str, Any]:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             row = connection.execute(
                 self._server_query() + " WHERE s.id = ? OR s.alias = ? COLLATE NOCASE", (identifier, identifier)
             ).fetchone()
@@ -1228,7 +1229,7 @@ class Database:
         return self.get_server(current["id"])
 
     def get_setting(self, key: str) -> str | None:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             row = connection.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else None
 
@@ -1243,7 +1244,7 @@ class Database:
             )
 
     def list_webauthn_credentials(self) -> list[dict[str, Any]]:
-        with self.connect() as connection:
+        with closing(self.connect()) as connection, connection:
             rows = connection.execute("SELECT * FROM webauthn_credentials ORDER BY created_at").fetchall()
         return [
             {

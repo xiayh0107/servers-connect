@@ -501,3 +501,96 @@ def test_private_dir_rejects_symlink(tmp_path):
     link.symlink_to(target, target_is_directory=True)
     with pytest.raises(RuntimeError, match="not a real directory"):
         ensure_private_dir(link)
+
+
+@pytest.fixture
+def retained_connections(monkeypatch):
+    """Hold real connections alive so GC cannot hide a missing close()."""
+    connections = []
+    connect = Database.connect
+
+    def retain(database):
+        connection = connect(database)
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(Database, "connect", retain)
+    try:
+        yield connections
+    finally:
+        for connection in connections:
+            connection.close()
+
+
+def assert_connections_closed(connections):
+    assert connections
+    for connection in connections:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+            connection.execute("SELECT 1")
+
+
+def test_initialization_closes_connections_including_current_schema(tmp_path, retained_connections):
+    path = tmp_path / "manager.db"
+    Database(path)
+    assert_connections_closed(retained_connections)
+    Database(path)  # The already-current schema takes an early return.
+    assert_connections_closed(retained_connections)
+
+
+def test_reads_close_connections_on_success_and_error(tmp_path, retained_connections):
+    database = Database(tmp_path / "manager.db")
+    database.create_credential(label="Fixture agent", kind="agent")
+    database.create_server(alias="box", hostname="box.example.invalid", username="u")
+    database.create_skill(name="fixture", path=tmp_path / "fixture" / "SKILL.md", description="Fixture")
+    database.create_server_path("box", label="app", path="/srv/app")
+    reads = [
+        (database.list_credentials, ()),
+        (database.get_credential, ("Fixture agent",)),
+        (database.list_server_contexts, ()),
+        (database.list_skills, ()),
+        (database.get_skill, ("fixture",)),
+        (database.resolve_skills, (["box"],)),
+        (database.list_server_paths, ("box",)),
+        (database.get_server_path, ("box", "app")),
+        (database.resolve_server_paths, (["box"],)),
+        (database.list_servers, ()),
+        (database.get_server, ("box",)),
+        (database.get_setting, ("absent",)),
+        (database.list_webauthn_credentials, ()),
+    ]
+    for read, args in reads:
+        read(*args)
+        assert_connections_closed(retained_connections)
+    # get_skill raises inside the connection context, rather than after it.
+    with pytest.raises(NotFoundError):
+        database.get_skill("missing")
+    assert_connections_closed(retained_connections)
+    database.path.unlink()  # Also exercise Windows' open-file deletion rule.
+
+
+def test_rejected_schema_closes_connection(tmp_path, retained_connections):
+    path = tmp_path / "manager.db"
+    connection = sqlite3.connect(path)
+    try:
+        connection.execute("PRAGMA user_version = 999")
+    finally:
+        connection.close()
+    with pytest.raises(DatabaseError, match="newer than supported"):
+        Database(path)
+    assert_connections_closed(retained_connections)
+    path.unlink()
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_transaction_closes_connection_and_preserves_atomicity(tmp_path, retained_connections, fail):
+    database = Database(tmp_path / "manager.db")
+    database.set_setting("test", "before")
+    try:
+        with database.transaction() as connection:
+            connection.execute("UPDATE settings SET value = 'after' WHERE key = 'test'")
+            if fail:
+                raise RuntimeError("Abort transaction")
+    except RuntimeError:
+        assert fail
+    assert database.get_setting("test") == ("before" if fail else "after")
+    assert_connections_closed(retained_connections)

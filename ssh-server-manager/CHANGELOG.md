@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Close SQLite connections after initialization and reads, including error paths,
+  so disposable UI fixtures release database files before cleanup on Windows.
 - Open the local UI on a searchable Hosts inventory, replacing overview cards
   with a compact actionable list and explicit empty/loading/error states.
 - Add read-only host details with full notes, saved connection status, focus and
