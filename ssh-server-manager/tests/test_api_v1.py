@@ -1,0 +1,271 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+
+from ssh_server_manager import webapp
+from ssh_server_manager.cli import main
+from ssh_server_manager.db import Database
+from ssh_server_manager.ssh_runner import SSHRunner
+from ssh_server_manager.vault import MemoryVault
+
+
+ORIGIN = "http://localhost:8765"
+
+
+@pytest.fixture
+def backend(tmp_path, monkeypatch):
+    monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing.conf"))
+    database = Database()
+    database.create_server(alias="box", hostname="box.example.invalid", username="alice", tags=["Lab"])
+    vault = MemoryVault()
+    monkeypatch.setattr(webapp, "get_vault", lambda: vault)
+    app = webapp.create_app(database, launch_token="fixture-launch", port=8765)
+    with TestClient(app, base_url=ORIGIN) as client:
+        yield client, app, database, vault
+
+
+def login(client):
+    assert client.get("/?token=fixture-launch").status_code == 200
+    runtime = client.get("/api/v1/runtime")
+    assert runtime.status_code == 200
+    return {"Origin": ORIGIN, "X-CSRF-Token": runtime.json()["csrf"]}
+
+
+def test_all_v1_routes_require_session_and_mutations_require_csrf(backend, monkeypatch):
+    client, app, database, vault = backend
+    def deny(*_args, **_kwargs):
+        raise AssertionError("unauthorized request reached core/vault")
+    monkeypatch.setattr(webapp, "SSHRunner", deny)
+    monkeypatch.setattr(webapp, "get_vault", deny)
+    routes = {path: operations for path, operations in app.openapi()["paths"].items() if path.startswith("/api/v1/")}
+    assert sum(len(operations) for operations in routes.values()) >= 40
+    def concrete(template):
+        return template.replace("{identifier}", "box").replace("{path_id}", "missing").replace("{name}", "Lab")
+    for path_template, operations in routes.items():
+        path = concrete(path_template)
+        for method in operations:
+            assert client.request(method, path, json={}).status_code == 401, (method, path)
+    headers = login(client)
+    for path_template, operations in routes.items():
+        path = concrete(path_template)
+        for method in operations.keys() - {"get", "head", "options"}:
+            for supplied in ({}, {"X-CSRF-Token": "wrong"}, {**headers, "Origin": "https://attacker.invalid"}):
+                response = client.request(method, path, headers=supplied, json={})
+                assert response.status_code == 403, (method, path, response.text)
+                assert response.headers["cache-control"] == "no-store"
+    assert len(database.list_servers()) == 1
+    assert vault.values == {}
+
+
+def test_runtime_and_workspace_are_offline_and_secret_free(backend, monkeypatch, tmp_path):
+    client, app, database, _vault = backend
+    credential = database.create_credential(label="Password", kind="password", has_secret=True)
+    database.update_server("box", credential_id=credential["id"], notes="A saved observation")
+    database.create_server_path("box", label="Work", path="~/work")
+    skill = tmp_path / "guide" / "SKILL.md"
+    skill.parent.mkdir()
+    skill.write_text("---\nname: box-guide\ndescription: Guide for box.\n---\nBody must stay local.\n")
+    app.state.services.skills.register(skill, server_identifiers=["box"])
+    def deny(*_args, **_kwargs):
+        raise AssertionError("metadata reads must not use SSH/vault")
+    monkeypatch.setattr(webapp, "SSHRunner", deny)
+    monkeypatch.setattr(webapp, "get_vault", deny)
+    login(client)
+    runtime = client.get("/api/v1/runtime").json()
+    assert runtime["shell"] == "web" and runtime["ui"] == "legacy"
+    assert runtime["capabilities"]["native_window"] is False
+    assert runtime["capabilities"]["max_web_transfer_bytes"] == 100 * 1024 * 1024
+    result = client.get("/api/v1/hosts/BOX/workspace")
+    assert result.status_code == 200
+    workspace = result.json()
+    assert workspace["host"]["notes"] == "A saved observation"
+    assert workspace["credential"]["has_secret"] is True
+    assert workspace["paths"][0]["path"] == "~/work"
+    assert workspace["skills"][0]["status"] == "ready"
+    assert "Body must stay local" not in result.text
+    assert "secret" not in workspace["credential"]
+    assert client.get("/api/v1/hosts", params={"query": "observation", "tag": "lab"}).json()[0]["alias"] == "box"
+    assert client.get("/api/v1/hosts", params={"tag": "other"}).json() == []
+    for path in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(path).status_code == 404
+
+
+def test_host_crud_cli_legacy_parity_and_config_side_effects(backend, capsys, tmp_path):
+    client, _app, database, _vault = backend
+    headers = login(client)
+    created = client.post("/api/v1/hosts", headers=headers, json={
+        "alias": "new", "hostname": "new.example.invalid", "username": "bob", "tags": ["Work"],
+    })
+    assert created.status_code == 201
+    assert "Host new" in (tmp_path / "managed.conf").read_text()
+    assert main(["server", "list", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == client.get("/api/v1/hosts").json()
+    changed = client.patch("/api/v1/hosts/new", headers=headers, json={"port": 2200, "tags": []})
+    assert changed.status_code == 200
+    assert changed.json()["tags"] == []
+    assert "Port 2200" in (tmp_path / "managed.conf").read_text()
+    assert client.get("/api/bootstrap").json()["servers"] == client.get("/api/v1/hosts").json()
+    assert client.put("/api/v1/hosts/new/notes", headers=headers, json={"text": "first"}).status_code == 200
+    assert client.put("/api/v1/hosts/new/notes", headers=headers, json={"text": "second"}).json()["notes"] == "first\n\nsecond"
+    assert client.put("/api/v1/hosts/new/notes", headers=headers, json={"mode": "clear"}).json()["notes"] == ""
+    duplicate = client.post("/api/v1/hosts", headers=headers, json={"alias": "NEW", "hostname": "a", "username": "a"})
+    assert duplicate.status_code == 409
+    assert client.get("/api/v1/hosts/missing").status_code == 404
+    assert client.patch("/api/v1/hosts/new", headers=headers, json={"username": None}).status_code == 422
+    assert client.patch("/api/v1/hosts/new", headers=headers, json={"credential_id": None}).status_code == 200
+    # Updates are PATCH-only; PUT would imply full replacement.
+    assert client.put("/api/v1/hosts/new", headers=headers, json={"port": 22}).status_code == 405
+    assert client.delete("/api/v1/hosts/new", headers=headers).status_code == 200
+    assert "Host new\n" not in (tmp_path / "managed.conf").read_text()
+    assert len(database.list_servers()) == 1
+
+
+def test_v1_paths_contexts_and_skill_bindings(backend, tmp_path):
+    client, _app, _database, _vault = backend
+    headers = login(client)
+    result = client.post("/api/v1/hosts/box/paths", headers=headers, json={"label": "Work", "path": "~/work"})
+    assert result.status_code == 201
+    path_id = result.json()["id"]
+    assert client.patch(f"/api/v1/hosts/box/paths/{path_id}", headers=headers, json={"notes": "saved"}).json()["notes"] == "saved"
+    assert client.post(f"/api/v1/hosts/box/paths/{path_id}/used", headers=headers).json()["last_used_at"]
+    assert client.delete(f"/api/v1/hosts/box/paths/{path_id}", headers=headers).status_code == 200
+    assert client.put("/api/v1/hosts/box/paths", headers=headers, json={"paths": [{"label": "App", "path": "/srv/app"}]}).status_code == 200
+    box_id = client.get("/api/v1/hosts/box").json()["id"]
+    assert client.post("/api/v1/contexts", headers=headers, json={"name": "Work", "server_ids": [box_id]}).status_code == 201
+    assert client.patch("/api/v1/contexts/Work", headers=headers, json={"new_name": "Team A/B"}).json()["name"] == "Team A/B"
+    # Names are path segments: clients percent-encode spaces and slashes.
+    assert client.patch("/api/v1/contexts/Team%20A%2FB", headers=headers, json={"name": "x"}).status_code == 422
+    assert client.delete("/api/v1/contexts/Team%20A%2FB", headers=headers).json()["removed_from"] == 1
+    assert client.delete("/api/v1/contexts/Team%20A%2FB", headers=headers).status_code == 404
+    skill = tmp_path / "SKILL.md"
+    skill.write_text("---\nname: box-guide\ndescription: Guide for box.\n---\n")
+    result = client.post("/api/v1/skills", headers=headers, json={"path": str(skill), "server_ids": ["box"]})
+    assert result.status_code == 201
+    skill_id = result.json()["id"]
+    assert client.post(f"/api/v1/skills/{skill_id}/refresh", headers=headers).status_code == 200
+    assert client.put(f"/api/v1/skills/{skill_id}/servers", headers=headers, json={"server_ids": []}).json()["servers"] == []
+    assert client.put("/api/v1/hosts/box/skills", headers=headers, json={"skill_ids": [skill_id]}).status_code == 200
+    assert len(client.get("/api/v1/hosts/box/workspace").json()["skills"]) == 1
+    assert client.delete(f"/api/v1/skills/{skill_id}", headers=headers).status_code == 409
+    assert client.put("/api/v1/hosts/box/skills", headers=headers, json={"skill_ids": []}).status_code == 200
+    assert client.delete(f"/api/v1/skills/{skill_id}", headers=headers).status_code == 200
+
+
+def test_vault_grants_are_canonical_single_use_expiring_and_shared(backend):
+    client, app, _database, vault = backend
+    headers = login(client)
+    created = client.post("/api/v1/credentials", headers=headers, json={"kind": "password", "label": "Password", "secret": "fixture-only"})
+    assert created.status_code == 201 and "fixture-only" not in created.text
+    credential_id = created.json()["id"]
+    assert client.get("/api/v1/credentials").json() == client.get("/api/bootstrap").json()["credentials"]
+    assert client.post(f"/api/v1/credentials/{credential_id}/reveal", headers=headers).status_code == 400
+    assert client.post("/api/v1/auth/master/enroll", headers=headers, json={"password": "long-fixture-master"}).status_code == 200
+    verify = {"password": "long-fixture-master", "credential_id": "Password"}
+    assert client.post("/api/v1/auth/master/verify", headers=headers, json=verify).status_code == 200
+    revealed = client.post(f"/api/credentials/{credential_id}/reveal", headers=headers)
+    assert revealed.json()["value"] == "fixture-only"
+    assert revealed.headers["cache-control"] == "no-store"
+    assert client.post(f"/api/v1/credentials/{credential_id}/reveal", headers=headers).status_code == 400
+    assert client.post("/api/auth/master/verify", headers=headers, json=verify).status_code == 200
+    assert client.post("/api/v1/credentials/Password/reveal", headers=headers).json()["value"] == "fixture-only"
+    session = app.state.web.sessions[client.cookies[webapp.SESSION_COOKIE]]
+    session.reveal_grants[credential_id] = time.time() - 1
+    assert client.post(f"/api/v1/credentials/{credential_id}/reveal", headers=headers).status_code == 400
+    assert credential_id not in session.reveal_grants
+    assert client.patch(f"/api/v1/credentials/{credential_id}", headers=headers, json={"secret": "replacement-fixture"}).status_code == 200
+    assert client.delete(f"/api/v1/credentials/{credential_id}", headers=headers).status_code == 200
+    assert vault.values == {}
+
+
+def test_input_errors_output_filtering_and_session_expiry(backend, monkeypatch):
+    client, app, database, _vault = backend
+    headers = login(client)
+    for payload in (
+        {"kind": "password", "secret": "do-not-echo"},
+        {"kind": "password", "label": "A", "secret": {"value": "do-not-echo"}},
+        {"kind": "do-not-echo", "label": "A"},
+    ):
+        response = client.post("/api/v1/credentials", headers=headers, json=payload)
+        assert response.status_code == 422
+        assert "do-not-echo" not in response.text
+        assert response.json()["error"] == "RequestValidationError"
+    monkeypatch.setattr(app.state.services.hosts, "get", lambda _id: {**database.get_server("box"), "value": "do-not-echo"})
+    assert "do-not-echo" not in client.get("/api/v1/hosts/box").text
+    response = client.get("/api/v1/runtime", headers={"Host": "attacker.invalid"})
+    assert response.status_code == 400 and response.headers["cache-control"] == "no-store"
+    app.state.web.sessions[client.cookies[webapp.SESSION_COOKIE]].created_at -= 12 * 60 * 60 + 1
+    assert client.get("/api/v1/runtime").status_code == 401
+
+
+def test_file_transfers_share_limits_and_cleanup_with_legacy(backend, monkeypatch, tmp_path):
+    client, _app, _database, _vault = backend
+    headers = login(client)
+    monkeypatch.setattr(webapp, "MAX_WEB_TRANSFER_BYTES", 8)
+    size = 4
+    def download(_self, identifier, remote_path, target):
+        target.write_bytes(b"x" * size)
+        return {"bytes": size}
+    def upload(_self, identifier, source, remote_path):
+        return {"alias": "box", "direction": "upload", "remote_path": remote_path, "local_path": str(source), "bytes": source.stat().st_size, "latency_ms": 1}
+    monkeypatch.setattr(SSHRunner, "download", download)
+    monkeypatch.setattr(SSHRunner, "upload", upload)
+    for prefix in ("/api/v1/hosts", "/api/servers"):
+        for size, expected in ((4, 200), (9, 400)):
+            result = client.post(f"{prefix}/box/download", headers=headers, json={"path": "/srv/file"})
+            assert result.status_code == expected
+            assert result.headers["cache-control"] == "no-store"
+            result = client.post(f"{prefix}/box/upload", headers=headers, data={"path": "/srv/file"}, files={"file": ("fixture", b"x" * size)})
+            assert result.status_code == expected
+            if prefix.endswith("hosts") and expected == 200:
+                assert "local_path" not in result.json()
+            assert list((tmp_path / "runtime").iterdir()) == []
+        assert client.get(f"{prefix}/box/download").status_code == 405
+        assert client.post(f"{prefix}/box/download", headers=headers, json={"path": "/srv/.."}).status_code == 400
+
+
+def test_explicit_diagnostics_directory_and_import_contracts(backend, monkeypatch, tmp_path):
+    client, _app, database, _vault = backend
+    headers = login(client)
+    observed = []
+    def test(_self, identifier, *, timeout=8):
+        observed.append(("test", identifier, timeout))
+        return {"alias": "box", "ok": True, "latency_ms": 1, "error_code": None, "message": "fixture check"}
+    def diagnose(_self, identifier, *, timeout=8):
+        observed.append(("diagnose", identifier, timeout))
+        return {"alias": "box", "checked_at": "2026-10-03T00:00:00+00:00", "overall": "ok", "summary": {"total": 0, "passed": 0, "failed": 0, "warnings": 0, "skipped": 0}, "checks": []}
+    def directory(_self, identifier, path):
+        observed.append(("files", identifier, path))
+        return {"alias": "box", "path": "/srv", "parent": "/", "entries": [], "total": 0, "truncated": False, "unparsed": 0, "latency_ms": 1, "connection_checked_at": "2026-10-03T00:00:00+00:00"}
+    monkeypatch.setattr(SSHRunner, "test", test)
+    monkeypatch.setattr(SSHRunner, "diagnose", diagnose)
+    monkeypatch.setattr(SSHRunner, "list_directory", directory)
+    assert client.post("/api/v1/hosts/box/test", headers=headers, json={"timeout": 10}).json()["ok"]
+    assert client.post("/api/v1/hosts/box/diagnose", headers=headers).json()["overall"] == "ok"
+    assert client.get("/api/v1/hosts/box/files", params={"path": "/srv"}).json()["entries"] == []
+    assert observed == [("test", "box", 10), ("diagnose", "box", 8), ("files", "box", "/srv")]
+    assert client.post("/api/v1/hosts/box/test", headers=headers, json={"timeout": 0}).status_code == 422
+    preview = client.post("/api/v1/import/preview", headers=headers, json={"config": str(tmp_path / "missing.conf")})
+    assert preview.status_code == 200 and preview.json()["items"] == []
+    assert client.post("/api/v1/import/apply", headers=headers, json={"config": str(tmp_path / "missing.conf")}).json()["added"] == []
+    assert len(database.list_servers()) == 1
+
+
+def test_offline_contract_matches_artifact(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run([sys.executable, str(root / "scripts" / "export-openapi.py"), "--check", str(root / "contracts" / "api-v1.openapi.json")], capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    schema = json.loads((root / "contracts" / "api-v1.openapi.json").read_text())
+    assert all(path.startswith("/api/v1/") for path in schema["paths"])
+    assert schema["paths"]["/api/v1/hosts"]["post"]["security"] == [{"APIKeyCookie": [], "APIKeyHeader": []}]
+    assert "value" not in schema["components"]["schemas"]["Credential"]["properties"]
+    assert schema["components"]["schemas"]["PasswordCreate"]["properties"]["secret"]["writeOnly"] is True

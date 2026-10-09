@@ -30,6 +30,11 @@ from ssh_server_manager.webapp import (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolated_ui_runtime(tmp_path, monkeypatch):
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+
+
 def test_local_ui_session_crud_and_master_reveal(tmp_path, monkeypatch):
     database = Database(tmp_path / "manager.db")
     vault = MemoryVault()
@@ -115,11 +120,11 @@ def test_ui_never_prints_launch_token_and_writes_private_url(tmp_path, monkeypat
     url_file = tmp_path / "launch-url"
     observed = {}
 
-    def fake_run(*args, **kwargs):
+    def fake_run(self, *args, **kwargs):
         observed["url"] = url_file.read_text(encoding="utf-8")
         observed["mode"] = url_file.stat().st_mode & 0o777
 
-    monkeypatch.setattr("uvicorn.run", fake_run)
+    monkeypatch.setattr("uvicorn.Server.run", fake_run)
 
     run_ui(database=database, port=0, open_browser=False, url_file=url_file)
 
@@ -148,10 +153,10 @@ def test_ui_records_runtime_state_and_clears_it_on_exit(tmp_path, monkeypatch):
     database = Database(tmp_path / "manager.db")
     observed = {}
 
-    def fake_run(*args, **kwargs):
+    def fake_run(self, *args, **kwargs):
         observed["state"] = _read_ui_state()
 
-    monkeypatch.setattr("uvicorn.run", fake_run)
+    monkeypatch.setattr("uvicorn.Server.run", fake_run)
 
     run_ui(database=database, port=0, open_browser=False, url_file=tmp_path / "launch-url")
 
@@ -603,10 +608,10 @@ def test_run_ui_appends_launch_fragment_after_the_token(tmp_path, monkeypatch):
     url_file = tmp_path / "launch-url"
     observed = {}
 
-    def fake_run(*args, **kwargs):
+    def fake_run(self, *args, **kwargs):
         observed["url"] = url_file.read_text(encoding="utf-8").strip()
 
-    monkeypatch.setattr("uvicorn.run", fake_run)
+    monkeypatch.setattr("uvicorn.Server.run", fake_run)
 
     run_ui(
         database=database,

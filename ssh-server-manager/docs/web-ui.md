@@ -1,13 +1,19 @@
 # The local web UI
 
 ```bash
-serverctl ui
+serverctl web
 ```
 
 A management interface served from `127.0.0.1` only — it is not a cloud
 dashboard and cannot be reached from the network. The command picks a free
 port, prints only the port number, and opens your browser with a one-time
 tokenized URL.
+
+`serverctl ui` remains a compatibility alias with all existing options. Both
+commands share one lifecycle record and reject a second managed launch while
+the first is active. The browser opens after backend startup completes. The
+frontend remains the current UI; its successor will be designed separately in
+Paper. The new [backend and API contract](backend.md) is available for that work.
 
 ## Launching
 

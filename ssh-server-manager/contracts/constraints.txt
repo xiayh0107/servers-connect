@@ -1,0 +1,10 @@
+# Schema toolchain pinned for the committed API v1 contract.
+#
+# FastAPI and pydantic decide the exact OpenAPI JSON. CI installs these pins
+# before running `scripts/export-openapi.py --check`, so a new upstream release
+# cannot turn the drift check red without an API change. To upgrade, raise the
+# pins, regenerate contracts/api-v1.openapi.json, and review the diff.
+fastapi==0.139.0
+pydantic==2.13.4
+pydantic-core==2.46.4
+starlette==1.3.1

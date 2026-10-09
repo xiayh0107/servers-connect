@@ -5,11 +5,20 @@
 ```bash
 ./scripts/bootstrap
 ./scripts/serverctl doctor [--json]
+./scripts/serverctl web [--port PORT] [--no-open --url-file PATH]
+./scripts/serverctl web --credential ALIAS [--port PORT] [--no-open --url-file PATH]
+./scripts/serverctl web --status [--json]
+./scripts/serverctl web --stop [--json]
 ./scripts/serverctl ui [--port PORT] [--no-open --url-file PATH]
 ./scripts/serverctl ui --credential ALIAS [--port PORT] [--no-open --url-file PATH]
 ./scripts/serverctl ui --status [--json]
 ./scripts/serverctl ui --stop [--json]
 ```
+
+`web` is the browser-shell entry point; `ui` is a compatibility alias with
+identical options. Both open the existing UI and share one managed runtime
+record. A second launch fails while a managed runtime is active; use `--status`
+and the existing window rather than stopping someone else's active session.
 
 The default `--port 0` selects an available loopback port and opens the browser.
 When `--no-open` is used, `--url-file` is required; the file is created with

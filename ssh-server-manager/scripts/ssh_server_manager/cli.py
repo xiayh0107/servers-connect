@@ -14,13 +14,12 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from . import __version__
+from .application import ApplicationServices, CredentialApplicationService
 from .db import ConflictError, Database, DatabaseError, NotFoundError
-from .importer import apply_import, preview_import
 from .mounts import list_mounts, mount_capability
 from .mounts import mount as mount_host
 from .mounts import unmount as unmount_path
 from .paths import database_path, managed_ssh_config_path, original_ssh_config_path
-from .service import CredentialService, SkillService
 from .ssh_config import SSHConfigError, render_config
 from .ssh_runner import SSHError, SSHRunner
 from .validation import (
@@ -114,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = commands.add_parser("doctor", help="diagnose local dependencies and storage")
     add_json_option(doctor)
 
-    ui = commands.add_parser("ui", help="open the local management UI")
+    ui = commands.add_parser("web", aliases=["ui"], help="open the local management UI (ui is a compatibility alias)")
     ui.add_argument("--no-open", action="store_true", help="do not open a browser")
     ui.add_argument(
         "--port",
@@ -369,13 +368,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def resolve_credential(database: Database, value: str | None) -> str | None:
+def resolve_credential(service: CredentialApplicationService, value: str | None) -> str | None:
     if not value or value.casefold() == "none":
         return None
-    return database.get_credential(value)["id"]
+    return service.get(value)["id"]
 
 
-def require_new_credential_label(database: Database, label: str) -> None:
+def require_new_credential_label(service: CredentialApplicationService, label: str) -> None:
     """Fail before any hidden prompt when a credential label is taken.
 
     Entering a password twice only to learn the label exists is a dead end
@@ -383,7 +382,7 @@ def require_new_credential_label(database: Database, label: str) -> None:
     edit command instead.
     """
     try:
-        database.get_credential(label)
+        service.get(label)
     except NotFoundError:
         return
     raise ConflictError(
@@ -493,11 +492,15 @@ def run_doctor(database: Database) -> dict[str, Any]:
 
 def handle(args: argparse.Namespace) -> int:
     database = Database()
+    services = ApplicationServices(
+        database, runner_factory=lambda: SSHRunner(database),
+        vault_factory=lambda: get_vault(), config_renderer=render_config,
+    )
     if args.command == "doctor":
         result = run_doctor(database)
         emit(result, as_json=args.json)
         return 0 if result["ok"] else 1
-    if args.command == "ui":
+    if args.command in {"web", "ui"}:
         from .webapp import run_ui, ui_status, ui_stop
 
         if args.status:
@@ -514,7 +517,7 @@ def handle(args: argparse.Namespace) -> int:
             open_browser=not args.no_open,
             url_file=args.url_file,
             launch_fragment=(
-                f"servers/{database.get_server(args.credential)['alias']}/credential"
+                f"servers/{services.hosts.get(args.credential)['alias']}/credential"
                 if args.credential
                 else None
             ),
@@ -522,11 +525,11 @@ def handle(args: argparse.Namespace) -> int:
         return 0
     if args.command == "server":
         if args.server_command == "list":
-            emit(database.list_servers(), as_json=args.json)
+            emit(services.hosts.list(), as_json=args.json)
         elif args.server_command == "show":
-            emit(database.get_server(args.alias), as_json=args.json)
+            emit(services.hosts.get(args.alias), as_json=args.json)
         elif args.server_command == "add":
-            credential_id = resolve_credential(database, args.credential)
+            credential_id = resolve_credential(services.credentials, args.credential)
             if args.password_credential is not None:
                 if not sys.stdin.isatty():
                     raise VaultError(
@@ -534,17 +537,17 @@ def handle(args: argparse.Namespace) -> int:
                         "prompt; run this command in your own terminal, or add the server "
                         "without it and enter the password via 'serverctl ui --credential ALIAS'"
                     )
-                require_new_credential_label(database, args.password_credential)
+                require_new_credential_label(services.credentials, args.password_credential)
                 first = getpass.getpass("Password: ")
                 second = getpass.getpass("Confirm password: ")
                 if first != second:
                     raise VaultError("password confirmation does not match")
                 credential_id = (
-                    CredentialService(database, get_vault())
+                    services.credentials
                     .create_password(args.password_credential, first)["id"]
                 )
             try:
-                result = database.create_server(
+                result = services.hosts.create(
                     alias=args.alias,
                     hostname=args.hostname,
                     port=args.port,
@@ -558,7 +561,6 @@ def handle(args: argparse.Namespace) -> int:
                 raise ConflictError(
                     f"{exc}; to update it use 'serverctl server edit {args.alias}'"
                 ) from exc
-            render_config(database)
             emit(result, as_json=args.json)
         elif args.server_command == "edit":
             changes = {
@@ -573,59 +575,55 @@ def handle(args: argparse.Namespace) -> int:
                 if value is not None
             }
             if args.credential is not None:
-                changes["credential_id"] = resolve_credential(database, args.credential)
+                changes["credential_id"] = resolve_credential(services.credentials, args.credential)
             if args.proxy_jump is not None:
                 changes["proxy_jumps"] = args.proxy_jump
             if args.clear_tags:
                 changes["tags"] = []
             elif args.tag is not None:
                 changes["tags"] = args.tag
-            result = database.update_server(args.alias, **changes)
-            render_config(database)
+            result = services.hosts.update(args.alias, **changes)
             emit(result, as_json=args.json)
         elif args.server_command == "remove":
             if not confirm(f"Remove server {args.alias}?", args.yes):
                 raise DatabaseError("removal cancelled; use --yes for non-interactive removal")
-            result = database.delete_server(args.alias)
-            render_config(database)
+            result = services.hosts.delete(args.alias)
             emit(result, as_json=args.json)
         elif args.server_command == "import":
-            preview = preview_import(database, config=args.config)
-            result = apply_import(database, preview, overwrite=args.overwrite) if args.apply else preview
-            if args.apply:
-                render_config(database)
+            preview = services.imports.preview(config=args.config)
+            result = services.imports.apply(preview, overwrite=args.overwrite) if args.apply else preview
             emit(result, as_json=args.json)
         elif args.server_command == "test":
-            result = SSHRunner(database).test(args.alias, timeout=args.timeout)
+            result = services.diagnostics.test(args.alias, timeout=args.timeout)
             emit(result, as_json=args.json)
             return 0 if result["ok"] else 1
         elif args.server_command == "diagnose":
-            result = SSHRunner(database).diagnose(args.alias, timeout=args.timeout)
+            result = services.diagnostics.diagnose(args.alias, timeout=args.timeout)
             emit(result, as_json=args.json)
             return 0 if result["overall"] != "failed" else 1
         elif args.server_command == "note":
             if args.append and args.text is None:
                 raise ValidationError("--append requires --text")
-            result = database.update_server_notes(args.alias, args.text or "", append=args.append)
+            result = services.hosts.notes(args.alias, args.text or "", mode="append" if args.append else "set")
             emit(result, as_json=args.json)
             return 0
         return 0
     if args.command == "skill":
-        service = SkillService(database)
+        service = services.skills
         if args.skill_command == "discover":
             result = service.discover()
         elif args.skill_command == "list":
             result = service.list(server_identifier=args.server)
         elif args.skill_command == "show":
-            result = database.get_skill(args.skill)
+            result = services.skills.get(args.skill)
         elif args.skill_command == "add":
             result = service.register(args.path, server_identifiers=args.server)
         elif args.skill_command == "refresh":
             result = service.refresh(args.skill, path=args.path)
         elif args.skill_command == "attach":
-            result = database.attach_skill(args.skill, args.servers)
+            result = services.skills.attach(args.skill, args.servers)
         elif args.skill_command == "detach":
-            result = database.detach_skill(args.skill, args.servers)
+            result = services.skills.detach(args.skill, args.servers)
         elif args.skill_command == "resolve":
             result = service.resolve(args.servers)
             emit(result, as_json=args.json)
@@ -640,9 +638,9 @@ def handle(args: argparse.Namespace) -> int:
         return 0
     if args.command == "path":
         if args.path_command == "list":
-            result = database.list_server_paths(args.server)
+            result = services.files.list_paths(args.server)
         elif args.path_command == "add":
-            result = database.create_server_path(
+            result = services.files.create_path(
                 args.server, label=args.label, path=args.path, notes=args.note
             )
         elif args.path_command == "edit":
@@ -655,13 +653,13 @@ def handle(args: argparse.Namespace) -> int:
                 )
                 if value is not None
             }
-            result = database.update_server_path(args.server, args.directory, **changes)
+            result = services.files.update_path(args.server, args.directory, **changes)
         elif args.path_command == "remove":
             if not confirm(f"Forget saved directory {args.directory}?", args.yes):
                 raise DatabaseError("removal cancelled; use --yes for non-interactive removal")
-            result = database.delete_server_path(args.server, args.directory)
+            result = services.files.delete_path(args.server, args.directory)
         elif args.path_command == "resolve":
-            result = database.resolve_server_paths(args.servers)
+            result = services.files.resolve_paths(args.servers)
         else:
             return 2
         emit(result, as_json=args.json)
@@ -677,7 +675,7 @@ def handle(args: argparse.Namespace) -> int:
         elif args.command == "put" and parse_remote_ref(destination)[0] is None:
             raise ValidationError("put expects ALIAS:REMOTE as its destination")
         direction, alias, remote_path, local_path = resolve_transfer(source, destination)
-        runner = SSHRunner(database)
+        runner = services.files
         if direction == "download":
             target = validate_local_destination(
                 local_path,
@@ -719,22 +717,22 @@ def handle(args: argparse.Namespace) -> int:
         return 0
     if args.command == "credential":
         if args.credential_command == "list":
-            emit(database.list_credentials(), as_json=args.json)
+            emit(services.credentials.list(), as_json=args.json)
             return 0
-        service = CredentialService(database, get_vault())
+        service = services.credentials
         if args.credential_command == "add-password":
-            require_new_credential_label(database, args.label)
+            require_new_credential_label(services.credentials, args.label)
             first = getpass.getpass("Password: ")
             second = getpass.getpass("Confirm password: ")
             if first != second:
                 raise VaultError("password confirmation does not match")
             result = service.create_password(args.label, first)
         elif args.credential_command == "add-key":
-            require_new_credential_label(database, args.label)
+            require_new_credential_label(services.credentials, args.label)
             passphrase = getpass.getpass("Private-key passphrase: ") if args.store_passphrase else None
             result = service.create_key(args.label, args.key_path, passphrase or None)
         elif args.credential_command == "add-agent":
-            require_new_credential_label(database, args.label)
+            require_new_credential_label(services.credentials, args.label)
             result = service.create_agent(args.label)
         elif args.credential_command == "edit":
             secret = getpass.getpass("New password: ") if args.replace_secret else None
@@ -751,7 +749,6 @@ def handle(args: argparse.Namespace) -> int:
             if not confirm(f"Remove credential {args.credential}?", args.yes):
                 raise DatabaseError("removal cancelled; use --yes for non-interactive removal")
             result = service.delete(args.credential)
-        render_config(database)
         emit(result, as_json=args.json)
         return 0
     if args.command == "connect":
@@ -761,7 +758,7 @@ def handle(args: argparse.Namespace) -> int:
                 "run this command directly in your own terminal, or use "
                 "'serverctl exec ALIAS -- COMMAND' to run commands non-interactively"
             )
-        return SSHRunner(database).connect(args.alias, timeout=args.timeout)
+        return services.connections.connect(args.alias, timeout=args.timeout)
     if args.command == "exec":
         if args.reuse > 0 and os.name == "nt":
             print(
@@ -773,7 +770,7 @@ def handle(args: argparse.Namespace) -> int:
             stdin_data = sys.stdin.buffer.read()
         else:
             stdin_data = sys.stdin.read() if args.stdin else None
-        result = SSHRunner(database).execute(
+        result = services.connections.execute(
             args.alias,
             remote,
             stdin_data=stdin_data,
@@ -785,7 +782,7 @@ def handle(args: argparse.Namespace) -> int:
             emit(result, as_json=True)
         return int(result["returncode"])
     if args.command == "config" and args.config_command == "render":
-        path = render_config(database)
+        path = services.render_config()
         emit({"path": str(path)}, as_json=args.json)
         return 0
     return 2

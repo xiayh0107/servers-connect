@@ -21,7 +21,7 @@ SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-from ssh_server_manager import webapp
+from ssh_server_manager import application, webapp
 from ssh_server_manager.db import Database, DatabaseError
 from ssh_server_manager.service import CredentialService, SkillService
 from ssh_server_manager.ssh_runner import SSHError
@@ -116,7 +116,7 @@ def fixture_environment(mode: str = "demo"):
         stack.enter_context(patch.object(webapp, "get_vault", return_value=vault))
         stack.enter_context(patch("ssh_server_manager.vault.get_vault", return_value=vault))
         stack.enter_context(patch.object(webapp, "SSHRunner", DeniedSSHRunner))
-        stack.enter_context(patch.object(webapp, "preview_import", deny_local_file_access))
+        stack.enter_context(patch.object(application, "preview_import", deny_local_file_access))
         for method in ("discover", "register", "refresh"):
             stack.enter_context(patch.object(SkillService, method, deny_local_file_access))
         for method in ("create_key", "update"):

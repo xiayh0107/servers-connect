@@ -100,6 +100,17 @@ A good installation completion message sounds like this:
 The CLI is an agent-facing capability surface. Do not turn the first-run
 handoff into a CLI tutorial unless the user asks how to operate it manually.
 
+`serverctl web` is now the explicit browser-shell entry point. The existing
+`serverctl ui` spelling, flags and credential deep links remain compatible, and
+both spellings share `--status`/`--stop`. If the UI is already running, report
+its status and use the existing window; do not stop an active session just to
+open another. Agent commands use shared Python application services directly,
+so host inventory and remote CLI work do not depend on an HTTP runtime.
+UI integrations can use the typed `/api/v1` contract described in
+[Backend architecture](backend.md); its cookie, CSRF and credential-specific
+reveal authentication requirements apply to every shell. The current frontend
+remains in place pending its separate Paper design.
+
 The skill instructs the agent to:
 
 - treat `serverctl` as the only SSH path for managed hosts — no raw

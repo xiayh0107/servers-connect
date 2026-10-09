@@ -25,6 +25,7 @@ dependencies = [
   "fastapi>=0.115",
   "keyring>=25.0",
   "platformdirs>=4.0",
+  "pydantic>=2.7,<3",
   # FastAPI raises at import time on the first File/Form parameter without it.
   "python-multipart>=0.0.9",
   "PyYAML>=6.0",

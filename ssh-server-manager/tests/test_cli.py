@@ -205,7 +205,8 @@ def test_local_destination_resolves_directories_and_guards_overwrites(tmp_path):
         validate_local_destination(tmp_path / "absent" / "f.yml", remote_name="f.yml")
 
 
-def test_cli_ui_credential_deep_links_into_the_server_dialog(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("shell_command", ["ui", "web"])
+def test_cli_ui_credential_deep_links_into_the_server_dialog(tmp_path, monkeypatch, capsys, shell_command):
     pytest.importorskip("uvicorn")
     monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
@@ -214,17 +215,17 @@ def test_cli_ui_credential_deep_links_into_the_server_dialog(tmp_path, monkeypat
     url_file = tmp_path / "launch-url"
     observed = {}
 
-    def fake_run(*args, **kwargs):
+    def fake_run(self, *args, **kwargs):
         observed["url"] = url_file.read_text(encoding="utf-8").strip()
 
-    monkeypatch.setattr("uvicorn.run", fake_run)
+    monkeypatch.setattr("uvicorn.Server.run", fake_run)
 
-    assert main(["ui", "--credential", "web1", "--no-open", "--url-file", str(url_file)]) == 0
+    assert main([shell_command, "--credential", "web1", "--no-open", "--url-file", str(url_file)]) == 0
     assert "token=" in observed["url"]
     assert observed["url"].endswith("#servers/web1/credential")
     assert "token=" not in capsys.readouterr().out
 
-    assert main(["ui", "--credential", "ghost", "--no-open", "--url-file", str(url_file)]) == 2
+    assert main([shell_command, "--credential", "ghost", "--no-open", "--url-file", str(url_file)]) == 2
     assert "server not found" in capsys.readouterr().err
 
 

@@ -84,6 +84,8 @@ SECTIONS: list[tuple[str, list[Page]]] = [
                  "serverctl commands for hosts, credentials, and sessions."),
             Page(PKG / "docs/web-ui.md", "web-ui", "Web UI",
                  "The loopback management UI and its reveal protections."),
+            Page(PKG / "docs/backend.md", "backend", "Backend API",
+                 "Shared application services, runtime lifecycle and API v1 contracts."),
             Page(PKG / "docs/ai-agents.md", "ai-agents", "AI agents",
                  "How an agent uses the tool without ever seeing a secret."),
             Page(PKG / "docs/mounting.md", "mounting", "Mounting",

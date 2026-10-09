@@ -93,6 +93,14 @@ Do not redirect UI output to a shared log or copy the URL into chat. A fixed por
 can be requested with `--port PORT`; use `--port 0` to return to automatic port
 selection.
 
+`serverctl web` is the explicit browser-shell command; `ui` remains a compatible
+alias with the same flags, credential deep link, and shared `--status`/`--stop`
+record. Both still open the existing UI. If a managed UI is already running,
+report that status and use its existing window; do not stop it merely to launch
+another. Keep agent host operations on the CLI, which calls shared application
+services directly and does not require a running HTTP server. The versioned local
+API is for UI integrations, not a shortcut around secret-entry or reveal rules.
+
 ## Choose the workflow
 
 - To inspect configured hosts, run `serverctl server list --json`.

@@ -71,8 +71,10 @@ def test_manual_fixture_launcher_keeps_standard_loopback_auth(tmp_path, monkeypa
     observed = {}
     url_file = tmp_path / "private-launch-url"
 
-    def fake_run(app, **kwargs):
-        observed.update(kwargs)
+    def fake_run(server, **kwargs):
+        app = server.config.app
+        observed.update(host=server.config.host, port=server.config.port, access_log=server.config.access_log)
+        assert kwargs["sockets"][0].getsockname()[0] == "127.0.0.1"
         url = url_file.read_text(encoding="utf-8").strip()
         assert "token=" in url
         if os.name != "nt":
@@ -83,7 +85,7 @@ def test_manual_fixture_launcher_keeps_standard_loopback_auth(tmp_path, monkeypa
             assert not url_file.exists()
             assert client.get("/api/bootstrap").status_code == 200
 
-    monkeypatch.setattr("uvicorn.run", fake_run)
+    monkeypatch.setattr("uvicorn.Server.run", fake_run)
     hosts_fixture.main(["--url-file", str(url_file)])
     assert observed["host"] == "127.0.0.1"
     assert observed["access_log"] is False

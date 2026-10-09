@@ -23,14 +23,23 @@ should read `serverctl server list --json`, summarize the real inventory, and
 give the user a few natural-language examples using those aliases. Do not add
 remote tests only for onboarding or turn the handoff into a CLI tutorial.
 
-## UI
+## Web UI
 
 ```
+serverctl web [--port PORT] [--no-open --url-file PATH]
+serverctl web --credential ALIAS [--port PORT] [--no-open --url-file PATH]
+serverctl web --status [--json]
+serverctl web --stop [--json]
 serverctl ui [--port PORT] [--no-open --url-file PATH]
 serverctl ui --credential ALIAS [--port PORT] [--no-open --url-file PATH]
 serverctl ui --status [--json]
 serverctl ui --stop [--json]
 ```
+
+`web` names the browser shell explicitly. `ui` remains a compatibility alias;
+both use the same existing frontend, options, and lifecycle record. Launching a
+second managed runtime fails with guidance to check its status or stop it, even
+when two launches start at the same moment.
 
 - Default `--port 0` picks a free loopback port and opens your browser with
   a one-time tokenized URL. The token is never printed to the terminal.
@@ -40,7 +49,7 @@ serverctl ui --stop [--json]
 - `--no-open` requires `--url-file`; the URL is written to a mode-600 file
   that is deleted once the token is used or the server stops.
 - If an explicit port is busy the command fails fast; retry with `--port 0`.
-- `--status` reports the UI process started by the most recent `serverctl ui`
+- `--status` reports the UI process started by `serverctl web` or `serverctl ui`
   (pid, port, start time). Exit code `0` while it runs, `1` otherwise; stale
   records are cleaned up automatically.
 - `--stop` terminates that process and deletes its `--url-file` if one was

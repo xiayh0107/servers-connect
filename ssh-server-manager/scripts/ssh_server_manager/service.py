@@ -141,6 +141,9 @@ class SkillService:
     def __init__(self, database: Database) -> None:
         self.database = database
 
+    def get(self, identifier: str) -> dict[str, Any]:
+        return self.database.get_skill(identifier)
+
     @staticmethod
     def _normalize_path(path: str | Path) -> Path:
         raw_path = str(path).strip()

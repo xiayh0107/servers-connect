@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Add shared application services for hosts, credentials, files, saved paths,
+  diagnostics, contexts, Skills and imports; CLI and legacy HTTP routes reuse
+  these use cases and their SSH-config side effects.
+- Add typed `/api/v1` runtime, host/workspace, file, credential, path, context,
+  Skill, import and authentication contracts, with an offline OpenAPI artifact
+  and CI drift check. Keep public API documentation endpoints disabled.
+- Add `serverctl web`, retaining `ui` as a compatibility alias. Extract
+  `LocalRuntime` with a reserved loopback socket, startup readiness, background
+  lifecycle, failure cleanup and a shared status/stop record.
+- Filter versioned responses, keep validation errors free of supplied secrets,
+  enforce session expiry and share canonical single-use reveal grants between
+  legacy and v1 routes. Preserve CSRF, host-key checks and web transfer limits.
+- Keep the existing frontend; defer its replacement and desktop shell to the
+  dedicated Paper design phase.
+- Allow an immediate fixed-`--port` restart after `--stop` on macOS/Linux, hold
+  an exclusive OS lock so simultaneous launches cannot both serve, and write the
+  runtime record before the launch URL file.
+- API v1 updates are `PATCH`-only for hosts and credentials; contexts are
+  renamed/rebound/deleted at `/api/v1/contexts/{name}` without request bodies.
+  Pin the schema toolchain in `contracts/constraints.txt` for the drift check.
 - Close SQLite connections after initialization and reads, including error paths,
   so disposable UI fixtures release database files before cleanup on Windows.
 - Open the local UI on a searchable Hosts inventory, replacing overview cards
