@@ -56,6 +56,10 @@
   ambiguous prompts even when only one credential is available. Wait for the
   entire request process tree to exit before reading private authentication
   logs, and let the stderr reader own its pipe until EOF.
+  On Windows, retain verified handles for the private job's current members,
+  wait for their exit within a shared cleanup deadline, release those handles
+  and confirm the job has no active processes. Uncertain membership or exit
+  must fail the probe and still terminate its private job.
 - Serialize credential mutations/tests/reveal/bindings/deletion across processes.
   Default deletion refuses references; explicit detach/delete validates a fresh
   reference snapshot and journals cleanup atomically with the DB deletion.

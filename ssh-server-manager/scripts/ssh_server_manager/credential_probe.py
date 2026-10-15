@@ -229,6 +229,97 @@ class _BrokerHandler(socketserver.StreamRequestHandler):
 def _terminate_windows_job(kernel: Any, job: Any, *, timeout: float = 1) -> None:
     """Wait for every job member to exit before inspecting its private logs."""
     import ctypes
+    from ctypes import wintypes
+
+    deadline = time.monotonic() + timeout
+    handles: list[Any] = []
+    snapshot_error: OSError | None = None
+
+    def close_handles() -> None:
+        failed = False
+        while handles:
+            if not kernel.CloseHandle(handles.pop()):
+                failed = True
+        if failed:
+            raise OSError("request job process handle release failed")
+
+    def process_ids() -> list[int]:
+        capacity = 32
+        while True:
+            if time.monotonic() >= deadline:
+                raise OSError("request job snapshot deadline exceeded")
+
+            class ProcessList(ctypes.Structure):
+                _fields_ = [("NumberOfAssignedProcesses", ctypes.c_uint32),
+                            ("NumberOfProcessIdsInList", ctypes.c_uint32),
+                            ("ProcessIdList", ctypes.c_size_t * capacity)]
+
+            processes = ProcessList()
+            queried = kernel.QueryInformationJobObject(job, 3, ctypes.byref(processes),
+                                                       ctypes.sizeof(processes), None)
+            assigned = processes.NumberOfAssignedProcesses
+            returned = processes.NumberOfProcessIdsInList
+            if not queried and getattr(ctypes, "get_last_error", lambda: 0)() != 234:  # ERROR_MORE_DATA
+                raise OSError("request job process list unavailable")
+            if assigned > 1024 or returned > capacity or returned > assigned:
+                raise OSError("request job process list exceeds its bounds")
+            if not queried or returned < assigned:
+                if capacity >= 1024:
+                    raise OSError("request job process list remains incomplete")
+                capacity = min(1024, max(capacity * 2, assigned))
+                continue
+            identifiers = [int(processes.ProcessIdList[index]) for index in range(returned)]
+            if any(not 0 < identifier <= 0xffffffff for identifier in identifiers) or \
+                    len(set(identifiers)) != len(identifiers):
+                raise OSError("request job process identifiers are invalid")
+            return identifiers
+
+    try:
+        try:
+            # Helpers can naturally exit between enumeration and OpenProcess.
+            # Re-enumerate the entire bounded snapshot, never infer exit from
+            # a PID or wait on a reused PID belonging to another job.
+            for attempt in range(3):
+                changed = False
+                for identifier in process_ids():
+                    if time.monotonic() >= deadline:
+                        raise OSError("request job snapshot deadline exceeded")
+                    handle = kernel.OpenProcess(0x00101000, False, identifier)  # SYNCHRONIZE | QUERY_LIMITED
+                    if not handle:
+                        if getattr(ctypes, "get_last_error", lambda: 0)() == 87:  # ERROR_INVALID_PARAMETER
+                            changed = True
+                            break
+                        raise OSError("request job process access failed")
+                    handles.append(handle)
+                    owned = wintypes.BOOL()
+                    if not kernel.IsProcessInJob(handle, job, ctypes.byref(owned)):
+                        raise OSError("request job process membership unavailable")
+                    if not owned.value:
+                        changed = True
+                        break
+                if not changed:
+                    break
+                close_handles()
+                if attempt == 2:
+                    raise OSError("request job process membership changed")
+        except Exception as exc:
+            snapshot_error = exc if isinstance(exc, OSError) else OSError("request job snapshot unavailable")
+
+        # Even an incomplete/failed snapshot must still terminate the private
+        # job. Snapshot uncertainty can never become authentication success.
+        if not kernel.TerminateJobObject(job, 1):
+            raise OSError("request job termination failed")
+        if snapshot_error is not None:
+            raise snapshot_error
+        for handle in handles:
+            remaining = max(0, math.ceil((deadline - time.monotonic()) * 1000))
+            if kernel.WaitForSingleObject(handle, remaining) != 0:  # WAIT_OBJECT_0
+                raise OSError("request job process exit remains unconfirmed")
+        # Release our temporary references before consulting job accounting;
+        # no process handle is closed while a wait is pending.
+        close_handles()
+    finally:
+        close_handles()
 
     class Accounting(ctypes.Structure):
         _fields_ = [(name, ctypes.c_int64) for name in (
@@ -237,9 +328,6 @@ def _terminate_windows_job(kernel: Any, job: Any, *, timeout: float = 1) -> None
             "TotalPageFaultCount", "TotalProcesses", "ActiveProcesses", "TotalTerminatedProcesses"
         )]
 
-    if not kernel.TerminateJobObject(job, 1):
-        raise OSError("request job termination failed")
-    deadline = time.monotonic() + timeout
     while True:
         accounting = Accounting()
         if not kernel.QueryInformationJobObject(job, 1, ctypes.byref(accounting),
@@ -299,11 +387,18 @@ class _ProcessTree:
         kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
         kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
         kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.CloseHandle.restype = wintypes.BOOL
         kernel.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
         kernel.TerminateJobObject.restype = wintypes.BOOL
         kernel.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
                                                     wintypes.DWORD, ctypes.c_void_p]
         kernel.QueryInformationJobObject.restype = wintypes.BOOL
+        kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
+        kernel.IsProcessInJob.restype = wintypes.BOOL
+        kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
         job = kernel.CreateJobObjectW(None, None)
         if not job:
             raise OSError("job creation failed")
@@ -429,12 +524,26 @@ class _ProcessTree:
             raise cleanup_error
 
 
+# Optional internal observation of an already-rejected proof. Normal calls
+# have no observer; tests may capture only fixed metadata after the one read.
+_proof_diagnostics: Callable[[dict[str, Any], dict[str, Any]], None] | None = None
+
+
+def _failed_proof(hop: dict[str, Any], summary: dict[str, Any]) -> None:
+    if _proof_diagnostics is not None:
+        try:
+            _proof_diagnostics(hop, summary)
+        except Exception:
+            # Diagnostic failure must never change authentication's result.
+            pass
+
+
 def _method(hop: dict[str, Any]) -> str | None:
     try:
         with Path(hop["log"]).open("rb") as source:
             data = source.read(65537)
         if len(data) > 65536:
-            return None
+            return _failed_proof(hop, {"outcome": "too-large", "bytes": len(data)})
         methods_pattern = "none|password|publickey|keyboard-interactive|hostbased|gssapi-with-mic"
         target = r'Authenticated to ' + re.escape(hop["hostname"]) + r' \([^\r\n]*\)'
         expression = re.compile(target + r' using "(' + methods_pattern + r')"\.')
@@ -447,11 +556,25 @@ def _method(hop: dict[str, Any]) -> str | None:
         # stderr and cannot supply either private -E log record.
         legacy_method = re.compile(r'debug1: Authentication succeeded \((' + methods_pattern + r')\)\.')
         legacy_target = re.compile(target + r'\.')
-        if sum(legacy_target.fullmatch(line) is not None for line in lines) == 1:
+        legacy_targets = sum(legacy_target.fullmatch(line) is not None for line in lines)
+        modern_records = len(methods)
+        if legacy_targets == 1:
             methods.extend(match[1] for line in lines if (match := legacy_method.fullmatch(line)))
-        return methods[0] if len(methods) == 1 else None
-    except OSError:
-        return None
+        if len(methods) == 1:
+            return methods[0]
+        return _failed_proof(hop, {
+            "outcome": "record-rejected", "bytes": len(data), "modern_records": modern_records,
+            "authentication_records": data.count(b"Authenticated to "),
+            "legacy_target_records": legacy_targets,
+            "legacy_method_records": data.count(b"Authentication succeeded ("),
+            "terminal_newline": data.endswith(b"\n"),
+        })
+    except OSError as exc:
+        winerror = getattr(exc, "winerror", None)
+        return _failed_proof(hop, {
+            "outcome": "io-error", "errno": exc.errno if type(exc.errno) is int else None,
+            "winerror": winerror if type(winerror) is int else None,
+        })
 
 
 class CredentialProbeRunner:

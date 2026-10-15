@@ -33,7 +33,7 @@ jobs:
           # Alternate the untouched proof parser and first-read observation.
           for ($ssmProbeIteration = 1; $ssmProbeIteration -le 10; $ssmProbeIteration++) {
             $env:SSM_TEST_NATIVE_PROOF = [string]($ssmProbeIteration % 2)
-            python -m pytest -q --tb=short ssh-server-manager/tests/test_modern_fixture.py::test_request_probe_preserves_an_unbound_managed_jumps_configured_identity ssh-server-manager/tests/test_credential_probe.py::test_real_callback_and_proxy_handle_runtime_path_metacharacters ssh-server-manager/tests/test_modern_fixture.py::test_request_credential_probe_uses_saved_trust_stores_without_touching_hosts
+            python -m pytest -q --tb=short ssh-server-manager/tests/test_modern_fixture.py::test_request_probe_preserves_an_unbound_managed_jumps_configured_identity ssh-server-manager/tests/test_credential_probe.py::test_real_callback_and_proxy_handle_runtime_path_metacharacters ssh-server-manager/tests/test_modern_fixture.py::test_request_credential_probe_uses_saved_trust_stores_without_touching_hosts 'ssh-server-manager/tests/test_credential_probe.py::test_real_authentication_password_none_and_banner_isolation[False-True]'
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
       - run: python ssh-server-manager/scripts/export-openapi.py --check ssh-server-manager/contracts/api-v1.openapi.json

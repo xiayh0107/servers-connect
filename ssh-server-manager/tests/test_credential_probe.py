@@ -163,6 +163,75 @@ def test_method_supports_legacy_local_client_records(tmp_path, method):
     assert _method(hop) is None
 
 
+@pytest.mark.parametrize("proof", [
+    "valid", "empty", "partial", "duplicate", "wrong-host", "too-large", "io-error", "observer-error"
+])
+def test_failed_proof_diagnostics_follow_single_read_and_cannot_change_result(tmp_path, monkeypatch, proof):
+    import io
+    import ssh_server_manager.credential_probe as module
+
+    private = "private-proof-content-never-log"
+    host = "fixture-private-hostname"
+    path = tmp_path / private
+    record = f'Authenticated to {host} ([127.0.0.1]:22) using "publickey".\n'.encode()
+    data = {"valid": record, "empty": b"", "partial": record[:-14], "duplicate": record * 2,
+            "wrong-host": record.replace(host.encode(), private.encode()),
+            "too-large": b"x" * 65537, "observer-error": private.encode()}.get(proof, b"")
+    events, summaries = [], []
+
+    class Source(io.BytesIO):
+        def read(self, size):
+            assert size == 65537
+            events.append("read")
+            return super().read(size)
+
+        def __exit__(self, *args):
+            events.append("closed")
+            return super().__exit__(*args)
+
+    def opened(actual, mode):
+        assert actual == path and mode == "rb"
+        events.append("open")
+        if proof == "io-error":
+            error = PermissionError(13, private, str(path))
+            error.winerror = 32
+            raise error
+        return Source(data)
+
+    hop = {"hostname": host, "log": str(path)}
+
+    def diagnosed(actual_hop, summary):
+        assert actual_hop is hop
+        assert events == (["open"] if proof == "io-error" else ["open", "read", "closed"])
+        events.append("diagnostic")
+        summaries.append(summary)
+        if proof == "observer-error":
+            raise RuntimeError(private)
+        return "publickey"  # An observer cannot upgrade a rejected proof.
+
+    monkeypatch.setattr(Path, "open", opened)
+    monkeypatch.setattr(module, "_proof_diagnostics", diagnosed)
+    result = module._method(hop)
+    assert result == ("publickey" if proof == "valid" else None)
+    assert events.count("open") == 1 and events.count("read") == (proof != "io-error")
+    if proof == "valid":
+        # No observer callback can delay the next hop's first proof read.
+        assert summaries == [] and events == ["open", "read", "closed"]
+    else:
+        assert len(summaries) == 1 and events[-1] == "diagnostic"
+        summary = summaries[0]
+        if proof == "io-error":
+            assert summary == {"outcome": "io-error", "errno": 13, "winerror": 32}
+        elif proof == "too-large":
+            assert summary == {"outcome": "too-large", "bytes": 65537}
+        else:
+            assert summary["outcome"] == "record-rejected" and summary["bytes"] == len(data)
+            assert summary["modern_records"] == (2 if proof == "duplicate" else 0)
+            assert summary["terminal_newline"] is data.endswith(b"\n")
+        serialized = json.dumps(summary)
+        assert private not in serialized and host not in serialized and str(path) not in serialized
+
+
 def test_broker_scopes_secret_to_stage_and_rejects_remote_prompts(request_state, monkeypatch, capsys):
     database, credential, host, vault = request_state
     runner = CredentialProbeRunner(database, lambda: vault)
@@ -433,58 +502,245 @@ def test_process_cleanup_includes_descendant_after_parent_exit(tmp_path):
     assert not tree.reader.is_alive()
 
 
-def test_windows_job_cleanup_waits_for_all_members_before_releasing_handle():
-    events = []
+class FakeJobKernel:
+    """Model object completion separately from job membership accounting."""
 
-    class Kernel:
-        def TerminateJobObject(self, job, status):
-            events.append("terminate")
-            return True
+    def __init__(self, monkeypatch, *, members=(101, 102), snapshots=None, active=(0,)):
+        import ctypes
 
-        def QueryInformationJobObject(self, job, kind, accounting, size, returned):
-            remaining = 1 if events.count("query") == 0 else 0
-            events.append("query")
-            accounting._obj.ActiveProcesses = remaining
-            return True
+        self.events = []
+        self.members = members
+        self.snapshots = iter(snapshots or ())
+        self.active = iter(active)
+        self.last_error = 0
+        self.handles = {}
+        self.closed = []
+        self.waited = []
+        monkeypatch.setattr(ctypes, "get_last_error", lambda: self.last_error, raising=False)
 
-        def CloseHandle(self, job):
-            assert events.count("query") == 2
-            events.append("close-handle")
+    def QueryInformationJobObject(self, job, kind, information, size, returned):
+        import ctypes
+
+        if kind == 3:
+            members = next(self.snapshots, self.members)
+            capacity = len(information._obj.ProcessIdList)
+            assert size == ctypes.sizeof(information._obj)
+            information._obj.NumberOfAssignedProcesses = len(members)
+            information._obj.NumberOfProcessIdsInList = min(capacity, len(members))
+            for index, pid in enumerate(members[:capacity]):
+                information._obj.ProcessIdList[index] = pid
+            self.events.append(("snapshot", capacity, tuple(members)))
+            self.last_error = 234 if len(members) > capacity else 0
+            return len(members) <= capacity
+        assert kind == 1
+        # The extra references must not be held while waiting for accounting.
+        assert set(self.handles) == set(self.closed)
+        count = next(self.active, 0)
+        information._obj.ActiveProcesses = count
+        self.events.append(("account", count))
+        return True
+
+    def OpenProcess(self, access, inherit, pid):
+        assert access == 0x00101000 and inherit is False
+        handle = len(self.handles) + 1000
+        self.handles[handle] = pid
+        self.events.append(("open", pid, handle))
+        return handle
+
+    def IsProcessInJob(self, handle, job, owned):
+        self.events.append(("member", self.handles[handle]))
+        owned._obj.value = True
+        return True
+
+    def TerminateJobObject(self, job, status):
+        assert status == 1
+        self.events.append(("terminate",))
+        return True
+
+    def WaitForSingleObject(self, handle, milliseconds):
+        assert ("terminate",) in self.events
+        assert handle not in self.closed and 0 <= milliseconds <= 1000
+        self.waited.append(handle)
+        self.events.append(("wait", self.handles[handle], milliseconds))
+        return 0
+
+    def CloseHandle(self, handle):
+        assert handle not in self.closed
+        self.closed.append(handle)
+        self.events.append(("close", self.handles.get(handle, "job")))
+        return True
+
+
+def test_windows_job_cleanup_waits_for_all_members_before_releasing_handle(monkeypatch, tmp_path):
+    kernel = FakeJobKernel(monkeypatch, active=(1, 0))
+    events = kernel.events
+    job = object()
 
     class Process:
         def wait(self, *, timeout):
-            assert events[-1] == "close-handle"
-            events.append("parent-wait")
+            assert events[-1] == ("close", "job")
+            events.append(("parent-wait",))
 
     class Reader:
         def join(self, *, timeout):
-            assert events[-1] == "parent-wait"
-            events.append("pipe-eof")
+            assert events[-1] == ("parent-wait",)
+            events.append(("pipe-eof",))
 
         def is_alive(self):
             return False
 
     tree = object.__new__(_ProcessTree)
-    tree.job = (Kernel(), object())
+    tree.job = (kernel, job)
     tree.process = Process()
     tree.reader = Reader()
+    log = tmp_path / "proof.log"
+    log.write_text('Authenticated to fixture-host ([127.0.0.1]:22) using "publickey".\n')
+    original_open = Path.open
+
+    def proof_open(path, *args, **kwargs):
+        if path == log:
+            assert events[-1] == ("pipe-eof",)
+            assert kernel.waited == list(kernel.handles)
+            assert all(handle in kernel.closed for handle in kernel.handles)
+            events.append(("proof",))
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", proof_open)
     tree.close()
-    assert events == ["terminate", "query", "query", "close-handle", "parent-wait", "pipe-eof"]
+    assert _method({"log": str(log), "hostname": "fixture-host"}) == "publickey"
+    assert [event[0] for event in events] == [
+        "snapshot", "open", "member", "open", "member", "terminate", "wait", "wait",
+        "close", "close", "account", "account", "close", "parent-wait", "pipe-eof", "proof"
+    ]
     assert tree.job is None
 
 
 @pytest.mark.parametrize("failure", ["terminate", "query", "active"])
-def test_windows_job_barrier_fails_closed_on_unconfirmed_exit(failure):
-    class Kernel:
+def test_windows_job_barrier_fails_closed_on_unconfirmed_exit(failure, monkeypatch):
+    class Kernel(FakeJobKernel):
         def TerminateJobObject(self, job, status):
+            super().TerminateJobObject(job, status)
             return failure != "terminate"
 
-        def QueryInformationJobObject(self, job, kind, accounting, size, returned):
-            accounting._obj.ActiveProcesses = 1
-            return failure != "query"
+        def QueryInformationJobObject(self, job, kind, information, size, returned):
+            result = super().QueryInformationJobObject(job, kind, information, size, returned)
+            if kind == 1:
+                information._obj.ActiveProcesses = 1
+                return failure != "query"
+            return result
 
+    kernel = Kernel(monkeypatch)
     with pytest.raises(OSError):
-        _terminate_windows_job(Kernel(), object(), timeout=.01)
+        _terminate_windows_job(kernel, object(), timeout=.01)
+    assert ("terminate",) in kernel.events
+    assert set(kernel.handles) == set(kernel.closed)
+
+
+def test_windows_job_snapshot_grows_and_waits_for_every_child(monkeypatch):
+    kernel = FakeJobKernel(monkeypatch, members=tuple(range(101, 138)))
+    _terminate_windows_job(kernel, object())
+    assert [event[1] for event in kernel.events if event[0] == "snapshot"] == [32, 64]
+    assert len(kernel.waited) == 37 and set(kernel.waited) == set(kernel.closed)
+    assert kernel.events[-1] == ("account", 0)
+
+
+@pytest.mark.parametrize("race", ["exit", "pid-reuse"])
+def test_windows_job_snapshot_reenumerates_natural_exit_or_reused_pid(race, monkeypatch):
+    class Kernel(FakeJobKernel):
+        def OpenProcess(self, access, inherit, pid):
+            if race == "exit" and pid == 102:
+                self.last_error = 87  # PID disappeared before a handle was acquired.
+                self.events.append(("gone", pid))
+                return None
+            return super().OpenProcess(access, inherit, pid)
+
+        def IsProcessInJob(self, handle, job, owned):
+            result = super().IsProcessInJob(handle, job, owned)
+            if race == "pid-reuse" and self.handles[handle] == 102:
+                owned._obj.value = False
+            return result
+
+    kernel = Kernel(monkeypatch, snapshots=((101, 102), (101, 103)))
+    _terminate_windows_job(kernel, object())
+    assert [event[2] for event in kernel.events if event[0] == "snapshot"] == [(101, 102), (101, 103)]
+    assert [kernel.handles[handle] for handle in kernel.waited] == [101, 103]
+    assert set(kernel.handles) == set(kernel.closed)
+
+
+@pytest.mark.parametrize("failure", [
+    "snapshot-query", "snapshot-exception", "access-denied", "membership-query",
+    "membership-changes", "duplicate-pid", "too-many-pids", "invalid-pid",
+    "invalid-size", "incomplete-list", "wait-timeout", "wait-failed", "handle-release"
+])
+def test_windows_job_snapshot_or_object_failure_still_terminates_and_closes(failure, monkeypatch):
+    class Kernel(FakeJobKernel):
+        def QueryInformationJobObject(self, job, kind, information, size, returned):
+            if kind == 3:
+                if failure == "snapshot-exception":
+                    raise ValueError("synthetic observer failure")
+                result = super().QueryInformationJobObject(job, kind, information, size, returned)
+                if failure == "snapshot-query":
+                    self.last_error = 5
+                    return False
+                if failure == "invalid-size":
+                    information._obj.NumberOfProcessIdsInList = len(information._obj.ProcessIdList) + 1
+                if failure == "incomplete-list":
+                    information._obj.NumberOfAssignedProcesses = len(information._obj.ProcessIdList)
+                    information._obj.NumberOfProcessIdsInList = 0
+                return result
+            return super().QueryInformationJobObject(job, kind, information, size, returned)
+
+        def OpenProcess(self, access, inherit, pid):
+            if failure == "access-denied" and pid == 102:
+                self.last_error = 5
+                return None
+            return super().OpenProcess(access, inherit, pid)
+
+        def IsProcessInJob(self, handle, job, owned):
+            result = super().IsProcessInJob(handle, job, owned)
+            if failure == "membership-query":
+                return False
+            if failure == "membership-changes":
+                owned._obj.value = False
+            return result
+
+        def WaitForSingleObject(self, handle, milliseconds):
+            super().WaitForSingleObject(handle, milliseconds)
+            return {"wait-timeout": 258, "wait-failed": 0xffffffff}.get(failure, 0)
+
+        def CloseHandle(self, handle):
+            result = super().CloseHandle(handle)
+            return result if failure != "handle-release" or len(self.closed) != 1 else False
+
+    members = {"duplicate-pid": (101, 101), "too-many-pids": tuple(range(1, 1026)),
+               "invalid-pid": (0,)}.get(failure, (101, 102))
+    kernel = Kernel(monkeypatch, members=members)
+    with pytest.raises(OSError):
+        _terminate_windows_job(kernel, object())
+    assert kernel.events.count(("terminate",)) == 1
+    assert set(kernel.handles) == set(kernel.closed)
+    assert not any(event[0] == "account" for event in kernel.events)
+    if failure == "membership-changes":
+        assert len([event for event in kernel.events if event[0] == "snapshot"]) == 3
+
+
+def test_windows_job_object_waits_share_one_cleanup_deadline(monkeypatch):
+    from ssh_server_manager import credential_probe as module
+
+    clock = [0.0]
+    monkeypatch.setattr(module.time, "monotonic", lambda: clock[0])
+
+    class Kernel(FakeJobKernel):
+        def WaitForSingleObject(self, handle, milliseconds):
+            super().WaitForSingleObject(handle, milliseconds)
+            clock[0] += .8
+            return 0 if len(self.waited) == 1 else 258
+
+    kernel = Kernel(monkeypatch)
+    with pytest.raises(OSError, match="process exit remains unconfirmed"):
+        _terminate_windows_job(kernel, object(), timeout=1)
+    assert [event[2] for event in kernel.events if event[0] == "wait"] == [1000, 200]
+    assert set(kernel.handles) == set(kernel.closed)
 
 
 def test_stderr_reader_consumes_short_live_output_and_owns_pipe_close():
@@ -708,17 +964,20 @@ def test_ssh_client_metadata_never_returns_launcher_output(monkeypatch):
 def probe_evidence(monkeypatch):
     """Safe failure diagnostics for the exact real fixtures that CI runs."""
     import ssh_server_manager.credential_probe as module
+    import windows_probe_evidence
 
     # Inspect the same default selection as CredentialProbeRunner before its
     # authentication deadline begins. The -V command makes no SSH connection.
     proof_observer = os.environ.get("SSM_TEST_NATIVE_PROOF") != "1"
     evidence = {"client": _ssh_client_metadata(shutil.which("ssh")), "proof_observer": proof_observer,
-                "events": [], "processes": [], "method_checks": [], "method_reads": []}
+                "events": [], "processes": [], "method_checks": [], "method_reads": [], "proof_results": []}
     original_tree = module._ProcessTree
     original_broker = module._Broker
     original_method = module._method
     original_directory = module.tempfile.TemporaryDirectory
     registered_trees = {}
+    registered_hops = {}
+    snapshotting = False
 
     class EventQueue(queue.Queue):
         def put(self, item, *args, **kwargs):
@@ -727,6 +986,7 @@ def probe_evidence(monkeypatch):
 
     class EvidenceBroker(original_broker):
         def __init__(self, hops, vault_factory):
+            registered_hops.update((id(hop), (hop, index)) for index, hop in enumerate(hops))
             super().__init__(hops, vault_factory)
             self.events = EventQueue()
 
@@ -736,6 +996,8 @@ def probe_evidence(monkeypatch):
             manifest = json.loads(manifest_path.read_text())
             self.hops = manifest["hops"]
             self.cleanup_observed = False
+            self.callback_event_offset = len(evidence["events"])
+            self.callback_processes = None
             super().__init__(command, environment)
             registered_trees.setdefault(manifest_path.parent, []).append(self)
 
@@ -743,6 +1005,14 @@ def probe_evidence(monkeypatch):
             if not self.cleanup_observed:
                 self.returncode_before_cleanup = self.process.poll()
                 self.cleanup_observed = True
+                authenticated = {event[1] for event in evidence["events"][self.callback_event_offset:]
+                                 if isinstance(event, tuple) and len(event) == 2 and
+                                 event[0] == "authenticated" and type(event[1]) is int}
+                if getattr(self, "job", None) and authenticated != set(range(len(self.hops))):
+                    try:
+                        self.callback_processes = windows_probe_evidence.snapshot_job_process_families(*self.job)
+                    except Exception:
+                        self.callback_processes = {"diagnostic_error": True}
             # No private-log reads or extra parser calls here: production's
             # proof check must immediately follow its own process barrier.
             super().close()
@@ -759,6 +1029,8 @@ def probe_evidence(monkeypatch):
                         "legacy_method_records": proof.count(b"Authentication succeeded ("),
                         "connection_established": b"Connection established." in proof,
                         "password_started": b"Next authentication method: password" in proof,
+                        "post_auth_no_more_sessions": b"Requesting no-more-sessions@openssh.com" in proof,
+                        "after_local_command_entered_loop": b"Entering interactive session." in proof,
                         "method": original_method(hop),
                     })
                 except OSError:
@@ -766,6 +1038,7 @@ def probe_evidence(monkeypatch):
             errors = bytes(self.errors).lower()
             evidence["processes"].append({
                 "returncode_before_cleanup": self.returncode_before_cleanup, "logs": logs,
+                "callback_processes": self.callback_processes,
                 "stderr_python_traceback": b"traceback (most recent call last)" in errors,
                 "stderr_helper_missing": b"can't open file" in errors,
                 "stderr_command_missing": b"is not recognized" in errors,
@@ -774,10 +1047,12 @@ def probe_evidence(monkeypatch):
 
     class EvidenceDirectory(original_directory):
         def cleanup(self):
+            nonlocal snapshotting
             # tempfile is shared by other fixtures. Only directories actually
             # registered by this probe's process tree receive diagnostic reads.
             trees = registered_trees.pop(Path(self.name), [])
             try:
+                snapshotting = True
                 for tree in trees:
                     try:
                         tree.snapshot()
@@ -786,7 +1061,15 @@ def probe_evidence(monkeypatch):
                         # reveal an exception containing private paths/data.
                         evidence["processes"].append({"diagnostic_error": True})
             finally:
+                snapshotting = False
                 super().cleanup()
+
+    def failed_proof(hop, summary):
+        # The production parser reports only after deciding to reject its
+        # actual single read. Later cleanup observations are kept separate.
+        registered = registered_hops.get(id(hop))
+        if not snapshotting and registered is not None and registered[0] is hop and 0 <= registered[1] < 32:
+            evidence["proof_results"].append({"hop_index": registered[1], **summary})
 
     def checked_method(hop):
         original_open = Path.open
@@ -817,8 +1100,65 @@ def probe_evidence(monkeypatch):
     monkeypatch.setattr(module, "_Broker", EvidenceBroker)
     if proof_observer:
         monkeypatch.setattr(module, "_method", checked_method)
+    monkeypatch.setattr(module, "_proof_diagnostics", failed_proof)
     monkeypatch.setattr(module.tempfile, "TemporaryDirectory", EvidenceDirectory)
     return evidence
+
+
+@pytest.mark.parametrize("callbacks", ["complete", "missing", "observer-error"])
+def test_callback_process_observation_is_failure_only_and_scoped_to_request(
+        tmp_path, monkeypatch, probe_evidence, callbacks):
+    import ssh_server_manager.credential_probe as module
+    import windows_probe_evidence
+
+    events = []
+    job = (object(), object())
+    roles = {"families": {"ssh": 1, "python": 0, "powershell": 1, "cmd": 1, "other": 0, "unknown": 0},
+             "errors": [], "complete": True}
+
+    class RunningProcess:
+        def poll(self):
+            return None
+
+    def started(tree, command, environment):
+        tree.process = RunningProcess()
+        tree.errors = bytearray()
+        tree.job = job
+
+    def closed(tree):
+        events.append("production-close")
+        tree.job = None
+
+    def observed(kernel, current_job):
+        assert (kernel, current_job) == job
+        assert events == []
+        events.append("callback-observation")
+        if callbacks == "observer-error":
+            raise RuntimeError("private-account-token-never-log")
+        return roles
+
+    monkeypatch.setattr(_ProcessTree, "__init__", started)
+    monkeypatch.setattr(_ProcessTree, "close", closed)
+    monkeypatch.setattr(windows_probe_evidence, "snapshot_job_process_families", observed)
+    # Earlier requests' complete callbacks must not count toward this tree.
+    probe_evidence["events"].extend([("authenticated", 0), ("authenticated", 1), ("authenticated", 2)])
+    with module.tempfile.TemporaryDirectory(dir=tmp_path) as directory:
+        manifest = Path(directory, "request.json")
+        manifest.write_text(json.dumps({"hops": [
+            {"log": str(Path(directory, "hop-0.log")), "hostname": "fixture"},
+            {"log": str(Path(directory, "hop-1.log")), "hostname": "fixture"}
+        ]}))
+        tree = module._ProcessTree([], {"SSM_CREDENTIAL_PROBE_MANIFEST": str(manifest)})
+        probe_evidence["events"].append(("authenticated", 0))
+        if callbacks == "complete":
+            probe_evidence["events"].append(("authenticated", 1))
+        tree.close()
+        tree.close()
+        assert events == (["production-close", "production-close"] if callbacks == "complete" else
+                          ["callback-observation", "production-close", "production-close"])
+    expected = None if callbacks == "complete" else roles if callbacks == "missing" else {"diagnostic_error": True}
+    assert probe_evidence["processes"][0]["callback_processes"] == expected
+    assert "private-account-token-never-log" not in json.dumps(probe_evidence)
 
 
 def _fail_probe(result, evidence, *, expected_hop_count, server_password_attempts=None, server_none_attempts=None):
@@ -838,8 +1178,9 @@ def _fail_probe(result, evidence, *, expected_hop_count, server_password_attempt
                 json.dumps(failure, ensure_ascii=True, indent=2), pytrace=False)
 
 
+@pytest.mark.parametrize("native_proof", ["valid", "missing"])
 def test_native_probe_evidence_preserves_original_parser_and_cleanup_snapshot(
-        request_state, monkeypatch, request):
+        request_state, monkeypatch, request, native_proof):
     import ssh_server_manager.credential_probe as module
 
     monkeypatch.setenv("SSM_TEST_NATIVE_PROOF", "1")
@@ -864,7 +1205,8 @@ def test_native_probe_evidence_preserves_original_parser_and_cleanup_snapshot(
 
     def tree_close(tree):
         for log in logs:
-            log.write_text('Authenticated to 127.0.0.1 ([127.0.0.1]:22) using "password".\n')
+            log.write_text('Authenticated to 127.0.0.1 ([127.0.0.1]:22) using "password".\n'
+                           if native_proof == "valid" else "")
 
     monkeypatch.setattr(_Broker, "__init__", broker_start)
     monkeypatch.setattr(_Broker, "close", lambda broker: None)
@@ -876,13 +1218,20 @@ def test_native_probe_evidence_preserves_original_parser_and_cleanup_snapshot(
 
     result = runner.test(credential["id"], host["id"])
 
-    assert result["ok"] and result["method"] == "password"
+    valid = native_proof == "valid"
+    assert result["ok"] is valid and result["method"] == ("password" if valid else None)
+    assert result["error_code"] == (None if valid else "authentication-unconfirmed")
     assert module._method is original_method
     assert evidence["proof_observer"] is False
     assert evidence["events"] == [("authenticated", 0)]
     assert evidence["method_checks"] == evidence["method_reads"] == []
-    assert evidence["processes"][0]["logs"][0]["method"] == "password"
+    assert evidence["processes"][0]["logs"][0]["method"] == ("password" if valid else None)
     assert evidence["processes"][0]["logs"][0]["readable"] is True
+    assert len(evidence["proof_results"]) == (0 if valid else 1)
+    if not valid:
+        assert evidence["proof_results"][0]["hop_index"] == 0
+        assert evidence["proof_results"][0]["outcome"] == "record-rejected"
+        assert evidence["proof_results"][0]["bytes"] == 0
     assert not logs[0].exists()
 
 
@@ -957,6 +1306,11 @@ def test_probe_evidence_reads_logs_only_after_production_proof(
     assert probe_evidence["method_checks"] == [expected_method]
     assert probe_evidence["method_reads"] == ([{"readable": False, "errno": 13, "winerror": None}]
                                                if initial_proof == "read-error" else [{"readable": True}])
+    assert len(probe_evidence["proof_results"]) == (0 if valid_proof else 1)
+    if not valid_proof:
+        assert probe_evidence["proof_results"][0]["hop_index"] == 0
+        assert probe_evidence["proof_results"][0]["outcome"] == (
+            "io-error" if initial_proof == "read-error" else "record-rejected")
     # A proof that becomes readable during later diagnostics cannot upgrade
     # the production failure to success or replace its actual method result.
     if initial_proof == "diagnostic-error":
@@ -1068,6 +1422,11 @@ def test_real_probe_reports_only_sanitized_authentication_evidence(
         _fail_probe(result, probe_evidence, expected_hop_count=1,
                     server_password_attempts=len(server.password_attempts))
     assert probe_evidence["method_checks"] == ["password"]
+    log_summary = probe_evidence["processes"][0]["logs"][0]
+    assert type(log_summary["post_auth_no_more_sessions"]) is bool
+    assert type(log_summary["after_local_command_entered_loop"]) is bool
+    assert "fixture-password-never-log" not in json.dumps(probe_evidence)
+    assert "127.0.0.1" not in json.dumps(probe_evidence)
     assert not server.sessions
 
 

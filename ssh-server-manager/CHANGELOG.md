@@ -82,6 +82,8 @@
   Include the public frontend sources, test fixtures and launchers in the sdist.
 - Wait for every Windows credential-test process to exit before reading private
   authentication logs, and keep stderr reads and closure in the same thread.
+  Verify private-job member handles and wait for their exit within one shared
+  cleanup deadline; fail closed when process ownership or exit is uncertain.
   Reject ambiguous AskPass prompts for the selected host or key. Keep idle test
   tunnels alive until explicit teardown and verify their worker cleanup.
 

@@ -60,7 +60,7 @@ def test_request_credential_probe_uses_saved_trust_stores_without_touching_hosts
         original = database.get_server(alias)
         before_commands = sum(len(server.exec_commands) for server in loopback["servers"])
         evidence_offsets = {field: len(probe_evidence[field])
-                            for field in ("events", "processes", "method_checks", "method_reads")}
+                            for field in ("events", "processes", "method_checks", "method_reads", "proof_results")}
         before_auth = [server.auth_attempts for server in loopback["servers"]]
         result = runner.test("fixture-key", alias, timeout=4)
         if not result["ok"] or result["method"] != "publickey":
