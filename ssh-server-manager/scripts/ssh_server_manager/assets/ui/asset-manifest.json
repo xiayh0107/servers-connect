@@ -1,0 +1,67 @@
+{
+  "index.html": {
+    "file": "index-iltmgPhL.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "dynamicImports": [
+      "src/pages/CredentialsPage.tsx",
+      "src/pages/HostsPage.tsx",
+      "src/pages/FilesPage.tsx",
+      "src/pages/TagsPage.tsx",
+      "src/pages/SkillsPage.tsx"
+    ],
+    "css": [
+      "index-DL7TrXrA.css"
+    ]
+  },
+  "src/pages/CredentialsPage.tsx": {
+    "file": "CredentialsPage-CVL8ZEng.js",
+    "name": "CredentialsPage",
+    "src": "src/pages/CredentialsPage.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html"
+    ]
+  },
+  "src/pages/FilesPage.tsx": {
+    "file": "FilesPage-CP1ddXlz.js",
+    "name": "FilesPage",
+    "src": "src/pages/FilesPage.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html"
+    ],
+    "css": [
+      "FilesPage-Bqy2kKnb.css"
+    ]
+  },
+  "src/pages/HostsPage.tsx": {
+    "file": "HostsPage-C6eabH_0.js",
+    "name": "HostsPage",
+    "src": "src/pages/HostsPage.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "src/pages/CredentialsPage.tsx"
+    ]
+  },
+  "src/pages/SkillsPage.tsx": {
+    "file": "SkillsPage-9DZvfiR0.js",
+    "name": "SkillsPage",
+    "src": "src/pages/SkillsPage.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html"
+    ]
+  },
+  "src/pages/TagsPage.tsx": {
+    "file": "TagsPage-Cf3WiGul.js",
+    "name": "TagsPage",
+    "src": "src/pages/TagsPage.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html"
+    ]
+  }
+}

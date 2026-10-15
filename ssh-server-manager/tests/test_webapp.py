@@ -18,6 +18,8 @@ from ssh_server_manager.db import Database
 from ssh_server_manager.service import SkillService
 from ssh_server_manager.ssh_runner import SSHRunner
 from ssh_server_manager.vault import MemoryVault
+from ssh_server_manager.webapp import asset_dir
+from ssh_server_manager.ui_assets import resource_names
 from ssh_server_manager.webapp import (
     UIError,
     _read_ui_state,
@@ -46,10 +48,7 @@ def test_local_ui_session_crud_and_master_reveal(tmp_path, monkeypatch):
     with TestClient(app, base_url="http://localhost:8765") as client:
         response = client.get("/?token=launch")
         assert response.status_code == 200
-        assert "/assets/themes.css" in response.text
-        assert client.get("/assets/contexts.js").status_code == 200
-        assert client.get("/assets/contexts.css").status_code == 200
-        assert client.get("/assets/themes.css").status_code == 200
+        assert_built_resources(client, response.text)
         bootstrap = client.get("/api/bootstrap").json()
         headers = {"X-CSRF-Token": bootstrap["csrf"], "Origin": "http://localhost:8765"}
 
@@ -297,9 +296,7 @@ def test_ui_host_diagnostics_endpoint_and_assets(tmp_path, monkeypatch):
     with TestClient(app, base_url="http://localhost:8765") as client:
         index = client.get("/?token=launch")
         assert index.status_code == 200
-        assert "/assets/diagnostics.js" in index.text
-        assert client.get("/assets/diagnostics.js").status_code == 200
-        assert client.get("/assets/diagnostics.css").status_code == 200
+        assert_built_resources(client, index.text)
         bootstrap = client.get("/api/bootstrap").json()
         headers = {"X-CSRF-Token": bootstrap["csrf"], "Origin": "http://localhost:8765"}
         response = client.post(f"/api/servers/{server['id']}/diagnose", headers=headers)
@@ -317,9 +314,7 @@ def test_ui_server_notes_endpoint_and_assets(tmp_path):
     with TestClient(app, base_url="http://localhost:8765") as client:
         index = client.get("/?token=launch")
         assert index.status_code == 200
-        assert "/assets/notes.js" in index.text
-        assert client.get("/assets/notes.js").status_code == 200
-        assert client.get("/assets/notes.css").status_code == 200
+        assert_built_resources(client, index.text)
         csrf = client.get("/api/bootstrap").json()["csrf"]
         headers = {"X-CSRF-Token": csrf, "Origin": "http://localhost:8765"}
         added = client.put(
@@ -355,8 +350,8 @@ def test_ui_host_skill_registry_and_atomic_bindings(tmp_path, monkeypatch):
 
     with TestClient(app, base_url="http://localhost:8765") as client:
         assert client.get("/?token=launch").status_code == 200
-        assert client.get("/assets/skills.js").status_code == 200
-        assert client.get("/assets/skills.css").status_code == 200
+        for name in resource_names(asset_dir()):
+            assert client.get(f"/assets/{name}").status_code == 200
         bootstrap = client.get("/api/bootstrap").json()
         headers = {"X-CSRF-Token": bootstrap["csrf"], "Origin": "http://localhost:8765"}
 
@@ -635,3 +630,16 @@ def test_run_ui_rejects_an_invalid_launch_fragment(tmp_path):
             url_file=tmp_path / "launch-url",
             launch_fragment="servers/../../etc/passwd",
         )
+
+
+def assert_built_resources(client, html):
+    import re
+
+    assert '<div id="root"></div>' in html
+    references = re.findall(r'(?:src|href)="(/assets/[^" ]+)"', html)
+    assert references
+    for reference in references:
+        assert client.get(reference).status_code == 200
+    assert client.get("/assets/asset-manifest.json").status_code == 404
+    assert client.get("/assets/index.html").status_code == 404
+    assert client.get("/assets/not-a-resource.js").status_code == 404

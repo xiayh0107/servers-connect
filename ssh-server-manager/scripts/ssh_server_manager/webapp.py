@@ -63,6 +63,9 @@ class WebState:
     def clean(self) -> None:
         cutoff = time.time() - 12 * 60 * 60
         self.sessions = {key: value for key, value in self.sessions.items() if value.created_at > cutoff}
+        browser = getattr(self, "local_key_browser", None)
+        if browser is not None:
+            browser.clean(set(self.sessions))
 
     def consume_launch_url_file(self) -> None:
         if self.launch_url_file is None:
@@ -156,6 +159,7 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
     @app.exception_handler(SSHConfigError)
     @app.exception_handler(SSHError)
     async def expected_error(_request: Request, exc: Exception):
+        from .ssh_runner import FileOperationError
         status = (
             404
             if isinstance(exc, NotFoundError)
@@ -165,12 +169,26 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
             if isinstance(exc, SSHError)
             else 400
         )
-        return JSONResponse({"ok": False, "error": exc.__class__.__name__, "message": str(exc)}, status_code=status)
+        payload = {"ok": False, "error": exc.__class__.__name__, "message": str(exc)}
+        if isinstance(exc, FileOperationError):
+            if _request.url.path.startswith("/api/v1/hosts/"):
+                status = {"not_found": 404, "exists": 409, "permission_denied": 403,
+                          "too_large": 413, "unsupported": 501}.get(exc.error_code, 502)
+                payload["error_code"] = exc.error_code
+                if exc.existing is not None:
+                    from .api_models import FileConflictEntry
+                    payload["existing"] = FileConflictEntry.model_validate(exc.existing).model_dump()
+            elif exc.error_code == "too_large":
+                status = 400
+            elif exc.error_code == "exists":
+                status = 409
+        return JSONResponse(payload, status_code=status)
 
     cookie_scheme = APIKeyCookie(name=SESSION_COOKIE, auto_error=False)
     csrf_scheme = APIKeyHeader(name="X-CSRF-Token", auto_error=False)
 
     def browser_session(request: Request, _cookie=Depends(cookie_scheme)) -> tuple[str, BrowserSession]:
+        state.clean()
         identifier = request.cookies.get(SESSION_COOKIE)
         session = state.sessions.get(identifier or "")
         if not identifier or not session or session.created_at <= time.time() - 12 * 60 * 60:
@@ -196,16 +214,6 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
             state.consume_launch_url_file()
             new_identifier, session = state.create_session()
         html = (asset_dir() / "index.html").read_text(encoding="utf-8")
-        injection = (
-            '<link rel="stylesheet" href="/assets/themes.css">'
-            '<link rel="stylesheet" href="/assets/diagnostics.css">'
-            '<script defer src="/assets/diagnostics.js"></script>'
-            '<link rel="stylesheet" href="/assets/notes.css">'
-            '<script defer src="/assets/notes.js"></script>'
-            '<link rel="stylesheet" href="/assets/workspace.css">'
-            '<script defer src="/assets/workspace.js"></script>'
-        )
-        html = html.replace('<div class=app-shell>', f"{injection}<div class=app-shell>", 1)
         response = HTMLResponse(html, headers={"Cache-Control": "no-store"})
         if new_identifier:
             response.set_cookie(
@@ -221,25 +229,11 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
 
     @app.get("/assets/{filename}")
     async def assets(filename: str, _session=Depends(browser_session)):
-        if filename not in {
-            "app.js",
-            "hosts.js",
-            "hosts.css",
-            "styles.css",
-            "themes.css",
-            "contexts.js",
-            "contexts.css",
-            "skills.js",
-            "skills.css",
-            "diagnostics.js",
-            "diagnostics.css",
-            "notes.js",
-            "notes.css",
-            "workspace.js",
-            "workspace.css",
-        }:
+        from .ui_assets import resource_names
+
+        if filename not in resource_names(asset_dir()):
             raise HTTPException(status_code=404)
-        return FileResponse(asset_dir() / filename)
+        return FileResponse(asset_dir() / filename, headers={"Cache-Control": "private, max-age=31536000, immutable"})
 
     @app.get("/api/bootstrap")
     async def bootstrap(session_data=Depends(browser_session)):
@@ -423,19 +417,22 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
         remote_path = payload.get("path")
         if not isinstance(remote_path, str) or not remote_path.strip():
             raise ValidationError("path is required")
+        from .remote_files import validate_web_file_path
+        from .ssh_runner import FileOperationError
+        remote_path = validate_web_file_path(remote_path)
         name = posixpath.basename(remote_path.rstrip("/")) or "download"
         if name in {".", ".."}:
             raise ValidationError("path must name a file")
         staging = Path(tempfile.mkdtemp(dir=runtime_dir(), prefix="dl-"))
-        target = staging / name
+        target = staging / "download"
         try:
             result = await asyncio.to_thread(
-                services.files.download, identifier, remote_path, target
+                services.files.download, identifier, remote_path, target, max_bytes=MAX_WEB_TRANSFER_BYTES
             )
             if result["bytes"] > MAX_WEB_TRANSFER_BYTES:
-                raise ValidationError(
+                raise FileOperationError(
                     f"file is larger than the {MAX_WEB_TRANSFER_BYTES // (1024 * 1024)} MB "
-                    "web transfer limit; use serverctl get instead"
+                    "web transfer limit; use serverctl get instead", "too_large"
                 )
             data = await asyncio.to_thread(target.read_bytes)
         finally:
@@ -458,22 +455,26 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
         file: UploadFile = File(...),
         path: str = Form(...),
         _session=Depends(csrf_session),
+        overwrite: bool = Form(False),
     ):
+        from .remote_files import validate_web_file_path
+        from .ssh_runner import FileOperationError
+        path = validate_web_file_path(path)
         staging = Path(tempfile.mkdtemp(dir=runtime_dir(), prefix="ul-"))
-        source = staging / (Path(file.filename or "upload").name or "upload")
+        source = staging / "upload"
         try:
             written = 0
             with source.open("wb") as handle:
                 while chunk := await file.read(1024 * 1024):
                     written += len(chunk)
                     if written > MAX_WEB_TRANSFER_BYTES:
-                        raise ValidationError(
+                        raise FileOperationError(
                             f"upload exceeds the {MAX_WEB_TRANSFER_BYTES // (1024 * 1024)} MB "
-                            "web transfer limit; use serverctl put instead"
+                            "web transfer limit; use serverctl put instead", "too_large"
                         )
                     handle.write(chunk)
             return await asyncio.to_thread(
-                services.files.upload, identifier, source, path
+                services.files.upload, identifier, source, path, overwrite=overwrite
             )
         finally:
             shutil.rmtree(staging, ignore_errors=True)
