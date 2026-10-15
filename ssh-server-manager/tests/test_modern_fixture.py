@@ -53,14 +53,34 @@ def test_real_auth_failure_and_strict_routed_forwarding(loopback):
     assert interface.check_channel_direct_tcpip_request(0, ("127.0.0.1", 1), ("127.0.0.1", 1)) != 0
 
 
-def test_request_credential_probe_uses_saved_trust_stores_without_touching_hosts(loopback):
+def test_request_credential_probe_uses_saved_trust_stores_without_touching_hosts(loopback, probe_evidence):
     database = loopback["database"]
     runner = CredentialProbeRunner(database, lambda: loopback["vault"])
     for alias in ("bad-auth", "multi-hop", "external-route"):
         original = database.get_server(alias)
         before_commands = sum(len(server.exec_commands) for server in loopback["servers"])
+        evidence_offsets = {field: len(probe_evidence[field])
+                            for field in ("events", "processes", "method_checks", "method_reads")}
+        before_auth = [server.auth_attempts for server in loopback["servers"]]
         result = runner.test("fixture-key", alias, timeout=4)
-        assert result["ok"] and result["method"] == "publickey", result
+        if not result["ok"] or result["method"] != "publickey":
+            # Each call has its own broker/process tree. Keep diagnostics for
+            # this fixed fixture route separate from earlier successful calls.
+            evidence = {"client": probe_evidence["client"],
+                        "proof_observer": probe_evidence["proof_observer"], **{
+                field: probe_evidence[field][offset:]
+                for field, offset in evidence_offsets.items()
+            }}
+            pytest.fail(json.dumps({
+                "fixture_alias": alias,
+                "result_code": result["error_code"], "latency_ms": result["latency_ms"],
+                "method": result["method"], "sanitized_evidence": evidence,
+                "stages": [{field: item[field]
+                            for field in ("stage", "status", "hop_index", "method", "error_code")
+                            if field in item} for item in result["stages"]],
+                "server_auth_attempts": [server.auth_attempts - before
+                                         for server, before in zip(loopback["servers"], before_auth)],
+            }, ensure_ascii=True, indent=2), pytrace=False)
         assert database.get_server(alias) == original
         assert sum(len(server.exec_commands) for server in loopback["servers"]) == before_commands
 
@@ -79,8 +99,12 @@ def test_request_probe_preserves_an_unbound_managed_jumps_configured_identity(pr
         result = CredentialProbeRunner(database, lambda: fixture["vault"]).test("fixture-key", target["id"], timeout=4)
         if not result["ok"] or result["method"] != "publickey":
             pytest.fail(json.dumps({
+                "fixture_alias": "via-unbound",
                 "result_code": result["error_code"], "latency_ms": result["latency_ms"],
                 "method": result["method"], "sanitized_evidence": probe_evidence,
+                "stages": [{field: item[field]
+                            for field in ("stage", "status", "hop_index", "method", "error_code")
+                            if field in item} for item in result["stages"]],
                 "server_auth_attempts": [server.auth_attempts for server in fixture["servers"]],
             }, ensure_ascii=True, indent=2), pytrace=False)
         assert database.get_server(jump["id"])["credential_id"] is None

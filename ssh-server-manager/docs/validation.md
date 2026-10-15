@@ -95,11 +95,13 @@ integrations with:
 .venv/bin/python -m pytest tests/test_modern_fixture.py tests/test_credential_probe.py
 ```
 
-Windows CI additionally runs unbound-jump and special-character-path credential
-probes ten times with fresh isolated topologies and the same native client as the
-full suite. Any failed attempt stops the check; failed probes are never retried
-to obtain a passing result. Failure evidence contains only client version
-metadata, fixed stage flags, counts and authentication-method names.
+Windows CI additionally runs unbound-jump, special-character-path and saved-trust
+credential probes ten times with fresh isolated topologies and the same native
+client as the full suite. The runs alternate the unchanged proof parser with
+first-read observation; diagnostic log reads occur only after the actual proof
+check. Any failed attempt stops the check; failed probes are never retried to
+obtain a passing result. Failure evidence contains only client version metadata,
+fixed stage flags, counts and authentication-method names.
 
 The loopback topology proves the application/client flows with a controlled
 server. It does not certify every remote SSH/SFTP implementation. In particular,
