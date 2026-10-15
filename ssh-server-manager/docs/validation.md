@@ -95,6 +95,11 @@ integrations with:
 .venv/bin/python -m pytest tests/test_modern_fixture.py tests/test_credential_probe.py
 ```
 
+Windows CI additionally runs the unbound-jump credential probe ten times with
+fresh isolated topologies. Any failed attempt stops the check; failed probes are
+never retried to obtain a passing result. Failure evidence contains only fixed
+stage flags, counts and authentication-method names.
+
 The loopback topology proves the application/client flows with a controlled
 server. It does not certify every remote SSH/SFTP implementation. In particular,
 servers without the required no-replace hard-link publication operation must

@@ -17,6 +17,7 @@ if not shutil.which("ssh") or not shutil.which("sftp"):
 
 from ssh_server_manager.ssh_runner import FileOperationError, SSHRunner
 from ssh_server_manager.credential_probe import CredentialProbeRunner
+from test_credential_probe import probe_evidence
 
 spec = importlib.util.spec_from_file_location("ssm_modern_fixture", Path(__file__).parent / "manual" / "modern_fixture.py")
 modern_fixture = importlib.util.module_from_spec(spec)
@@ -64,7 +65,7 @@ def test_request_credential_probe_uses_saved_trust_stores_without_touching_hosts
         assert sum(len(server.exec_commands) for server in loopback["servers"]) == before_commands
 
 
-def test_request_probe_preserves_an_unbound_managed_jumps_configured_identity():
+def test_request_probe_preserves_an_unbound_managed_jumps_configured_identity(probe_evidence):
     with modern_fixture.fixture_environment() as fixture:
         database = fixture["database"]
         original = fixture["root"] / "original.conf"
@@ -76,7 +77,11 @@ def test_request_probe_preserves_an_unbound_managed_jumps_configured_identity():
                                         port=fixture["servers"][0].port, credential_id="fixture-key",
                                         proxy_jumps=["unbound-jump"])
         result = CredentialProbeRunner(database, lambda: fixture["vault"]).test("fixture-key", target["id"], timeout=4)
-        assert result["ok"] and result["method"] == "publickey", result
+        assert result["ok"] and result["method"] == "publickey", {
+            "result_code": result["error_code"], "latency_ms": result["latency_ms"],
+            "method": result["method"], "sanitized_evidence": probe_evidence,
+            "server_auth_attempts": [server.auth_attempts for server in fixture["servers"]],
+        }
         assert database.get_server(jump["id"])["credential_id"] is None
 
 
