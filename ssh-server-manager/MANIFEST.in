@@ -1,0 +1,10 @@
+include SKILL.md
+include scripts/*.py scripts/build-ui
+include contracts/*.json contracts/*.txt
+recursive-include docs *.md
+recursive-include references *.md
+recursive-include frontend *.ts *.tsx *.css *.json *.mjs *.html *.md
+prune frontend/dist
+prune frontend/node_modules
+prune frontend/test-results
+prune frontend/playwright-report

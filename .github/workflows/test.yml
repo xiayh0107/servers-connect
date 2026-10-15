@@ -10,27 +10,68 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
+        python: ["3.10", "3.13"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.3"
+          cache: npm
+          cache-dependency-path: ssh-server-manager/frontend/package-lock.json
       - run: python -m pip install -e "./ssh-server-manager[test]" -c ssh-server-manager/contracts/constraints.txt
       - run: python -m pytest ssh-server-manager/tests
       - run: python ssh-server-manager/scripts/export-openapi.py --check ssh-server-manager/contracts/api-v1.openapi.json
       - run: python -m compileall -q ssh-server-manager/scripts
+      - run: npm ci --prefix ssh-server-manager/frontend
+      - run: npm run check-types --prefix ssh-server-manager/frontend
+      - run: npm run typecheck --prefix ssh-server-manager/frontend
+      - run: npm test --prefix ssh-server-manager/frontend
+      - run: npm run check-build --prefix ssh-server-manager/frontend
+      - run: python -m pip install build
+      - run: python -m build --outdir ssh-server-manager/dist ./ssh-server-manager
+      - name: Verify wheel and sdist installations outside the checkout
+        shell: bash
+        run: |
+          version=$(python -c 'import ssh_server_manager; print(ssh_server_manager.__version__)')
+          for distribution in ssh-server-manager/dist/*; do
+            python ssh-server-manager/scripts/packaging-smoke.py "$distribution" --version "$version"
+          done
+      - name: Upgrade populated published 0.8.0 database
+        if: matrix.python == '3.13'
+        shell: bash
+        run: |
+          version=$(python -c 'import ssh_server_manager; print(ssh_server_manager.__version__)')
+          python ssh-server-manager/scripts/upgrade-smoke.py ssh-server-manager/dist/*.whl --version "$version"
 
-
-  ui-interactions:
+  browser-topology:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.22.3"
           cache: npm
-          cache-dependency-path: ssh-server-manager/tests/ui/package-lock.json
-      - run: npm ci --prefix ssh-server-manager/tests/ui
-      - run: node ssh-server-manager/tests/test_host_details_node.mjs
-      - run: npm test --prefix ssh-server-manager/tests/ui
+          cache-dependency-path: ssh-server-manager/frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e "./ssh-server-manager[test]" -c ssh-server-manager/contracts/constraints.txt
+      - run: npm ci --prefix ssh-server-manager/frontend
+      - name: Install Chromium
+        working-directory: ssh-server-manager/frontend
+        run: npx playwright install --with-deps chromium
+      - name: Six-page browser checks and isolated strict SSH/SFTP topology
+        working-directory: ssh-server-manager/frontend
+        env:
+          SSM_E2E_PYTHON: python
+        run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-report
+          path: ssh-server-manager/frontend/playwright-report/
+          retention-days: 7
