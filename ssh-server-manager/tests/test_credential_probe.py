@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import queue
 import shutil
 import socket
 import subprocess
@@ -15,8 +16,8 @@ import pytest
 
 from ssh_fixture_permissions import private_ssh_fixture_file
 
-from ssh_server_manager.credential_probe import CredentialProbeRunner, _Broker, _external_config, _method, _ProbeError, _ProcessTree, _windows_callback_command
-from ssh_server_manager.credential_probe_helper import _request, probe_askpass
+from ssh_server_manager.credential_probe import CredentialProbeRunner, _Broker, _external_config, _method, _ProbeError, _ProcessTree, _terminate_windows_job, _windows_callback_command
+from ssh_server_manager.credential_probe_helper import _request, _strict_descriptor, probe_askpass
 from ssh_server_manager.db import Database
 from ssh_server_manager.ssh_config import quote_value
 from ssh_server_manager.validation import ValidationError
@@ -173,12 +174,78 @@ def test_broker_scopes_secret_to_stage_and_rejects_remote_prompts(request_state,
         monkeypatch.setenv("SSM_ASKPASS_MAP", json.dumps(hops[0]["descriptors"]))
         assert probe_askpass("Confirm fingerprint (yes/no)?") == 1
         assert probe_askpass("One-time verification code:") == 1
+        for prompt in ("password:", "fixture's password:", "127.0.0.1's password:",
+                       "other@127.0.0.1's password:", "fixture@other's password:",
+                       "banner fixture@127.0.0.1's password:", "fixture@127.0.0.1's password:\n"):
+            assert probe_askpass(prompt) == 1
+        assert capsys.readouterr().out == ""
         assert _request({"op": "secret", "stage": 0, "slot": "passphrase"}) == {"ok": False}
         assert probe_askpass("fixture@127.0.0.1's password:") == 0
         assert capsys.readouterr().out == "fixture-password-never-log"
         monkeypatch.setenv("SSM_CREDENTIAL_PROBE_STAGE", "1")
         assert probe_askpass("password:") == 1
         assert capsys.readouterr().out == ""
+    finally:
+        broker.close()
+
+
+def test_passphrase_requires_exact_request_key_and_rejects_ambiguous_prefixes(
+        request_state, monkeypatch, capsys, tmp_path):
+    database, _, host, vault = request_state
+    identity = tmp_path / "quote' space identity"
+    identity.write_text("synthetic metadata fixture; not a real key")
+    key_path = str(identity)
+    selected = database.create_credential(label="Encrypted", kind="key", key_path=key_path, has_passphrase=True)
+    vault.set_secret(selected["id"], "passphrase", "synthetic-test-passphrase")
+    hops = CredentialProbeRunner(database, lambda: vault)._hops(host, selected)
+    broker = _Broker(hops, lambda: vault)
+    try:
+        monkeypatch.setenv("SSM_CREDENTIAL_PROBE_ENDPOINT", f"127.0.0.1:{broker.server_address[1]}")
+        monkeypatch.setenv("SSM_CREDENTIAL_PROBE_TOKEN", broker.token)
+        monkeypatch.setenv("SSM_CREDENTIAL_PROBE_STAGE", "0")
+        monkeypatch.setenv("SSM_ASKPASS_MAP", json.dumps(hops[0]["descriptors"]))
+        for prompt in ("passphrase:", "Enter passphrase for key 'identity':",
+                       "Enter passphrase for key '/other/identity':", "One-time passphrase code:"):
+            assert probe_askpass(prompt) == 1
+        assert capsys.readouterr().out == ""
+        filename = key_path.encode("utf-8")[:100].decode("utf-8")
+        assert probe_askpass(f"Enter passphrase for key '{filename}': ") == 0
+        assert capsys.readouterr().out == "synthetic-test-passphrase"
+    finally:
+        broker.close()
+    prefix = "/" + "a" * 99
+    first = {"slot": "passphrase", "key_path": prefix + "one"}
+    second = {"slot": "passphrase", "key_path": prefix + "two"}
+    prompt = f"Enter passphrase for key '{prefix}': "
+    assert _strict_descriptor(prompt, [first]) is first
+    assert _strict_descriptor(prompt, [first, second]) is None
+    alias = {"slot": "password", "username": "fixture", "hostname": "127.0.0.1",
+             "prompt_hostname": "trusted-key-alias"}
+    assert _strict_descriptor("fixture@trusted-key-alias's password: ", [alias]) is alias
+    assert _strict_descriptor("fixture@127.0.0.1's password:", [alias]) is None
+
+
+def test_broker_same_username_stages_cannot_select_another_host_secret(request_state, monkeypatch, capsys):
+    database, credential, host, vault = request_state
+    jump_credential = database.create_credential(label="Jump", kind="password", has_secret=True)
+    vault.set_secret(jump_credential["id"], "password", "synthetic-jump-secret")
+    database.create_server(alias="jump", hostname="127.0.0.2", username="fixture", port=22,
+                           credential_id=jump_credential["id"])
+    database.update_server(host["id"], proxy_jumps=["jump"])
+    hops = CredentialProbeRunner(database, lambda: vault)._hops(database.get_server(host["id"]), credential)
+    broker = _Broker(hops, lambda: vault)
+    try:
+        monkeypatch.setenv("SSM_CREDENTIAL_PROBE_ENDPOINT", f"127.0.0.1:{broker.server_address[1]}")
+        monkeypatch.setenv("SSM_CREDENTIAL_PROBE_TOKEN", broker.token)
+        for index, hop in enumerate(hops):
+            monkeypatch.setenv("SSM_CREDENTIAL_PROBE_STAGE", str(index))
+            monkeypatch.setenv("SSM_ASKPASS_MAP", json.dumps(hop["descriptors"]))
+            other = hops[1 - index]
+            assert probe_askpass(f"fixture@{other['hostname']}'s password:") == 1
+            assert probe_askpass("fixture's password:") == 1
+            assert capsys.readouterr().out == ""
+            assert probe_askpass(f"fixture@{hop['hostname']}'s password: ") == 0
+            assert capsys.readouterr().out == ("synthetic-jump-secret" if index == 0 else "fixture-password-never-log")
     finally:
         broker.close()
 
@@ -232,6 +299,7 @@ def test_success_log_and_exit_zero_still_require_local_callback(request_state, m
     ("missing-hop-callback", "timeout"),
     ("target-callback-first", None),
     ("target-none", "credential-not-used"),
+    ("cleanup-failed", "ssh-failed"),
 ])
 def test_route_proof_is_verified_only_after_all_log_owners_close(
         request_state, monkeypatch, proof, expected_code):
@@ -266,6 +334,8 @@ def test_route_proof_is_verified_only_after_all_log_owners_close(
         def close(self):
             nonlocal closed
             closed = True
+            if proof == "cleanup-failed":
+                raise OSError("request process ownership remains unconfirmed")
             for index, hop in enumerate(self.manifest["hops"]):
                 method = "publickey" if index == 0 and proof == "wrong-hop-method" else "password"
                 if index == 1 and proof == "target-none":
@@ -288,12 +358,15 @@ def test_route_proof_is_verified_only_after_all_log_owners_close(
     assert result["ok"] is (expected_code is None)
     assert result["error_code"] == expected_code
     assert closed
-    if proof == "missing-hop-callback":
+    if proof in {"missing-hop-callback", "cleanup-failed"}:
         assert reads == []
     else:
         assert reads == ["jump", "target"]
     completed_hops = [item for item in result["stages"] if item["stage"] == "hop" and item["status"] == "ok"]
     assert len(completed_hops) == (1 if expected_code is None else 0)
+    if expected_code:
+        assert not any(item["stage"] == "authenticate" and item["status"] == "ok"
+                       for item in result["stages"])
     assert not list(Path(os.environ["SSM_RUNTIME_DIR"]).glob("credential-probe-*"))
 
 
@@ -359,6 +432,75 @@ def test_process_cleanup_includes_descendant_after_parent_exit(tmp_path):
     assert not tree.reader.is_alive()
 
 
+def test_windows_job_cleanup_waits_for_all_members_before_releasing_handle():
+    events = []
+
+    class Kernel:
+        def TerminateJobObject(self, job, status):
+            events.append("terminate")
+            return True
+
+        def QueryInformationJobObject(self, job, kind, accounting, size, returned):
+            remaining = 1 if events.count("query") == 0 else 0
+            events.append("query")
+            accounting._obj.ActiveProcesses = remaining
+            return True
+
+        def CloseHandle(self, job):
+            assert events.count("query") == 2
+            events.append("close-handle")
+
+    class Process:
+        def wait(self, *, timeout):
+            assert events[-1] == "close-handle"
+            events.append("parent-wait")
+
+    class Reader:
+        def join(self, *, timeout):
+            assert events[-1] == "parent-wait"
+            events.append("pipe-eof")
+
+        def is_alive(self):
+            return False
+
+    tree = object.__new__(_ProcessTree)
+    tree.job = (Kernel(), object())
+    tree.process = Process()
+    tree.reader = Reader()
+    tree.close()
+    assert events == ["terminate", "query", "query", "close-handle", "parent-wait", "pipe-eof"]
+    assert tree.job is None
+
+
+@pytest.mark.parametrize("failure", ["terminate", "query", "active"])
+def test_windows_job_barrier_fails_closed_on_unconfirmed_exit(failure):
+    class Kernel:
+        def TerminateJobObject(self, job, status):
+            return failure != "terminate"
+
+        def QueryInformationJobObject(self, job, kind, accounting, size, returned):
+            accounting._obj.ActiveProcesses = 1
+            return failure != "query"
+
+    with pytest.raises(OSError):
+        _terminate_windows_job(Kernel(), object(), timeout=.01)
+
+
+def test_stderr_reader_consumes_short_live_output_and_owns_pipe_close():
+    tree = _ProcessTree([sys.executable, "-c",
+                         "import sys,time; sys.stderr.write('safe'); sys.stderr.flush(); time.sleep(3)"],
+                        os.environ.copy())
+    try:
+        deadline = time.monotonic() + 2
+        while not tree.errors and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert bytes(tree.errors) == b"safe"
+        assert tree.process.poll() is None
+    finally:
+        tree.close()
+    assert not tree.reader.is_alive() and tree.process.stderr.closed
+
+
 class LoopbackSSH:
     """Disposable SSH server. Refuse and count every remote session request."""
 
@@ -372,6 +514,9 @@ class LoopbackSSH:
         self.forward_requests = []
         self.transports = []
         self.connections = []
+        self.workers = []
+        self.worker_lock = threading.Lock()
+        self.none_attempts = 0
         self.stop = threading.Event()
         self.socket = socket.socket()
         self.socket.bind(("127.0.0.1", 0))
@@ -382,6 +527,7 @@ class LoopbackSSH:
 
         class Server(paramiko.ServerInterface):
             def check_auth_none(self, username):
+                owner.none_attempts += 1
                 return paramiko.AUTH_SUCCESSFUL if none else paramiko.AUTH_FAILED
 
             def check_auth_password(self, username, candidate):
@@ -421,7 +567,18 @@ class LoopbackSSH:
             self.connections.append(connection)
             if self.stall:
                 continue
-            threading.Thread(target=self._serve, args=(connection,), daemon=True).start()
+            self._start_worker(self._serve, connection)
+
+    def _start_worker(self, target, *arguments):
+        worker = threading.Thread(target=target, args=arguments, daemon=True)
+        with self.worker_lock:
+            if self.stop.is_set():
+                for argument in arguments:
+                    if hasattr(argument, "close"):
+                        argument.close()
+                return
+            self.workers.append(worker)
+            worker.start()
 
     def _serve(self, connection):
         transport = self.paramiko.Transport(connection)
@@ -435,10 +592,18 @@ class LoopbackSSH:
                     continue
                 destination = next(dest for chanid, dest in self.forward_requests if chanid == channel.chanid)
                 remote = socket.create_connection(destination, timeout=2)
+                remote.settimeout(.2)
+                channel.settimeout(.2)
 
                 def copy(source, destination):
                     try:
-                        while chunk := source.recv(32768):
+                        while not self.stop.is_set():
+                            try:
+                                chunk = source.recv(32768)
+                            except socket.timeout:
+                                continue
+                            if not chunk:
+                                break
                             destination.sendall(chunk)
                     except (OSError, EOFError):
                         pass
@@ -446,8 +611,8 @@ class LoopbackSSH:
                         source.close()
                         destination.close()
 
-                threading.Thread(target=copy, args=(channel, remote), daemon=True).start()
-                threading.Thread(target=copy, args=(remote, channel), daemon=True).start()
+                self._start_worker(copy, channel, remote)
+                self._start_worker(copy, remote, channel)
         except (OSError, EOFError, self.paramiko.SSHException):
             pass
         finally:
@@ -456,11 +621,15 @@ class LoopbackSSH:
     def close(self):
         self.stop.set()
         self.socket.close()
+        self.thread.join(timeout=1)
         for transport in self.transports:
             transport.close()
         for connection in self.connections:
             connection.close()
-        self.thread.join(timeout=1)
+        with self.worker_lock:
+            workers = list(self.workers)
+        for worker in workers:
+            worker.join(timeout=1)
 
 
 @pytest.fixture
@@ -496,8 +665,78 @@ def fixture_runner(database, vault, tmp_path, servers, *, trust=True):
     return IsolatedRunner(database, lambda: vault)
 
 
+@pytest.fixture
+def probe_evidence(monkeypatch):
+    """Safe failure diagnostics for the exact real fixtures that CI runs."""
+    import ssh_server_manager.credential_probe as module
+
+    evidence = {"events": [], "processes": [], "method_checks": []}
+    original_tree = module._ProcessTree
+    original_broker = module._Broker
+    original_method = module._method
+
+    class EventQueue(queue.Queue):
+        def put(self, item, *args, **kwargs):
+            evidence["events"].append(item)
+            return super().put(item, *args, **kwargs)
+
+    class EvidenceBroker(original_broker):
+        def __init__(self, hops, vault_factory):
+            super().__init__(hops, vault_factory)
+            self.events = EventQueue()
+
+    class EvidenceTree(original_tree):
+        def __init__(self, command, environment):
+            manifest = json.loads(Path(environment["SSM_CREDENTIAL_PROBE_MANIFEST"]).read_text())
+            self.hops = manifest["hops"]
+            self.observed = False
+            super().__init__(command, environment)
+
+        def close(self):
+            returncode = self.process.poll()
+            super().close()
+            if self.observed:
+                return
+            self.observed = True
+            logs = []
+            for hop in self.hops:
+                try:
+                    with Path(hop["log"]).open("rb") as source:
+                        proof = source.read(65537)
+                    logs.append({
+                        "bytes": len(proof), "readable": True,
+                        "authentication_records": proof.count(b"Authenticated to "),
+                        "legacy_method_records": proof.count(b"Authentication succeeded ("),
+                        "connection_established": b"Connection established." in proof,
+                        "password_started": b"Next authentication method: password" in proof,
+                        "local_command_started": b"Executing command:" in proof,
+                        "method": original_method(hop),
+                    })
+                except OSError:
+                    logs.append({"readable": False})
+            errors = bytes(self.errors).lower()
+            evidence["processes"].append({
+                "returncode_before_cleanup": returncode, "logs": logs,
+                "stderr_python_traceback": b"traceback (most recent call last)" in errors,
+                "stderr_helper_missing": b"can't open file" in errors,
+                "stderr_command_missing": b"is not recognized" in errors,
+                "stderr_permissions_rejected": b"bad permissions" in errors or b"bad owner" in errors,
+            })
+
+    def checked_method(hop):
+        method = original_method(hop)
+        evidence["method_checks"].append(method)
+        return method
+
+    monkeypatch.setattr(module, "_ProcessTree", EvidenceTree)
+    monkeypatch.setattr(module, "_Broker", EvidenceBroker)
+    monkeypatch.setattr(module, "_method", checked_method)
+    return evidence
+
+
 @pytest.mark.parametrize("none,expected", [(False, True), (True, False)])
-def test_real_authentication_password_none_and_banner_isolation(request_state, loopback_servers, tmp_path, none, expected):
+def test_real_authentication_password_none_and_banner_isolation(
+        request_state, loopback_servers, tmp_path, none, expected, probe_evidence):
     database, credential, host, vault = request_state
     banner = 'Authenticated to 127.0.0.1 ([127.0.0.1]:22) using "password".\nsecret=remote-banner-never-log\n'
     server = loopback_servers(none=none, banner=banner)
@@ -508,8 +747,11 @@ def test_real_authentication_password_none_and_banner_isolation(request_state, l
     # explicit deadline and cancellation tests keep their short budgets.
     result = fixture_runner(database, vault, tmp_path, [server]).test(
         credential["id"], host["id"], timeout=15 if os.name == "nt" else 5)
-    assert result["ok"] is expected, result
-    assert result["method"] == ("none" if none else "password")
+    failure = {"result_code": result["error_code"], "latency_ms": result["latency_ms"],
+               "method": result["method"], "evidence": probe_evidence,
+               "server_password_attempts": len(server.password_attempts), "server_none_attempts": server.none_attempts}
+    assert result["ok"] is expected, failure
+    assert result["method"] == ("none" if none else "password"), failure
     assert result["error_code"] == ("credential-not-used" if none else None)
     assert not server.sessions
     assert not server.forward_requests
@@ -517,6 +759,56 @@ def test_real_authentication_password_none_and_banner_isolation(request_state, l
     assert "remote-banner-never-log" not in json.dumps(result)
     assert "fixture-password-never-log" not in json.dumps(result)
     assert not list(Path(os.environ["SSM_RUNTIME_DIR"]).glob("credential-probe-*"))
+
+
+def test_real_host_key_alias_is_the_exact_password_prompt_host(request_state, loopback_servers, tmp_path):
+    database, credential, host, vault = request_state
+    server = loopback_servers()
+    database.update_server(host["id"], port=server.port)
+    original = Path(os.environ["SSM_ORIGINAL_SSH_CONFIG"])
+    original.write_text("Host target\n HostKeyAlias trusted-key-alias\n")
+    private_ssh_fixture_file(original)
+    runner = fixture_runner(database, vault, tmp_path, [server])
+    (tmp_path / "known_hosts").write_text(
+        f"trusted-key-alias {server.key.get_name()} {server.key.get_base64()}\n")
+    result = runner.test(credential["id"], host["id"], timeout=8)
+    assert result["ok"] and result["method"] == "password", result
+    assert not server.sessions
+
+
+def test_real_forwarding_survives_idle_then_closes_fixture_workers(loopback_servers):
+    paramiko = pytest.importorskip("paramiko")
+    server = loopback_servers()
+    client = paramiko.SSHClient()
+    client.get_host_keys().add(f"[127.0.0.1]:{server.port}", server.key.get_name(), server.key)
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    listener.settimeout(3)
+    remote = None
+    try:
+        client.connect("127.0.0.1", port=server.port, username="fixture", password="fixture-password-never-log",
+                       look_for_keys=False, allow_agent=False, timeout=3)
+        channel = client.get_transport().open_channel("direct-tcpip", listener.getsockname(), ("127.0.0.1", 0))
+        remote, _ = listener.accept()
+        remote.settimeout(3)
+        channel.settimeout(3)
+        channel.sendall(b"before-idle")
+        assert remote.recv(32) == b"before-idle"
+        # Exceed the old create_connection timeout: an idle tunnel must not
+        # disappear while another hop's local authentication helper starts.
+        time.sleep(2.2)
+        remote.sendall(b"after-idle")
+        assert channel.recv(32) == b"after-idle"
+        assert not server.sessions
+    finally:
+        client.close()
+        if remote is not None:
+            remote.close()
+        listener.close()
+        server.close()
+    assert not server.thread.is_alive()
+    assert not any(worker.is_alive() for worker in server.workers)
 
 
 def test_real_authentication_failure_cannot_be_spoofed_by_banner(request_state, loopback_servers, tmp_path):
@@ -699,7 +991,7 @@ def test_vault_errors_are_redacted(request_state, loopback_servers, tmp_path):
     assert "private-vault-error" not in json.dumps(result)
 
 
-def test_real_multihop_keeps_same_username_credentials_separate(request_state, loopback_servers, tmp_path):
+def test_real_multihop_keeps_same_username_credentials_separate(request_state, loopback_servers, tmp_path, probe_evidence):
     database, credential, host, vault = request_state
     first = loopback_servers(password="first-jump-secret")
     second = loopback_servers(password="second-jump-secret")
@@ -713,7 +1005,9 @@ def test_real_multihop_keeps_same_username_credentials_separate(request_state, l
         aliases.append(jump["alias"])
     database.update_server(host["id"], port=target.port, proxy_jumps=aliases)
     result = fixture_runner(database, vault, tmp_path, [first, second, target]).test(credential["id"], host["id"], timeout=8)
-    assert result["ok"], result
+    assert result["ok"], {"result_code": result["error_code"], "latency_ms": result["latency_ms"],
+                          "evidence": probe_evidence,
+                          "server_password_attempts": [len(server.password_attempts) for server in [first, second, target]]}
     assert first.password_attempts == ["first-jump-secret"]
     assert second.password_attempts == ["second-jump-secret"]
     assert target.password_attempts == ["fixture-password-never-log"]

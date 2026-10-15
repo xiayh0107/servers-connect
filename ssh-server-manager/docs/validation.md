@@ -87,7 +87,9 @@ available. Fixed health/metadata probes are supported for the normal host checks
 The backend integration tests independently check strict host-key verification,
 credential separation across hops, password/encrypted-key authentication,
 authentication without a remote session or command, cancellation/deadline cleanup,
-atomic publication and filesystem isolation. Rerun only those integrations with:
+exact AskPass identity matching, idle jump forwarding, process-tree exit and
+stderr ownership, atomic publication and filesystem isolation. Rerun only those
+integrations with:
 
 ```sh
 .venv/bin/python -m pytest tests/test_modern_fixture.py tests/test_credential_probe.py

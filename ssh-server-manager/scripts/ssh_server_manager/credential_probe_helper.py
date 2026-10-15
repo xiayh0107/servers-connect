@@ -30,14 +30,42 @@ def _request(payload: dict[str, Any]) -> dict[str, Any]:
         return json.loads(data)
 
 
+def _strict_descriptor(prompt: str, descriptors: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Accept only the exact OpenSSH prompt for one request-scoped identity."""
+    matches = []
+    for descriptor in descriptors:
+        if descriptor.get("slot") == "password":
+            username = descriptor.get("username")
+            hostname = descriptor.get("prompt_hostname", descriptor.get("hostname"))
+            if not isinstance(username, str) or not username or not isinstance(hostname, str) or not hostname:
+                continue
+            expected = f"{username}@{hostname}'s password:"
+        elif descriptor.get("slot") == "passphrase":
+            key_path = descriptor.get("key_path")
+            if not isinstance(key_path, str) or not key_path:
+                continue
+            # OpenSSH uses %.100s here. Match its exact bounded filename;
+            # never fall back to a basename or an unrelated sole descriptor.
+            try:
+                filename = key_path.encode("utf-8")[:100].decode("utf-8")
+            except UnicodeError:
+                continue
+            expected = f"Enter passphrase for key '{filename}':"
+        else:
+            continue
+        if prompt.rstrip(" ") == expected:
+            matches.append(descriptor)
+    return matches[0] if len(matches) == 1 else None
+
+
 def probe_askpass(prompt: str) -> int:
     # The broker decides the permitted slot from the request snapshot, never
     # from a credential id supplied by a remote server or by an AskPass prompt.
-    from .askpass import choose_descriptor
-
     try:
         descriptors = json.loads(os.environ.get("SSM_ASKPASS_MAP", "[]"))
-        descriptor = choose_descriptor(prompt, descriptors)
+        if not isinstance(descriptors, list):
+            return 1
+        descriptor = _strict_descriptor(prompt, descriptors)
         if not descriptor:
             return 1
         result = _request({"op": "secret", "stage": int(os.environ["SSM_CREDENTIAL_PROBE_STAGE"]),

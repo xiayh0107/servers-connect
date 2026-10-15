@@ -52,6 +52,10 @@
   to the selected credential kind. Agent probes must not fall back to default
   private keys. A `none` connection cannot prove credential use. Trust local
   authentication evidence, not a remote banner or unsolicited stdout message.
+  Match AskPass prompts to the exact request host/user or key path; reject
+  ambiguous prompts even when only one credential is available. Wait for the
+  entire request process tree to exit before reading private authentication
+  logs, and let the stderr reader own its pipe until EOF.
 - Serialize credential mutations/tests/reveal/bindings/deletion across processes.
   Default deletion refuses references; explicit detach/delete validates a fresh
   reference snapshot and journals cleanup atomically with the DB deletion.

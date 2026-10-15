@@ -78,6 +78,10 @@
   the checkout. Upgrade populated published 0.8.0 databases through schema 7
   while retaining host/credential IDs, routes and authentication settings.
   Include the public frontend sources, test fixtures and launchers in the sdist.
+- Wait for every Windows credential-test process to exit before reading private
+  authentication logs, and keep stderr reads and closure in the same thread.
+  Reject ambiguous AskPass prompts for the selected host or key. Keep idle test
+  tunnels alive until explicit teardown and verify their worker cleanup.
 
 
 ## 0.8.0 — 2026-08-26

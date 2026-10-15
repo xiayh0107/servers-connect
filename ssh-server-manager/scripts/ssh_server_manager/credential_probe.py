@@ -226,6 +226,32 @@ class _BrokerHandler(socketserver.StreamRequestHandler):
             return
 
 
+def _terminate_windows_job(kernel: Any, job: Any, *, timeout: float = 1) -> None:
+    """Wait for every job member to exit before inspecting its private logs."""
+    import ctypes
+
+    class Accounting(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_int64) for name in (
+            "TotalUserTime", "TotalKernelTime", "ThisPeriodTotalUserTime", "ThisPeriodTotalKernelTime"
+        )] + [(name, ctypes.c_uint32) for name in (
+            "TotalPageFaultCount", "TotalProcesses", "ActiveProcesses", "TotalTerminatedProcesses"
+        )]
+
+    if not kernel.TerminateJobObject(job, 1):
+        raise OSError("request job termination failed")
+    deadline = time.monotonic() + timeout
+    while True:
+        accounting = Accounting()
+        if not kernel.QueryInformationJobObject(job, 1, ctypes.byref(accounting),
+                                                ctypes.sizeof(accounting), None):
+            raise OSError("request job accounting unavailable")
+        if accounting.ActiveProcesses == 0:
+            return
+        if time.monotonic() >= deadline:
+            raise OSError("request job did not terminate")
+        time.sleep(.005)
+
+
 class _ProcessTree:
     """Private POSIX process group or a Windows kill-on-close job."""
 
@@ -273,6 +299,11 @@ class _ProcessTree:
         kernel.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
         kernel.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
         kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        kernel.TerminateJobObject.restype = wintypes.BOOL
+        kernel.QueryInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
+                                                    wintypes.DWORD, ctypes.c_void_p]
+        kernel.QueryInformationJobObject.restype = wintypes.BOOL
         job = kernel.CreateJobObjectW(None, None)
         if not job:
             raise OSError("job creation failed")
@@ -333,19 +364,32 @@ class _ProcessTree:
 
     def _drain(self) -> None:
         assert self.process.stderr is not None
-        while True:
-            chunk = self.process.stderr.read(4096)
-            if not chunk:
-                break
-            remaining = 32768 - len(self.errors)
-            if remaining > 0:
-                self.errors.extend(chunk[:remaining])
+        # This thread alone owns the pipe, including its close. Closing a
+        # buffered pipe in another thread while read is pending races on
+        # Windows. read1 also consumes currently available output promptly.
+        with self.process.stderr as source:
+            while True:
+                chunk = source.read1(4096)
+                if not chunk:
+                    break
+                remaining = 32768 - len(self.errors)
+                if remaining > 0:
+                    self.errors.extend(chunk[:remaining])
 
     def close(self) -> None:
+        cleanup_error = None
         if self.job:
             kernel, job = self.job
-            kernel.CloseHandle(job)
-            self.job = None
+            try:
+                # KILL_ON_JOB_CLOSE is asynchronous. Keep the handle until
+                # accounting confirms that SSH, proxies and callbacks all
+                # exited and released their write-only shared -E handles.
+                _terminate_windows_job(kernel, job)
+            except OSError as exc:
+                cleanup_error = exc
+            finally:
+                kernel.CloseHandle(job)
+                self.job = None
         elif os.name != "nt":
             # The parent may already have exited while proxy children remain.
             try:
@@ -376,9 +420,13 @@ class _ProcessTree:
         except subprocess.TimeoutExpired:
             self.process.kill()
             self.process.wait(timeout=1)
-        self.reader.join(timeout=.2)
-        if self.process.stderr:
-            self.process.stderr.close()
+        self.reader.join(timeout=1)
+        if self.reader.is_alive():
+            # Never race the reader by closing its stream, and never trust
+            # authentication proof while another request process owns it.
+            raise OSError("request stderr did not reach EOF")
+        if cleanup_error is not None:
+            raise cleanup_error
 
 
 def _method(hop: dict[str, Any]) -> str | None:
@@ -447,6 +495,7 @@ class CredentialProbeRunner:
             if slot:
                 descriptors = [{"credential_id": selected["id"], "slot": slot, "alias": host["alias"],
                                 "hostname": host["hostname"], "username": host["username"],
+                                "prompt_hostname": host["external_options"].get("hostkeyalias", host["hostname"]),
                                 "key_path": selected.get("key_path")}]
             result.append({**host, "credential": selected, "descriptors": descriptors,
                            "probe_alias": f"ssm-credential-probe-{index}"})
@@ -642,7 +691,10 @@ class CredentialProbeRunner:
             code = "ssh-failed"
         finally:
             if tree is not None:
-                tree.close()
+                try:
+                    tree.close()
+                except OSError:
+                    code = "ssh-failed"
             if broker is not None:
                 broker.close()
             if temporary is not None:
