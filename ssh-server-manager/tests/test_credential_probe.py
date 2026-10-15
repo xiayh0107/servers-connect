@@ -503,7 +503,11 @@ def test_real_authentication_password_none_and_banner_isolation(request_state, l
     server = loopback_servers(none=none, banner=banner)
     database.update_server(host["id"], port=server.port)
     snapshot = database.get_server(host["id"])
-    result = fixture_runner(database, vault, tmp_path, [server]).test(credential["id"], host["id"], timeout=5)
+    # Allow shared Windows CI more time for SSH/system PowerShell startup.
+    # This checks authentication/banner isolation;
+    # explicit deadline and cancellation tests keep their short budgets.
+    result = fixture_runner(database, vault, tmp_path, [server]).test(
+        credential["id"], host["id"], timeout=15 if os.name == "nt" else 5)
     assert result["ok"] is expected, result
     assert result["method"] == ("none" if none else "password")
     assert result["error_code"] == ("credential-not-used" if none else None)

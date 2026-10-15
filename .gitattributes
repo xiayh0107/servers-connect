@@ -1,0 +1,5 @@
+# Keep generated contracts and shipped UI byte-identical on every checkout.
+ssh-server-manager/frontend/src/generated.ts text eol=lf
+ssh-server-manager/frontend/index.html text eol=lf
+ssh-server-manager/contracts/api-v1.openapi.json text eol=lf
+ssh-server-manager/scripts/ssh_server_manager/assets/ui/** text=auto eol=lf
