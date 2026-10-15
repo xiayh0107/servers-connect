@@ -69,15 +69,15 @@
   Pin the schema toolchain in `contracts/constraints.txt` for the drift check.
 - Close SQLite connections after initialization and reads, including error paths,
   so disposable UI fixtures release database files before cleanup on Windows.
-- Open the local UI on a searchable Hosts inventory, replacing overview cards
-  with a compact actionable list and explicit empty/loading/error states.
-- Add read-only host details with full notes, saved connection status, focus and
-  browser-history handling, and a one-click managed SSH command with clipboard retry.
-- Keep existing connection APIs and loopback/session/CSRF/Origin/vault protections;
-  add isolated no-network fixtures and UI interaction/security regressions.
-- Fix accent selection being shadowed by the categorical tag-color helper.
-- Keep narrow-screen host details inside the available viewport when scrollbars
-  are visible, and give the tag filter a readable full-width row.
+- Preserve global original SSH-config defaults after the final managed host.
+  Parse Windows SFTP listings without inventing unavailable permission bits;
+  keep binary transfers intact. Verify credential authentication after releasing
+  OpenSSH's private logs, including Windows logs that prohibit concurrent reads.
+- Test Python 3.10/3.13 on macOS, Linux and Windows, check the offline API
+  contract and frontend build, and validate wheel/sdist installations outside
+  the checkout. Upgrade populated published 0.8.0 databases through schema 7
+  while retaining host/credential IDs, routes and authentication settings.
+  Include the public frontend sources, test fixtures and launchers in the sdist.
 
 
 ## 0.8.0 — 2026-08-26

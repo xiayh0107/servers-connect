@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -20,24 +21,94 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import venv
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+
+def check_source_archive(distribution: Path, expected: str) -> str:
+    """Validate public development inputs without requiring them in a wheel."""
+    prefix = f"ssh_server_manager-{expected}"
+    required = {
+        "pyproject.toml", "MANIFEST.in", "README.md", "SKILL.md",
+        "scripts/bootstrap", "scripts/bootstrap.cmd", "scripts/bootstrap.py",
+        "scripts/serverctl", "scripts/serverctl.cmd", "scripts/serverctl.py",
+        "scripts/build-ui", "scripts/export-openapi.py", "scripts/packaging-smoke.py",
+        "scripts/upgrade-smoke.py", "contracts/api-v1.openapi.json",
+        "tests/conftest.py", "tests/ssh_fixture_permissions.py",
+        "tests/test_modern_fixture.py", "tests/test_ssh_config.py",
+        "tests/manual/modern_fixture.py", "tests/manual/hosts_fixture.py",
+        "tests/manual/README.md", "frontend/package.json", "frontend/package-lock.json",
+        "frontend/src/api.ts", "frontend/e2e/ssh.spec.ts",
+    }
+    forbidden_parts = {"node_modules", ".venv", "__pycache__", ".pytest_cache",
+                       "test-results", "playwright-report", ".git"}
+    forbidden_roots = {"build", "dist", "tmp", "runtime", "data"}
+    forbidden_files = {"ui-state.json", "ssh-server-manager.db", "launch-url"}
+    files = set()
+    seen = set()
+    with tarfile.open(distribution, "r:gz") as archive:
+        for member in archive.getmembers():
+            path = PurePosixPath(member.name)
+            parts = member.name.split("/")
+            if ("\\" in member.name or path.is_absolute() or any(part in {"", ".", ".."} for part in parts)
+                    or parts[0] != prefix or member.name in seen
+                    or not (member.isfile() or member.isdir())):
+                raise RuntimeError("Source archive contains an unsafe or unexpected member")
+            seen.add(member.name)
+            relative = parts[1:]
+            if (any(part in forbidden_parts for part in relative)
+                    or (relative and relative[0] in forbidden_roots)
+                    or (relative and relative[-1] in forbidden_files)
+                    or relative[:3] == ["tests", "manual", "tmp"]):
+                raise RuntimeError("Source archive contains dependency, cache or private runtime artifacts")
+            if member.isfile():
+                files.add("/".join(relative))
+    if missing := required - files:
+        raise RuntimeError("Source archive is missing public development inputs: " + ", ".join(sorted(missing)))
+    return prefix
 
 
 def run_smoke(distribution: Path, expected: str) -> None:
+    source_prefix = check_source_archive(distribution, expected) if distribution.name.endswith(".tar.gz") else None
     with tempfile.TemporaryDirectory(prefix="ssm-package-") as temporary:
         root = Path(temporary)
         environment = root / "environment"
         venv.EnvBuilder(with_pip=True).create(environment)
         scripts = environment / ("Scripts" if os.name == "nt" else "bin")
         python = scripts / ("python.exe" if os.name == "nt" else "python")
+        install = str(distribution) + ("[test]" if source_prefix else "")
         subprocess.run([str(python), "-m", "pip", "install", "--disable-pip-version-check",
-                        str(distribution)], cwd=root, check=True, stdout=subprocess.DEVNULL)
+                        install], cwd=root, check=True, stdout=subprocess.DEVNULL)
         launcher = scripts / ("serverctl.exe" if os.name == "nt" else "serverctl")
         isolated = {**os.environ, "SSM_DATA_DIR": str(root / "data"),
                     "SSM_RUNTIME_DIR": str(root / "runtime"),
                     "SSM_ORIGINAL_SSH_CONFIG": str(root / "original.conf"),
                     "SSM_MANAGED_SSH_CONFIG": str(root / "managed.conf")}
         isolated.pop("PYTHONPATH", None)
+        isolated.pop("PYTHONHOME", None)
+        if source_prefix:
+            # Members were checked above: only regular files/directories under
+            # the exact package prefix, with no links or parent-path traversal.
+            source = root / "source"
+            with tarfile.open(distribution, "r:gz") as archive:
+                for member in archive.getmembers():
+                    target = source.joinpath(*PurePosixPath(member.name).parts)
+                    if member.isdir():
+                        target.mkdir(parents=True, exist_ok=True)
+                    else:
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with archive.extractfile(member) as stream:
+                            target.write_bytes(stream.read())
+                        target.chmod(member.mode & 0o777)
+            collected = subprocess.run([str(python), "-m", "pytest", "-o", "addopts=", "--collect-only", "-q", "tests",
+                "--ignore=tests/test_website.py", "--ignore=tests/test_website_build.py"],
+                cwd=source / source_prefix, env=isolated, capture_output=True, text=True, timeout=60)
+            count = re.search(r"(\d+) tests? collected", collected.stdout)
+            nodes = collected.stdout.replace("\\", "/")
+            required_collections = ("test_modern_fixture.py", "test_credential_probe.py", "test_ui_assets.py")
+            if (collected.returncode or not count
+                    or any(f"tests/{name}::" not in nodes for name in required_collections)):
+                raise RuntimeError("Unpacked source test collection failed (subprocess output withheld)")
+            print(f"Source archive: {count[1]} tests collected; repository-only website tests stay in checkout CI")
 
         def cli(*arguments: str, check: bool = True):
             result = subprocess.run([str(launcher), *arguments], cwd=root, env=isolated,

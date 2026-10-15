@@ -118,6 +118,10 @@ outside the checkout. It confirms the installed package import, CLI version,
 empty host listing, normal one-use Web launch, runtime contract, every manifest
 asset, a CSRF-protected local tag write/delete, and Web status/stop cleanup.
 This also verifies that a source checkout cannot mask omitted package data.
+For the sdist, it also checks the public development inputs and rejects cached
+dependencies or runtime state, then unpacks the source and collects its tests.
+Only the two repository-level website test modules are excluded from that
+collection; they still run in checkout CI, where the website sources exist.
 All state is disposable, no SSH is requested, and ordinary metadata reads never
 open the OS credential vault.
 

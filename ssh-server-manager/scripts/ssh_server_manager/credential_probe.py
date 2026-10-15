@@ -7,6 +7,7 @@ method is checked, including OpenSSH's initial implicit `none` attempt.
 """
 from __future__ import annotations
 
+import base64
 import fnmatch
 import getpass
 import glob
@@ -68,9 +69,38 @@ def _private_write(path: Path, content: str) -> None:
 
 
 def _shell_command(arguments: list[str]) -> str:
-    # OpenSSH performs percent expansion before invoking the local shell.
+    # OpenSSH performs percent expansion first. Windows ProxyCommand uses
+    # CreateProcess/CRT argument decoding; POSIX invokes the local shell.
     result = subprocess.list2cmdline(arguments) if os.name == "nt" else shlex.join(arguments)
     return result.replace("%", "%%")
+
+
+def _windows_callback_command(powershell: str, index: int) -> str:
+    if type(index) is not int or not 0 <= index < 32 or any(c in powershell for c in '\"\r\n\0'):
+        raise ValueError("invalid local callback configuration")
+    # LocalCommand uses cmd.exe on Windows. Its text contains only the trusted
+    # system executable and a fixed encoded script, never request paths.
+    # PowerShell treats each scoped environment value as an argument operand,
+    # so &, %, !, quotes, spaces and Unicode in paths cannot become commands.
+    script = ("$ErrorActionPreference = 'Stop'; "
+              "& $env:SSM_CREDENTIAL_PROBE_PYTHON $env:SSM_CREDENTIAL_PROBE_HELPER "
+              f"'callback' $env:SSM_CREDENTIAL_PROBE_MANIFEST '{index}'; exit $LASTEXITCODE")
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    # cmd /c removes the outermost pair, preserving the executable's quotes.
+    command = f'""{powershell}" -NoLogo -NoProfile -NonInteractive -EncodedCommand {encoded}"'
+    return command.replace("%", "%%")
+
+
+def _callback_command(helper: str, manifest: Path, index: int) -> str:
+    if os.name != "nt":
+        return _shell_command([sys.executable, helper, "callback", str(manifest), str(index)])
+    system_root = os.environ.get("SystemRoot", "")
+    if not system_root or not Path(system_root).is_absolute():
+        raise _ProbeError("ssh-failed")
+    powershell = Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    if not powershell.is_file():
+        raise _ProbeError("ssh-failed")
+    return _windows_callback_command(str(powershell), index)
 
 
 def _external_config(alias: str, path: Path, *, trust_only: bool = False,
@@ -432,12 +462,10 @@ class CredentialProbeRunner:
             _private_write(Path(hop["log"]), "")
             lines.extend([f"Host {hop['probe_alias']}", f"  HostName {quote_value(hop['hostname'])}",
                           f"  User {quote_value(hop['username'])}", f"  Port {hop['port']}",
-                          "  PermitLocalCommand yes", "  LocalCommand " + _shell_command(
-                              [sys.executable, helper, "callback", str(manifest), str(index)])])
+                          "  PermitLocalCommand yes", "  LocalCommand " + _callback_command(helper, manifest, index)])
             if index:
                 lines.append("  ProxyCommand " + _shell_command(
-                    [sys.executable, helper, "proxy", str(manifest), str(index - 1),
-                     f"[{hop['hostname']}]:{hop['port']}"]))
+                    [sys.executable, helper, "proxy", str(manifest), str(index - 1)]))
             else:
                 lines.append("  ProxyCommand none")
             selected = hop["credential"]
@@ -496,7 +524,10 @@ class CredentialProbeRunner:
                             "SSM_ASKPASS_MAP": json.dumps(hops[-1]["descriptors"], separators=(",", ":")),
                             "SSM_CREDENTIAL_PROBE_STAGE": str(len(hops) - 1),
                             "SSM_CREDENTIAL_PROBE_ENDPOINT": f"127.0.0.1:{broker.server_address[1]}",
-                            "SSM_CREDENTIAL_PROBE_TOKEN": broker.token})
+                            "SSM_CREDENTIAL_PROBE_TOKEN": broker.token,
+                            "SSM_CREDENTIAL_PROBE_PYTHON": sys.executable,
+                            "SSM_CREDENTIAL_PROBE_HELPER": str(Path(__file__).with_name("credential_probe_helper.py")),
+                            "SSM_CREDENTIAL_PROBE_MANIFEST": str(directory / "request.json")})
         return environment
 
     def test(self, credential_id: str, host_identifier: str, *, timeout: float = 8,
@@ -546,6 +577,7 @@ class CredentialProbeRunner:
                        hops[-1]["probe_alias"]]
             tree = _ProcessTree(command, environment)
             confirmed: set[int] = set()
+            expected_callbacks = set(range(len(hops)))
             while True:
                 if cancel_event and cancel_event.is_set():
                     raise _ProbeError("cancelled")
@@ -557,32 +589,49 @@ class CredentialProbeRunner:
                         raise _ProbeError("vault-unavailable")
                     if index not in confirmed:
                         confirmed.add(index)
-                        hop_method = _method(hops[index])
                         if index < len(hops) - 1:
-                            yield stage("hop", "ok", "Jump authentication completed.", hop_index=index,
-                                        alias=hops[index]["alias"], method=hop_method)
-                        else:
-                            method = hop_method
-                            if method == "none":
-                                raise _ProbeError("credential-not-used")
-                            expected = "password" if credential["kind"] == "password" else "publickey"
-                            if method != expected:
-                                raise _ProbeError("authentication-unconfirmed")
+                            yield stage("hop", "running", "Verifying jump authentication.", hop_index=index,
+                                        alias=hops[index]["alias"])
+                        if confirmed == expected_callbacks:
                             break
                 except queue.Empty:
                     pass
                 if tree.process.poll() is not None and broker.events.empty():
-                    tree.reader.join(timeout=.1)
-                    diagnostics = bytes(tree.errors).decode("utf-8", "replace")
+                    exited_tree = tree
+                    returncode = tree.process.returncode
+                    # A proxy child can still own a private log after its
+                    # parent exits. Release the entire request before reading
+                    # diagnostics, including Windows' write-only shared logs.
+                    tree.close()
+                    tree = None
+                    diagnostics = bytes(exited_tree.errors).decode("utf-8", "replace")
                     for hop in hops:
                         with Path(hop["log"]).open("rb") as diagnostic_log:
                             diagnostics += diagnostic_log.read(32768).decode("utf-8", "replace")
                     # Success cannot be inferred from stderr or exit code.
-                    raise _ProbeError(classify_error(diagnostics, tree.process.returncode)
-                                      if tree.process.returncode else "authentication-unconfirmed")
-            yield stage("authenticate", "ok", "The selected credential was accepted.", method=method)
+                    raise _ProbeError(classify_error(diagnostics, returncode)
+                                      if returncode else "authentication-unconfirmed")
+            # Windows OpenSSH opens -E logs with FILE_SHARE_WRITE only, so a
+            # live log cannot supply authentication proof. Callback events
+            # establish that local authentication completed; close every SSH
+            # and proxy process before independently verifying their logs.
             tree.close()
             tree = None
+            if confirmed != expected_callbacks:
+                raise _ProbeError("authentication-unconfirmed")
+            methods = [_method(hop) for hop in hops]
+            method = methods[-1]
+            if method == "none":
+                raise _ProbeError("credential-not-used")
+            for hop, hop_method in zip(hops, methods):
+                selected = hop["credential"]
+                expected = ("password" if selected["kind"] == "password" else "publickey") if selected else None
+                if hop_method is None or (expected is not None and hop_method != expected):
+                    raise _ProbeError("authentication-unconfirmed")
+            for index, hop in enumerate(hops[:-1]):
+                yield stage("hop", "ok", "Jump authentication completed.", hop_index=index,
+                            alias=hop["alias"], method=methods[index])
+            yield stage("authenticate", "ok", "The selected credential was accepted.", method=method)
             broker.close()
             broker = None
         except _ProbeError as exc:

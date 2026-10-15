@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -14,7 +15,7 @@ import pytest
 
 from ssh_fixture_permissions import private_ssh_fixture_file
 
-from ssh_server_manager.credential_probe import CredentialProbeRunner, _Broker, _external_config, _method, _ProbeError, _ProcessTree
+from ssh_server_manager.credential_probe import CredentialProbeRunner, _Broker, _external_config, _method, _ProbeError, _ProcessTree, _windows_callback_command
 from ssh_server_manager.credential_probe_helper import _request, probe_askpass
 from ssh_server_manager.db import Database
 from ssh_server_manager.ssh_config import quote_value
@@ -77,6 +78,58 @@ def test_external_alias_resolution_never_executes_saved_hooks(tmp_path):
     with pytest.raises(_ProbeError):
         _external_config("external", config)
     assert not marker.exists()
+
+
+def test_windows_callback_encodes_fixed_script_and_keeps_metadata_out_of_cmd(monkeypatch):
+    metadata = r"C:\fixture & percent% bang! quote' 中文\request.json"
+    for suffix in ("PYTHON", "HELPER", "MANIFEST"):
+        monkeypatch.setenv(f"SSM_CREDENTIAL_PROBE_{suffix}", metadata)
+    powershell = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+    command = _windows_callback_command(powershell, 7)
+    assert command.startswith(f'""{powershell}" -NoLogo -NoProfile -NonInteractive -EncodedCommand ')
+    assert command.endswith('"')
+    encoded = command.split("-EncodedCommand ", 1)[1][:-1]
+    script = base64.b64decode(encoded, validate=True).decode("utf-16-le")
+    assert metadata not in command and metadata not in script
+    assert ("& $env:SSM_CREDENTIAL_PROBE_PYTHON $env:SSM_CREDENTIAL_PROBE_HELPER "
+            "'callback' $env:SSM_CREDENTIAL_PROBE_MANIFEST '7'") in script
+    assert "exit $LASTEXITCODE" in script
+    for invalid in (-1, 32, "0 & whoami", True):
+        with pytest.raises(ValueError):
+            _windows_callback_command(powershell, invalid)
+
+
+def test_proxy_helper_reads_destination_from_manifest_without_shell_argument(tmp_path, monkeypatch):
+    import ssh_server_manager.credential_probe_helper as helper
+
+    manifest = tmp_path / "request.json"
+    manifest.write_text(json.dumps({
+        "config": "fixture.conf", "ssh_binary": "fixture-ssh", "hops": [
+            {"log": "fixture.log", "probe_alias": "ssm-credential-probe-0", "descriptors": []},
+            {"hostname": "fixture&whoami", "port": 2222},
+        ],
+    }))
+    calls = []
+
+    def capture_call(command, *, env):
+        calls.append(command)
+        return 0
+
+    def capture_exec(program, command, environment):
+        calls.append(command)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(sys, "argv", ["credential_probe_helper.py", "proxy", str(manifest), "0"])
+    monkeypatch.setattr(helper.subprocess, "call", capture_call)
+    monkeypatch.setattr(helper.os, "execvpe", capture_exec)
+    if os.name == "nt":
+        assert helper.main() == 0
+    else:
+        with pytest.raises(SystemExit) as result:
+            helper.main()
+        assert result.value.code == 0
+    assert calls == [["fixture-ssh", "-F", "fixture.conf", "-E", "fixture.log", "-T", "-W",
+                      "[fixture&whoami]:2222", "ssm-credential-probe-0"]]
 
 
 def test_method_requires_single_complete_trusted_log_record(tmp_path):
@@ -169,6 +222,117 @@ def test_success_log_and_exit_zero_still_require_local_callback(request_state, m
     result = CredentialProbeRunner(database, lambda: vault).test(credential["id"], host["id"])
     assert result["error_code"] == "authentication-unconfirmed"
     assert result["ok"] is False
+
+
+@pytest.mark.parametrize("proof,expected_code", [
+    ("valid", None),
+    ("missing-hop-proof", "authentication-unconfirmed"),
+    ("wrong-hop-method", "authentication-unconfirmed"),
+    ("wrong-target", "authentication-unconfirmed"),
+    ("missing-hop-callback", "timeout"),
+    ("target-callback-first", None),
+    ("target-none", "credential-not-used"),
+])
+def test_route_proof_is_verified_only_after_all_log_owners_close(
+        request_state, monkeypatch, proof, expected_code):
+    import ssh_server_manager.credential_probe as module
+
+    database, credential, host, vault = request_state
+    database.create_server(alias="jump", hostname="127.0.0.1", username="fixture", port=22,
+                           credential_id=credential["id"])
+    database.update_server(host["id"], proxy_jumps=["jump"])
+    closed = False
+    original_method = module._method
+    reads = []
+
+    class CallbackBroker(_Broker):
+        def __init__(self, hops, vault_factory):
+            super().__init__(hops, vault_factory)
+            if proof == "target-callback-first":
+                self.events.put(("authenticated", 1))
+            if proof != "missing-hop-callback":
+                self.events.put(("authenticated", 0))
+            self.events.put(("authenticated", 1))
+
+    class RunningProcess:
+        def poll(self):
+            return None
+
+    class LockedLogTree:
+        def __init__(self, command, environment):
+            self.process = RunningProcess()
+            self.manifest = json.loads(Path(command[command.index("-F") + 1]).with_name("request.json").read_text())
+
+        def close(self):
+            nonlocal closed
+            closed = True
+            for index, hop in enumerate(self.manifest["hops"]):
+                method = "publickey" if index == 0 and proof == "wrong-hop-method" else "password"
+                if index == 1 and proof == "target-none":
+                    method = "none"
+                hostname = "192.0.2.1" if index == 1 and proof == "wrong-target" else "127.0.0.1"
+                record = f'Authenticated to {hostname} ([127.0.0.1]:22) using "{method}".\r\n'
+                Path(hop["log"]).write_text("" if index == 0 and proof == "missing-hop-proof" else record)
+
+    def read_closed_log(hop):
+        assert closed, "Private authentication logs must be read after their owners close"
+        reads.append(hop["alias"])
+        return original_method(hop)
+
+    monkeypatch.setattr(module, "_Broker", CallbackBroker)
+    monkeypatch.setattr(module, "_ProcessTree", LockedLogTree)
+    monkeypatch.setattr(module, "_method", read_closed_log)
+    result = CredentialProbeRunner(database, lambda: vault).test(
+        credential["id"], host["id"], timeout=.1 if proof == "missing-hop-callback" else 8)
+
+    assert result["ok"] is (expected_code is None)
+    assert result["error_code"] == expected_code
+    assert closed
+    if proof == "missing-hop-callback":
+        assert reads == []
+    else:
+        assert reads == ["jump", "target"]
+    completed_hops = [item for item in result["stages"] if item["stage"] == "hop" and item["status"] == "ok"]
+    assert len(completed_hops) == (1 if expected_code is None else 0)
+    assert not list(Path(os.environ["SSM_RUNTIME_DIR"]).glob("credential-probe-*"))
+
+
+def test_failed_parent_releases_proxy_log_owners_before_classification(request_state, monkeypatch):
+    import ssh_server_manager.credential_probe as module
+
+    database, credential, host, vault = request_state
+    original_open = Path.open
+    closed = False
+
+    class FailedProcess:
+        returncode = 255
+
+        def poll(self):
+            return self.returncode
+
+    class LockedLogTree:
+        def __init__(self, command, environment):
+            self.process = FailedProcess()
+            self.errors = bytearray()
+            self.log = Path(command[command.index("-E") + 1])
+
+        def close(self):
+            nonlocal closed
+            closed = True
+            self.log.write_text("Permission denied (password).\r\n")
+
+    def shared_log_open(path, mode="r", *args, **kwargs):
+        if path.name.startswith("hop-") and mode == "rb" and not closed:
+            raise PermissionError("Authentication log is held by a proxy process")
+        return original_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(module, "_ProcessTree", LockedLogTree)
+    monkeypatch.setattr(Path, "open", shared_log_open)
+    result = CredentialProbeRunner(database, lambda: vault).test(credential["id"], host["id"])
+
+    assert closed
+    assert not result["ok"] and result["error_code"] == "authentication-failed"
+    assert not list(Path(os.environ["SSM_RUNTIME_DIR"]).glob("credential-probe-*"))
 
 
 def test_process_cleanup_includes_descendant_after_parent_exit(tmp_path):
@@ -387,6 +551,8 @@ def test_real_probe_reports_only_sanitized_authentication_evidence(
             super().__init__(command, environment)
 
         def close(self):
+            returncode = self.process.poll()
+            super().close()
             if self.proof_log.exists():
                 with self.proof_log.open("rb") as source:
                     proof = source.read(65537)
@@ -395,7 +561,7 @@ def test_real_probe_reports_only_sanitized_authentication_evidence(
                 # paths, remote banners or raw stderr. All output is fixed
                 # booleans/counts and the strict parser's bounded method enum.
                 evidence.append({
-                    "process_returncode_before_cleanup": self.process.poll(),
+                    "process_returncode_before_cleanup": returncode,
                     "private_log_bytes": len(proof),
                     "private_authentication_records": proof.count(b"Authenticated to "),
                     "private_legacy_method_records": proof.count(b"Authentication succeeded ("),
@@ -406,7 +572,6 @@ def test_real_probe_reports_only_sanitized_authentication_evidence(
                     "stderr_command_missing": b"is not recognized" in errors,
                     "stderr_permissions_rejected": b"bad permissions" in errors or b"bad owner" in errors,
                 })
-            super().close()
 
     monkeypatch.setattr(module, "_method", checked_method)
     monkeypatch.setattr(module, "_ProcessTree", EvidenceTree)
@@ -415,6 +580,22 @@ def test_real_probe_reports_only_sanitized_authentication_evidence(
         "result_code": result["error_code"], "sanitized_evidence": evidence}
     assert method_checks == ["password"]
     assert not server.sessions
+
+
+def test_real_callback_and_proxy_handle_runtime_path_metacharacters(
+        request_state, loopback_servers, tmp_path, monkeypatch):
+    database, credential, host, vault = request_state
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime & percent% bang! quote' 中文"))
+    jump = loopback_servers()
+    target = loopback_servers()
+    database.create_server(alias="jump", hostname="127.0.0.1", username="fixture", port=jump.port,
+                           credential_id=credential["id"])
+    database.update_server(host["id"], port=target.port, proxy_jumps=["jump"])
+    result = fixture_runner(database, vault, tmp_path, [jump, target]).test(
+        credential["id"], host["id"], timeout=8)
+    assert result["ok"] and result["method"] == "password", result
+    assert not jump.sessions and not target.sessions
+    assert not list(Path(os.environ["SSM_RUNTIME_DIR"]).glob("credential-probe-*"))
 
 
 def test_real_host_key_is_never_silently_accepted(request_state, loopback_servers, tmp_path):
@@ -533,7 +714,8 @@ def test_real_multihop_keeps_same_username_credentials_separate(request_state, l
     assert second.password_attempts == ["second-jump-secret"]
     assert target.password_attempts == ["fixture-password-never-log"]
     assert not any(server.sessions for server in [first, second, target])
-    assert [item["alias"] for item in result["stages"] if item["stage"] == "hop"] == aliases
+    assert [item["alias"] for item in result["stages"]
+            if item["stage"] == "hop" and item["status"] == "ok"] == aliases
 
 
 def test_closing_stream_after_hop_disconnects_entire_route(request_state, loopback_servers, tmp_path):

@@ -60,14 +60,15 @@ def main() -> int:
         stage = int(sys.argv[3])
         if sys.argv[1] == "callback":
             return 0 if _request({"op": "authenticated", "stage": stage}).get("ok") else 1
-        if sys.argv[1] != "proxy" or not 0 <= stage < len(manifest["hops"]):
+        if sys.argv[1] != "proxy" or not 0 <= stage < len(manifest["hops"]) - 1:
             return 1
         hop = manifest["hops"][stage]
+        next_hop = manifest["hops"][stage + 1]
         environment = os.environ.copy()
         environment["SSM_CREDENTIAL_PROBE_STAGE"] = str(stage)
         environment["SSM_ASKPASS_MAP"] = json.dumps(hop["descriptors"], separators=(",", ":"))
         command = [manifest["ssh_binary"], "-F", manifest["config"], "-E", hop["log"],
-                   "-T", "-W", sys.argv[4], hop["probe_alias"]]
+                   "-T", "-W", f"[{next_hop['hostname']}]:{next_hop['port']}", hop["probe_alias"]]
         # POSIX exec preserves the request process group; Windows child
         # processes inherit the request's kill-on-close job.
         if os.name != "nt":
