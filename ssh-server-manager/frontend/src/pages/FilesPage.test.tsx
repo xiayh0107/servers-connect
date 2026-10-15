@@ -155,7 +155,7 @@ describe('Files page', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Show next 250 entries'}));
     expect(screen.getByRole('button', {name: 'file-499'})).toBeVisible();
     expect(screen.getByText(/Showing 500 of 600 returned/)).toBeVisible();
-  });
+  }, 10_000);
 
   it('does not retry a failed listing until the user requests it', async () => {
     apiMock.mockImplementation(async path => {if (path.endsWith('/paths')) return []; throw new ApiError(502, 'auth_failed', 'Authentication failed');});

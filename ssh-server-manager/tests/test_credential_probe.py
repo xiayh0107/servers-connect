@@ -12,6 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from ssh_fixture_permissions import private_ssh_fixture_file
+
 from ssh_server_manager.credential_probe import CredentialProbeRunner, _Broker, _external_config, _method, _ProbeError, _ProcessTree
 from ssh_server_manager.credential_probe_helper import _request, probe_askpass
 from ssh_server_manager.db import Database
@@ -63,6 +65,7 @@ def test_external_alias_resolution_never_executes_saved_hooks(tmp_path):
     config = tmp_path / "config"
     config.write_text(f"Host external\n HostName 127.0.0.1\n User fixture\n Port 2222\n"
                       f" IdentityFile /tmp/fixture-key\n LocalCommand touch {marker}\n PermitLocalCommand yes\n")
+    private_ssh_fixture_file(config)
     result = _external_config("external", config)
     assert result["port"] == 2222
     assert result["external_options"]["identityfile"] == "/tmp/fixture-key"
@@ -317,6 +320,7 @@ def fixture_runner(database, vault, tmp_path, servers, *, trust=True):
     known_hosts.write_text("\n".join(
         f"[127.0.0.1]:{server.port} {server.key.get_name()} {server.key.get_base64()}" for server in servers
     ) if trust else "")
+    private_ssh_fixture_file(known_hosts)
 
     class IsolatedRunner(CredentialProbeRunner):
         def _prepare(self, directory, hops, timeout):
@@ -359,6 +363,60 @@ def test_real_authentication_failure_cannot_be_spoofed_by_banner(request_state, 
     assert not server.sessions
 
 
+def test_real_probe_reports_only_sanitized_authentication_evidence(
+        request_state, loopback_servers, tmp_path, monkeypatch):
+    """Distinguish a missing local callback from an unreadable proof on CI."""
+    import ssh_server_manager.credential_probe as module
+
+    database, credential, host, vault = request_state
+    server = loopback_servers()
+    database.update_server(host["id"], port=server.port)
+    method_checks = []
+    evidence = []
+    original_method = module._method
+    original_tree = module._ProcessTree
+
+    def checked_method(hop):
+        method = original_method(hop)
+        method_checks.append(method)
+        return method
+
+    class EvidenceTree(original_tree):
+        def __init__(self, command, environment):
+            self.proof_log = Path(command[command.index("-E") + 1])
+            super().__init__(command, environment)
+
+        def close(self):
+            if self.proof_log.exists():
+                with self.proof_log.open("rb") as source:
+                    proof = source.read(65537)
+                errors = bytes(self.errors).lower()
+                # Never emit private log records, callback environment values,
+                # paths, remote banners or raw stderr. All output is fixed
+                # booleans/counts and the strict parser's bounded method enum.
+                evidence.append({
+                    "process_returncode_before_cleanup": self.process.poll(),
+                    "private_log_bytes": len(proof),
+                    "private_authentication_records": proof.count(b"Authenticated to "),
+                    "private_legacy_method_records": proof.count(b"Authentication succeeded ("),
+                    "parsed_method": original_method({"log": str(self.proof_log), "hostname": "127.0.0.1"}),
+                    "callback_method_checks": list(method_checks),
+                    "stderr_python_traceback": b"traceback (most recent call last)" in errors,
+                    "stderr_helper_missing": b"can't open file" in errors,
+                    "stderr_command_missing": b"is not recognized" in errors,
+                    "stderr_permissions_rejected": b"bad permissions" in errors or b"bad owner" in errors,
+                })
+            super().close()
+
+    monkeypatch.setattr(module, "_method", checked_method)
+    monkeypatch.setattr(module, "_ProcessTree", EvidenceTree)
+    result = fixture_runner(database, vault, tmp_path, [server]).test(credential["id"], host["id"], timeout=5)
+    assert result["ok"] and result["method"] == "password", {
+        "result_code": result["error_code"], "sanitized_evidence": evidence}
+    assert method_checks == ["password"]
+    assert not server.sessions
+
+
 def test_real_host_key_is_never_silently_accepted(request_state, loopback_servers, tmp_path):
     database, credential, host, vault = request_state
     server = loopback_servers()
@@ -393,6 +451,7 @@ def test_real_key_authentication_has_no_remote_session(request_state, loopback_s
     database, _, host, vault = request_state
     key = tmp_path / "identity"
     subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
+    private_ssh_fixture_file(key)
     selected = database.create_credential(label="Fixture key", kind="key", key_path=str(key))
     server = loopback_servers(public_key=paramiko.Ed25519Key.from_private_key_file(str(key)))
     database.update_server(host["id"], port=server.port)
@@ -409,6 +468,7 @@ def test_real_encrypted_key_uses_vault_passphrase(request_state, loopback_server
     # The fixture key and passphrase are disposable test data. Production
     # never passes a vault value to ssh-keygen or any other process argument.
     subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", passphrase, "-f", str(key)], check=True)
+    private_ssh_fixture_file(key)
     selected = database.create_credential(label="Encrypted fixture", kind="key", key_path=str(key), has_passphrase=True)
     vault.set_secret(selected["id"], "passphrase", passphrase)
     server = loopback_servers(public_key=paramiko.Ed25519Key.from_private_key_file(str(key), password=passphrase))
@@ -424,12 +484,14 @@ def test_real_external_jump_uses_safe_key_configuration(request_state, loopback_
     database, credential, host, vault = request_state
     key = tmp_path / "external-identity"
     subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True)
+    private_ssh_fixture_file(key)
     jump = loopback_servers(public_key=paramiko.Ed25519Key.from_private_key_file(str(key)))
     target = loopback_servers()
     marker = tmp_path / "saved-localcommand-was-run"
     Path(os.environ["SSM_ORIGINAL_SSH_CONFIG"]).write_text(
         f"Host external\n HostName 127.0.0.1\n User fixture\n Port {jump.port}\n"
         f" IdentityFile {quote_value(str(key))}\n IdentitiesOnly yes\n LocalCommand touch {marker}\n")
+    private_ssh_fixture_file(Path(os.environ["SSM_ORIGINAL_SSH_CONFIG"]))
     database.update_server(host["id"], port=target.port, proxy_jumps=["external"])
     result = fixture_runner(database, vault, tmp_path, [jump, target]).test(credential["id"], host["id"], timeout=5)
     assert result["ok"], result

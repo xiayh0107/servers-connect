@@ -350,6 +350,32 @@ def test_sftp_directory_listing_quotes_paths_and_rejects_command_injection(tmp_p
     )
 
 
+def test_sftp_directory_listing_accepts_windows_unknown_permission_bits():
+    listing = """Remote working directory: /
+-rw-******    ? 0        0              24 Oct 15 11:53 readme.txt
+drwx******    ? 0        0               0 Oct 15 11:53 empty
+lrwx******    ? 0        0              10 Oct 15 11:53 link
+-rw-******    ? 0        0               3 Oct 15 11:53 unicode-部署.txt
+"""
+    path, entries, unparsed = SSHRunner._parse_directory_listing(listing)
+    assert path == "/" and unparsed == 0
+    by_name = {entry["name"]: entry for entry in entries}
+    assert by_name["readme.txt"]["type"] == "file"
+    assert by_name["readme.txt"]["size"] == 24
+    assert by_name["readme.txt"]["permissions"] == "-rw-******"
+    assert by_name["empty"]["type"] == "directory"
+    assert by_name["link"]["type"] == "symlink"
+    assert by_name["unicode-部署.txt"]["path"] == "/unicode-部署.txt"
+
+
+@pytest.mark.parametrize("permissions", ["**********", "-*********", "-rw-*****", "-rw-*******", "-rw-***rwx"])
+def test_sftp_directory_listing_rejects_malformed_unknown_permissions(permissions):
+    _, entries, unparsed = SSHRunner._parse_directory_listing(
+        f"Remote working directory: /\n{permissions} ? 0 0 24 Oct 15 11:53 readme.txt\n"
+    )
+    assert entries == [] and unparsed == 1
+
+
 def test_sftp_directory_listing_treats_diagnostics_as_failure(tmp_path, monkeypatch):
     database = Database(tmp_path / "manager.db")
     database.create_server(alias="box", hostname="box.example", port=22, username="alice")

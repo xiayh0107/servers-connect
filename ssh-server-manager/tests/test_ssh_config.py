@@ -12,6 +12,7 @@ import pytest
 from ssh_server_manager.db import Database
 from ssh_server_manager.ssh_config import SSHConfigError, includes_target, render_config
 from ssh_server_manager import ssh_config
+from ssh_fixture_permissions import private_ssh_fixture_file
 
 
 def test_rendered_config_contains_no_secret_and_includes_original(tmp_path):
@@ -61,6 +62,7 @@ def test_original_defaults_and_external_aliases_apply_before_last_host(tmp_path)
         "Host external-jump\n  HostName 127.0.0.3\n  Port 22022\n",
         encoding="utf-8",
     )
+    private_ssh_fixture_file(original)
     managed = render_config(database, destination=tmp_path / "managed.conf", original=original)
 
     def effective(alias):

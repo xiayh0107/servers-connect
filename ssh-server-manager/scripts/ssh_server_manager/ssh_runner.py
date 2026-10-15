@@ -46,8 +46,10 @@ PROMPT_REDACTIONS = [
 ]
 
 SFTP_WORKING_DIRECTORY_PREFIX = "Remote working directory: "
+# Windows OpenSSH renders unavailable group/other bits as six asterisks.
+# Keep those unknown bits instead of dropping otherwise valid SFTP entries.
 SFTP_LISTING_RE = re.compile(
-    r"^(?P<permissions>[bcdlps-][rwxStTs-]{9}[+@.]?)\s+"
+    r"^(?P<permissions>[bcdlps-](?:[rwxStTs-]{9}|[r-][w-][x-]\*{6})[+@.]?)\s+"
     r"\S+\s+(?P<owner>\S+)\s+(?P<group>\S+)\s+(?P<size>\d+)\s+"
     r"(?P<month>\S+)\s+(?P<day>\d{1,2})\s+(?P<when>\S+)\s(?P<name>.*)$"
 )

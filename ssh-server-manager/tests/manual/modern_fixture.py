@@ -30,6 +30,11 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
+TESTS = Path(__file__).resolve().parents[1]
+if str(TESTS) not in sys.path:
+    sys.path.insert(0, str(TESTS))
+
+from ssh_fixture_permissions import private_ssh_fixture_file
 
 import paramiko
 from paramiko import Message
@@ -445,6 +450,8 @@ def fixture_environment():
         key_path, wrong_path = root / "client-key", root / "wrong-key"
         key.write_private_key_file(str(key_path))
         wrong_key.write_private_key_file(str(wrong_path))
+        private_ssh_fixture_file(key_path)
+        private_ssh_fixture_file(wrong_path)
         servers = [LoopbackSSH(remote, key) for _ in range(3)]
         servers.append(LoopbackSSH(remote, key, metadata=False))
         for server in servers:
@@ -458,6 +465,8 @@ def fixture_environment():
                             f" IdentityFile {quote_value(str(key_path))}\n IdentitiesOnly yes\n ProxyJump none\n"
                             f"Host *\n UserKnownHostsFile {quote_value(str(known_hosts))}\n GlobalKnownHostsFile none\n"
                             " StrictHostKeyChecking yes\n IdentityAgent none\n ForwardAgent no\n AddKeysToAgent no\n")
+        private_ssh_fixture_file(original)
+        private_ssh_fixture_file(known_hosts)
         stack.enter_context(patch.dict(os.environ, {
             "SSM_DATA_DIR": str(root / "data"), "SSM_RUNTIME_DIR": runtime_directory,
             "SSM_MANAGED_SSH_CONFIG": str(root / "managed.conf"), "SSM_ORIGINAL_SSH_CONFIG": str(original),

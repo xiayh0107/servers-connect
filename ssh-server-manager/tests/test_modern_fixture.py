@@ -85,8 +85,9 @@ def test_sftp_protocol_returns_parseable_fixture_listing(loopback):
     runner = SSHRunner(loopback["database"])
     host = loopback["database"].get_server("direct")
     before_auth = loopback["servers"][0].auth_attempts
+    command = runner._sftp_command(host, timeout=4, reuse=0)
     result = subprocess.run(
-        runner._sftp_command(host, timeout=4, reuse=0),
+        command,
         input=runner._directory_batch("/"), text=True, encoding="utf-8", errors="replace",
         capture_output=True, env=runner._environment(host), timeout=9, check=False,
     )
@@ -100,11 +101,21 @@ def test_sftp_protocol_returns_parseable_fixture_listing(loopback):
     if result.returncode or path != "/" or unparsed or not any(item["name"] == "readme.txt" for item in entries):
         version = subprocess.run([runner.ssh_binary, "-V"], capture_output=True, text=True,
                                  timeout=5, check=False)
+        # sftp may report only "Connection closed" for a bad Include ACL.
+        # Discard the effective configuration; only fixed fixture-file errors
+        # are useful here, and neither check makes a remote connection.
+        configuration = subprocess.run(
+            [runner.ssh_binary, "-G", "-F", command[command.index("-F") + 1], host["alias"]],
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+            timeout=5, check=False,
+        )
         # This fixture contains only generated names/metadata. Never print the
         # command environment, config, launch files or credential material.
         pytest.fail("Fixture SFTP protocol output was not parsed:\n" + json.dumps({
             "ssh_binary": runner.ssh_binary, "sftp_binary": runner.sftp_binary,
             "client_version": (version.stdout + version.stderr).strip(), "returncode": result.returncode,
+            "configuration_returncode": configuration.returncode,
+            "configuration_stderr": configuration.stderr,
             "auth_attempts": loopback["servers"][0].auth_attempts - before_auth,
             "parse_error": parse_error,
             "stdout": result.stdout, "stderr": result.stderr, "unparsed": unparsed,
