@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.9.0 — 2026-10-15
+
 - Migrate host metadata to SQLite schema 6: retain sanitized successful system
   facts with `os_like`, closed `os_logo`, and observation time; last-success
   history; locally resolved IP; host-key fingerprint/state; and optional manual
