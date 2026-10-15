@@ -357,10 +357,20 @@ def _method(hop: dict[str, Any]) -> str | None:
             data = source.read(65537)
         if len(data) > 65536:
             return None
-        expression = re.compile(r'Authenticated to ' + re.escape(hop["hostname"]) +
-                                r' \([^\r\n]*\) using "(none|password|publickey|keyboard-interactive|hostbased|gssapi-with-mic)"\.')
-        matches = [expression.fullmatch(line.strip()) for line in data.decode("utf-8", "replace").splitlines()]
+        methods_pattern = "none|password|publickey|keyboard-interactive|hostbased|gssapi-with-mic"
+        target = r'Authenticated to ' + re.escape(hop["hostname"]) + r' \([^\r\n]*\)'
+        expression = re.compile(target + r' using "(' + methods_pattern + r')"\.')
+        lines = [line.strip() for line in data.decode("utf-8", "replace").splitlines()]
+        matches = [expression.fullmatch(line) for line in lines]
         methods = [match[1] for match in matches if match]
+        # Older clients, including the Windows inbox OpenSSH, log the method
+        # separately at DEBUG1. Both complete local records must be present:
+        # the method and the expected destination. Remote banners stay on
+        # stderr and cannot supply either private -E log record.
+        legacy_method = re.compile(r'debug1: Authentication succeeded \((' + methods_pattern + r')\)\.')
+        legacy_target = re.compile(target + r'\.')
+        if sum(legacy_target.fullmatch(line) is not None for line in lines) == 1:
+            methods.extend(match[1] for line in lines if (match := legacy_method.fullmatch(line)))
         return methods[0] if len(methods) == 1 else None
     except OSError:
         return None
@@ -452,7 +462,7 @@ class CredentialProbeRunner:
                 if key in {"userknownhostsfile", "globalknownhostsfile", "hostkeyalias"}:
                     lines.append(f"  {key} {quote_value(value)}")
             lines.append("")
-        lines.extend(["Host *", "  StrictHostKeyChecking yes", "  UpdateHostKeys no", "  LogLevel VERBOSE",
+        lines.extend(["Host *", "  StrictHostKeyChecking yes", "  UpdateHostKeys no", "  LogLevel DEBUG1",
                       "  ControlMaster no", "  ControlPath none", "  ControlPersist no", "  RequestTTY no",
                       "  SessionType none", "  ForwardAgent no", "  ForwardX11 no", "  ClearAllForwardings yes",
                       "  RemoteCommand none", "  GSSAPIAuthentication no", "  HostbasedAuthentication no",

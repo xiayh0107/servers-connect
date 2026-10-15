@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import shutil
 import socket
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -77,10 +80,44 @@ def test_request_probe_preserves_an_unbound_managed_jumps_configured_identity():
         assert database.get_server(jump["id"])["credential_id"] is None
 
 
+def test_sftp_protocol_returns_parseable_fixture_listing(loopback):
+    """Keep native OpenSSH output available when a platform's format changes."""
+    runner = SSHRunner(loopback["database"])
+    host = loopback["database"].get_server("direct")
+    before_auth = loopback["servers"][0].auth_attempts
+    result = subprocess.run(
+        runner._sftp_command(host, timeout=4, reuse=0),
+        input=runner._directory_batch("/"), text=True, encoding="utf-8", errors="replace",
+        capture_output=True, env=runner._environment(host), timeout=9, check=False,
+    )
+    parse_error = None
+    path, entries, unparsed = None, [], None
+    if result.returncode == 0:
+        try:
+            path, entries, unparsed = runner._parse_directory_listing(result.stdout)
+        except FileOperationError as exc:
+            parse_error = str(exc)
+    if result.returncode or path != "/" or unparsed or not any(item["name"] == "readme.txt" for item in entries):
+        version = subprocess.run([runner.ssh_binary, "-V"], capture_output=True, text=True,
+                                 timeout=5, check=False)
+        # This fixture contains only generated names/metadata. Never print the
+        # command environment, config, launch files or credential material.
+        pytest.fail("Fixture SFTP protocol output was not parsed:\n" + json.dumps({
+            "ssh_binary": runner.ssh_binary, "sftp_binary": runner.sftp_binary,
+            "client_version": (version.stdout + version.stderr).strip(), "returncode": result.returncode,
+            "auth_attempts": loopback["servers"][0].auth_attempts - before_auth,
+            "parse_error": parse_error,
+            "stdout": result.stdout, "stderr": result.stderr, "unparsed": unparsed,
+        }, ensure_ascii=True, indent=2), pytrace=False)
+
+
 def test_sftp_metadata_large_directory_filter_and_fallback(loopback):
     runner = SSHRunner(loopback["database"])
     listing = runner.list_directory("multi-hop", "/", timeout=4)
-    entry = next(item for item in listing["entries"] if item["name"] == "readme.txt")
+    entry = next((item for item in listing["entries"] if item["name"] == "readme.txt"), None)
+    if entry is None:
+        pytest.fail("Fixture readme missing from directory listing:\n" +
+                    json.dumps(listing, ensure_ascii=True, indent=2), pytrace=False)
     assert entry["owner"] == "fixture" and entry["modified_at"] and entry["uid"] is not None
     large = runner.list_directory("direct", "/large", timeout=4, reuse=0)
     assert large["total"] == 5005 and large["matching_total"] == 5005 and large["truncated"]
@@ -97,7 +134,7 @@ def test_sftp_conflict_explicit_overwrite_atomic_publication_download_and_cap(lo
     local.write_text("explicit replacement\n")
     with pytest.raises(FileOperationError) as conflict:
         runner.upload("direct", local, "/existing.txt", timeout=4, reuse=0, overwrite=False)
-    assert conflict.value.error_code == "exists"
+    assert conflict.value.error_code == "exists", str(conflict.value)
     assert (loopback["remote"] / "existing.txt").read_text() == "original fixture content\n"
     runner.upload("direct", local, "/existing.txt", timeout=4, reuse=0, overwrite=True)
     runner.upload("external-route", local, "/new.txt", timeout=4, reuse=0, overwrite=False)
@@ -112,7 +149,20 @@ def test_sftp_conflict_explicit_overwrite_atomic_publication_download_and_cap(lo
     assert not (tmp_path / "oversize.bin").exists()
 
 
-def test_fixture_filesystem_cannot_escape_and_shutdown_removes_state(tmp_path):
+def test_sftp_binary_upload_and_download_preserve_bytes(loopback, tmp_path):
+    runner = SSHRunner(loopback["database"])
+    payload = b"binary\x00\x1a\r\n\n\r\xff\x80" + bytes(range(256))
+    local = tmp_path / "binary-upload.bin"
+    local.write_bytes(payload)
+    runner.upload("direct", local, "/binary-roundtrip.bin", timeout=4, reuse=0, overwrite=False)
+    assert (loopback["remote"] / "binary-roundtrip.bin").read_bytes() == payload
+    downloaded = tmp_path / "binary-download.bin"
+    runner.download("direct", "/binary-roundtrip.bin", downloaded, timeout=4, reuse=0,
+                    max_bytes=len(payload))
+    assert downloaded.read_bytes() == payload
+
+
+def test_fixture_filesystem_cannot_escape(tmp_path):
     root = tmp_path / "remote"
     root.mkdir()
     filesystem = modern_fixture.FixtureSFTP(None, root=root)
@@ -125,6 +175,24 @@ def test_fixture_filesystem_cannot_escape_and_shutdown_removes_state(tmp_path):
     with pytest.raises(PermissionError):
         filesystem.local("/escape")
     assert filesystem.canonicalize("/.hidden") == "/.hidden"
+
+
+def test_fixture_filesystem_rebases_parent_paths_and_rejects_windows_drives(tmp_path):
+    root = tmp_path / "remote"
+    root.mkdir()
+    filesystem = modern_fixture.FixtureSFTP(None, root=root)
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"outside")
+    assert filesystem.local("/../../outside") == root / "outside"
+    assert filesystem.canonicalize("/") == "/"
+    if os.name == "nt":
+        for path in (outside.as_posix(), str(outside)):
+            for follow in (False, True):
+                with pytest.raises(PermissionError):
+                    filesystem.local(path, follow=follow)
+
+
+def test_fixture_shutdown_removes_state():
     with modern_fixture.fixture_environment() as fixture:
         temporary = fixture["root"]
         ports = [server.port for server in fixture["servers"]]

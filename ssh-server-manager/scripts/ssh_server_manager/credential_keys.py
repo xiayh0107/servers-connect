@@ -125,7 +125,8 @@ def read_snapshot(value: str) -> KeySnapshot:
     try:
         path = Path(value).expanduser().resolve(strict=True)
         # O_NONBLOCK stops a substituted FIFO/device from hanging before fstat.
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0))
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0)
+                     | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0))
         try:
             before = os.fstat(fd)
             if not stat.S_ISREG(before.st_mode):
@@ -147,7 +148,12 @@ def read_snapshot(value: str) -> KeySnapshot:
         if len(data) > MAX_KEY_BYTES:
             raise ValidationError("private-key file exceeds the size limit")
         fields = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns, item.st_ctime_ns)
-        if fields(before) != fields(after) or fields(after) != fields(path.stat()):
+        # Windows stat(path) reports creation time as ctime, while fstat(fd)
+        # may report change time. Keep descriptor ctime in both the read check
+        # and revision, but compare the shared birthtime across fd/path.
+        path_fields = (lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns,
+                                    getattr(item, "st_birthtime_ns", None))) if os.name == "nt" else fields
+        if fields(before) != fields(after) or path_fields(after) != path_fields(path.stat()):
             raise ConflictError("private key changed while it was being read")
         identity = repr((str(path), fields(after))).encode()
         revision = hashlib.sha256(identity + b"\0" + data).hexdigest()
@@ -156,6 +162,8 @@ def read_snapshot(value: str) -> KeySnapshot:
             "permissions": key_permissions(path, after),
             "observed_at": datetime.now(timezone.utc).isoformat()}
         return KeySnapshot(path, data, revision, metadata)
+    except ConflictError:
+        raise
     except FileNotFoundError:
         raise ValidationError("private-key file was not found") from None
     except PermissionError:

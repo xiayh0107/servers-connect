@@ -42,7 +42,12 @@ def build_router(
     router = APIRouter(
         prefix="/api/v1",
         dependencies=[Depends(browser_session), Depends(clean_local_metadata)],
-        responses={code: {"model": dto.ErrorResponse} for code in (400, 401, 403, 404, 409, 413, 422, 501, 502)},
+        responses={
+            **{code: {"model": dto.ErrorResponse} for code in (400, 401, 403, 404, 409, 501, 502)},
+            # HTTPStatus phrases differ between supported Python versions.
+            413: {"model": dto.ErrorResponse, "description": "Content Too Large"},
+            422: {"model": dto.ErrorResponse, "description": "Unprocessable Content"},
+        },
     )
 
     @router.get("/runtime", response_model=dto.RuntimeInfo, tags=["runtime"])

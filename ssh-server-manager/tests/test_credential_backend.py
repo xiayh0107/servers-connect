@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from threading import Event
 
 import pytest
@@ -25,6 +25,7 @@ from ssh_server_manager.local_metadata import LocalKeyBrowser, agent_metadata
 from ssh_server_manager.service import CredentialService
 from ssh_server_manager.validation import ValidationError
 from ssh_server_manager.vault import MemoryVault, VaultError
+from ssh_server_manager.webapp import SESSION_COOKIE
 from test_api_v1 import backend, login
 
 
@@ -253,7 +254,7 @@ def test_label_detach_delete_waits_for_uuid_probe_lock(tmp_path, monkeypatch):
         assert started.wait(2)
         deletion = pool.submit(deleting)
         assert attempted.wait(2)
-        with pytest.raises(TimeoutError):
+        with pytest.raises(FutureTimeoutError):
             deletion.result(timeout=0.1)
         finish.set()
         assert probe.result(timeout=3)[-1]["result"]["ok"] is True
@@ -281,16 +282,19 @@ def test_session_key_revision_detects_changes_and_cross_session_use(backend, tmp
     stored = client.post("/api/v1/credentials/key/validate", headers=headers, json={"key_path": str(path),
         "credential_id": credential["id"], "use_stored_passphrase": True})
     assert stored.status_code == 200
+    active_cookie = next(cookie for cookie in client.cookies.jar if cookie.name == SESSION_COOKIE)
+    active_id = active_cookie.value
     other_id, other = app.state.web.create_session()
-    client.cookies.set("ssm_session", other_id)
+    client.cookies.clear()
+    client.cookies.set(SESSION_COOKIE, other_id, domain=active_cookie.domain, path=active_cookie.path)
+    runtime = client.get("/api/v1/runtime")
+    assert runtime.status_code == 200 and runtime.json()["csrf"] == other.csrf
     rejected = client.post("/api/v1/credentials/key/validate", headers={**headers, "X-CSRF-Token": other.csrf},
         json={"key_path": str(path), "passphrase": "  fixture-pass  ", "expected_key_revision": inspected["key_revision"]})
     assert rejected.status_code == 400
-    from ssh_server_manager.webapp import SESSION_COOKIE
     # Restore the existing session using its cookie name from the implementation.
-    active_id = next(identifier for identifier in app.state.web.sessions if identifier != other_id)
     client.cookies.clear()
-    client.cookies.set(SESSION_COOKIE, active_id)
+    client.cookies.set(SESSION_COOKIE, active_id, domain=active_cookie.domain, path=active_cookie.path)
     key_fixture(path, b"new-password")
     create["label"] = "Changed"
     conflict = client.post("/api/v1/credentials", headers=headers, json=create)

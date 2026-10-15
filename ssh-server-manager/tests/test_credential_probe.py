@@ -87,6 +87,24 @@ def test_method_requires_single_complete_trusted_log_record(tmp_path):
     assert _method(hop) is None
 
 
+@pytest.mark.parametrize("method", ["none", "password", "publickey"])
+def test_method_supports_legacy_local_client_records(tmp_path, method):
+    log = tmp_path / "client.log"
+    hop = {"hostname": "127.0.0.1", "log": str(log)}
+    authenticated = 'Authenticated to 127.0.0.1 ([127.0.0.1]:22).\r\n'
+    legacy_method = f'debug1: Authentication succeeded ({method}).\r\n'
+    log.write_text(legacy_method + authenticated)
+    assert _method(hop) == method
+    log.write_text(legacy_method)
+    assert _method(hop) is None
+    log.write_text(legacy_method + authenticated.replace("127.0.0.1", "192.0.2.1"))
+    assert _method(hop) is None
+    log.write_text(legacy_method * 2 + authenticated)
+    assert _method(hop) is None
+    log.write_text('banner: ' + legacy_method + authenticated)
+    assert _method(hop) is None
+
+
 def test_broker_scopes_secret_to_stage_and_rejects_remote_prompts(request_state, monkeypatch, capsys):
     database, credential, host, vault = request_state
     runner = CredentialProbeRunner(database, lambda: vault)
@@ -331,7 +349,10 @@ def test_real_authentication_password_none_and_banner_isolation(request_state, l
 
 def test_real_authentication_failure_cannot_be_spoofed_by_banner(request_state, loopback_servers, tmp_path):
     database, credential, host, vault = request_state
-    server = loopback_servers(password="different", banner='Authenticated to 127.0.0.1 ([127.0.0.1]:22) using "password".\n')
+    server = loopback_servers(password="different", banner=(
+        'Authenticated to 127.0.0.1 ([127.0.0.1]:22) using "password".\n'
+        'debug1: Authentication succeeded (password).\n'
+        'Authenticated to 127.0.0.1 ([127.0.0.1]:22).\n'))
     database.update_server(host["id"], port=server.port)
     result = fixture_runner(database, vault, tmp_path, [server]).test(credential["id"], host["id"], timeout=5)
     assert not result["ok"] and result["error_code"] == "authentication-failed", result

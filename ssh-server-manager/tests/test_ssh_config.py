@@ -66,8 +66,9 @@ def test_original_defaults_and_external_aliases_apply_before_last_host(tmp_path)
     def effective(alias):
         result = subprocess.run(
             [ssh, "-G", "-F", str(managed), alias], capture_output=True,
-            text=True, check=True, timeout=10,
+            text=True, timeout=10,
         )
+        assert result.returncode == 0, result.stderr
         return dict(line.split(" ", 1) for line in result.stdout.splitlines() if " " in line)
 
     assert effective("alpha")["userknownhostsfile"] == known_hosts.as_posix()

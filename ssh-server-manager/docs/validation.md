@@ -140,10 +140,10 @@ package to create schema 5 with:
 - An enrolled Argon2 master-password hash, a fixture WebAuthn user/credential
   record, and arbitrary application settings.
 
-It force-reinstalls the candidate wheel, including when an unreleased developer
-build still has version 0.8.0. Worker interpreters run in isolated mode and assert
-that the package comes from the temporary virtual environment. Every original
-column, row, ID, association and timestamp is compared exactly. The check also
+It force-reinstalls the candidate wheel selected for the 0.9.0 release. Worker
+interpreters run in isolated mode and assert that the package comes from the
+temporary virtual environment. Every original column, row, ID, association and
+timestamp is compared exactly. The check also
 requires schema 7, correct last-success migration, nullable observation/key
 metadata defaults, initial credential revisions, empty new history tables,
 working master-password verification, SQLite integrity, and unchanged data
@@ -165,7 +165,7 @@ commit being released.
 | Job | Environment | Checks |
 |---|---|---|
 | `cross-platform` | macOS, Ubuntu Linux, Windows; Python 3.10 and 3.13 | Backend tests, API/type freshness, TypeScript/component checks, reproducible UI build, wheel and sdist installation |
-| Upgrade smoke | Ubuntu Linux within `cross-platform`; Python 3.10 and 3.13 | Published 0.8.0 schema 5 to candidate schema 7 |
+| Upgrade smoke | macOS, Ubuntu Linux, Windows within `cross-platform`; Python 3.13 | Published 0.8.0 schema 5 to candidate schema 7 |
 | `browser-topology` | Ubuntu Linux; Python 3.13 | Six-view Chromium smoke and isolated real SSH/SFTP browser topology |
 
 Browser tests use the normal one-use launch-file flow, with no authentication
