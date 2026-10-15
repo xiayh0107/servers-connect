@@ -203,7 +203,7 @@ def worker(mode: str, root: Path, expected_version: str) -> None:
         Database()
         Database()
         require(snapshot(database.path) == current, "Repeated database startup changed migrated data")
-        print(f"Candidate {expected_version}: schema 5 → 7, all original records/auth settings preserved, defaults and repeated startup passed")
+        print(f"Candidate {expected_version}: schema 5 to 7, all original records/auth settings preserved, defaults and repeated startup passed")
 
 
 def run_upgrade(distribution: Path, expected_version: str) -> None:
