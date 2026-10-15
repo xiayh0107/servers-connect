@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import queue
+import re
 import shutil
 import socket
 import subprocess
@@ -665,12 +666,53 @@ def fixture_runner(database, vault, tmp_path, servers, *, trust=True):
     return IsolatedRunner(database, lambda: vault)
 
 
+def _ssh_client_metadata(binary):
+    """Keep version diagnostics bounded and exclude executable paths/errors."""
+    location = "missing"
+    if binary:
+        normalized = str(binary).replace("\\", "/").casefold()
+        location = "other"
+        if os.name == "nt" and normalized.endswith("/system32/openssh/ssh.exe"):
+            location = "windows-system"
+        elif os.name == "nt" and normalized.endswith("/usr/bin/ssh.exe"):
+            location = "git-msys"
+    metadata = {"location": location, "family": "unknown", "version": None}
+    if not binary:
+        return metadata
+    try:
+        result = subprocess.run([binary, "-V"], capture_output=True, timeout=2, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return metadata
+    # Only the fixed OpenSSH prefix and numeric version may reach a failure.
+    # Do not copy arbitrary output from a launcher into the diagnostic JSON.
+    output = (result.stdout[:512] + result.stderr[:512]).decode("ascii", "replace")
+    match = re.search(r"(?m)^(OpenSSH_for_Windows|OpenSSH)_([0-9]{1,2}\.[0-9]{1,2}(?:p[0-9]{1,2})?)(?:[,\s]|$)", output)
+    if match:
+        metadata.update(family="windows-native" if match[1] == "OpenSSH_for_Windows" else "openssh-portable",
+                        version=match[2])
+    return metadata
+
+
+def test_ssh_client_metadata_never_returns_launcher_output(monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(
+        args[0], 0, stdout=b"", stderr=b"OpenSSH_for_Windows_9.5p2, LibreSSL 3.8.2\r\nsecret=never-emit\n"))
+    metadata = _ssh_client_metadata("fixture-client")
+    assert metadata == {"location": "other", "family": "windows-native", "version": "9.5p2"}
+    assert "never-emit" not in json.dumps(metadata)
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(
+        args[0], 1, stdout=b"secret=never-emit", stderr=b"untrusted launcher error"))
+    assert _ssh_client_metadata("fixture-client") == {"location": "other", "family": "unknown", "version": None}
+
+
 @pytest.fixture
 def probe_evidence(monkeypatch):
     """Safe failure diagnostics for the exact real fixtures that CI runs."""
     import ssh_server_manager.credential_probe as module
 
-    evidence = {"events": [], "processes": [], "method_checks": []}
+    # Inspect the same default selection as CredentialProbeRunner before its
+    # authentication deadline begins. The -V command makes no SSH connection.
+    evidence = {"client": _ssh_client_metadata(shutil.which("ssh")),
+                "events": [], "processes": [], "method_checks": []}
     original_tree = module._ProcessTree
     original_broker = module._Broker
     original_method = module._method
@@ -709,7 +751,6 @@ def probe_evidence(monkeypatch):
                         "legacy_method_records": proof.count(b"Authentication succeeded ("),
                         "connection_established": b"Connection established." in proof,
                         "password_started": b"Next authentication method: password" in proof,
-                        "local_command_started": b"Executing command:" in proof,
                         "method": original_method(hop),
                     })
                 except OSError:
@@ -750,9 +791,10 @@ def test_real_authentication_password_none_and_banner_isolation(
     failure = {"result_code": result["error_code"], "latency_ms": result["latency_ms"],
                "method": result["method"], "evidence": probe_evidence,
                "server_password_attempts": len(server.password_attempts), "server_none_attempts": server.none_attempts}
-    assert result["ok"] is expected, failure
-    assert result["method"] == ("none" if none else "password"), failure
-    assert result["error_code"] == ("credential-not-used" if none else None)
+    if (result["ok"] is not expected or result["method"] != ("none" if none else "password")
+            or result["error_code"] != ("credential-not-used" if none else None)):
+        pytest.fail("Credential fixture authentication evidence:\n" +
+                    json.dumps(failure, ensure_ascii=True, indent=2), pytrace=False)
     assert not server.sessions
     assert not server.forward_requests
     assert database.get_server(host["id"]) == snapshot
@@ -872,14 +914,16 @@ def test_real_probe_reports_only_sanitized_authentication_evidence(
     monkeypatch.setattr(module, "_method", checked_method)
     monkeypatch.setattr(module, "_ProcessTree", EvidenceTree)
     result = fixture_runner(database, vault, tmp_path, [server]).test(credential["id"], host["id"], timeout=5)
-    assert result["ok"] and result["method"] == "password", {
-        "result_code": result["error_code"], "sanitized_evidence": evidence}
+    if not result["ok"] or result["method"] != "password":
+        pytest.fail("Credential fixture authentication evidence:\n" + json.dumps({
+            "result_code": result["error_code"], "sanitized_evidence": evidence,
+        }, ensure_ascii=True, indent=2), pytrace=False)
     assert method_checks == ["password"]
     assert not server.sessions
 
 
 def test_real_callback_and_proxy_handle_runtime_path_metacharacters(
-        request_state, loopback_servers, tmp_path, monkeypatch):
+        request_state, loopback_servers, tmp_path, monkeypatch, probe_evidence):
     database, credential, host, vault = request_state
     monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime & percent% bang! quote' 中文"))
     jump = loopback_servers()
@@ -889,7 +933,12 @@ def test_real_callback_and_proxy_handle_runtime_path_metacharacters(
     database.update_server(host["id"], port=target.port, proxy_jumps=["jump"])
     result = fixture_runner(database, vault, tmp_path, [jump, target]).test(
         credential["id"], host["id"], timeout=8)
-    assert result["ok"] and result["method"] == "password", result
+    if not result["ok"] or result["method"] != "password":
+        pytest.fail("Credential fixture authentication evidence:\n" + json.dumps({
+            "result_code": result["error_code"], "latency_ms": result["latency_ms"],
+            "method": result["method"], "sanitized_evidence": probe_evidence,
+            "server_password_attempts": [len(server.password_attempts) for server in (jump, target)],
+        }, ensure_ascii=True, indent=2), pytrace=False)
     assert not jump.sessions and not target.sessions
     assert not list(Path(os.environ["SSM_RUNTIME_DIR"]).glob("credential-probe-*"))
 
@@ -1005,9 +1054,12 @@ def test_real_multihop_keeps_same_username_credentials_separate(request_state, l
         aliases.append(jump["alias"])
     database.update_server(host["id"], port=target.port, proxy_jumps=aliases)
     result = fixture_runner(database, vault, tmp_path, [first, second, target]).test(credential["id"], host["id"], timeout=8)
-    assert result["ok"], {"result_code": result["error_code"], "latency_ms": result["latency_ms"],
-                          "evidence": probe_evidence,
-                          "server_password_attempts": [len(server.password_attempts) for server in [first, second, target]]}
+    if not result["ok"]:
+        pytest.fail("Credential fixture authentication evidence:\n" + json.dumps({
+            "result_code": result["error_code"], "latency_ms": result["latency_ms"],
+            "method": result["method"], "sanitized_evidence": probe_evidence,
+            "server_password_attempts": [len(server.password_attempts) for server in (first, second, target)],
+        }, ensure_ascii=True, indent=2), pytrace=False)
     assert first.password_attempts == ["first-jump-secret"]
     assert second.password_attempts == ["second-jump-secret"]
     assert target.password_attempts == ["fixture-password-never-log"]

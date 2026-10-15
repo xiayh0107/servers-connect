@@ -77,11 +77,12 @@ def test_request_probe_preserves_an_unbound_managed_jumps_configured_identity(pr
                                         port=fixture["servers"][0].port, credential_id="fixture-key",
                                         proxy_jumps=["unbound-jump"])
         result = CredentialProbeRunner(database, lambda: fixture["vault"]).test("fixture-key", target["id"], timeout=4)
-        assert result["ok"] and result["method"] == "publickey", {
-            "result_code": result["error_code"], "latency_ms": result["latency_ms"],
-            "method": result["method"], "sanitized_evidence": probe_evidence,
-            "server_auth_attempts": [server.auth_attempts for server in fixture["servers"]],
-        }
+        if not result["ok"] or result["method"] != "publickey":
+            pytest.fail(json.dumps({
+                "result_code": result["error_code"], "latency_ms": result["latency_ms"],
+                "method": result["method"], "sanitized_evidence": probe_evidence,
+                "server_auth_attempts": [server.auth_attempts for server in fixture["servers"]],
+            }, ensure_ascii=True, indent=2), pytrace=False)
         assert database.get_server(jump["id"])["credential_id"] is None
 
 
