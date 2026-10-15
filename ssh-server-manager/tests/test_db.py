@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from ssh_server_manager.db import ConflictError, Database, DatabaseError, NotFoundError
+from ssh_server_manager.db import ConflictError, Database, DatabaseError, NotFoundError, SCHEMA_VERSION
 from ssh_server_manager.paths import ensure_private_dir
 from ssh_server_manager.validation import ValidationError
 
@@ -167,7 +167,7 @@ def test_schema_one_database_is_upgraded_with_server_tags(tmp_path):
         columns = {row[1] for row in connection.execute("PRAGMA table_info(servers)")}
         version = connection.execute("PRAGMA user_version").fetchone()[0]
     assert "tags" in columns
-    assert version == 5
+    assert version == SCHEMA_VERSION
 
 
 def test_host_skills_are_many_to_many_and_mutations_are_atomic(tmp_path):
@@ -293,7 +293,7 @@ def test_schema_two_database_is_upgraded_with_skill_tables(tmp_path):
         skill_columns = {row[1] for row in connection.execute("PRAGMA table_info(skills)")}
     assert {"skills", "server_skills"} <= tables
     assert "name_key" in skill_columns
-    assert version == 5
+    assert version == SCHEMA_VERSION
 
 
 def test_schema_three_database_backfills_unicode_skill_identity(tmp_path):
@@ -336,7 +336,7 @@ def test_schema_three_database_backfills_unicode_skill_identity(tmp_path):
         name_key = connection.execute(
             "SELECT name_key FROM skills WHERE id = 'skill-1'"
         ).fetchone()[0]
-    assert version == 5
+    assert version == SCHEMA_VERSION
     assert name_key == "Ågent:Ops".casefold()
 
 
@@ -377,7 +377,7 @@ def test_fresh_database_has_current_schema(tmp_path):
     with sqlite3.connect(path) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         columns = {row[1] for row in connection.execute("PRAGMA table_info(skills)")}
-    assert version == 5
+    assert version == SCHEMA_VERSION
     assert "name_key" in columns
 
 
@@ -490,7 +490,7 @@ def test_schema_four_database_is_upgraded_with_saved_directories(tmp_path):
     with sqlite3.connect(path) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         columns = {row[1] for row in connection.execute("PRAGMA table_info(server_paths)")}
-    assert version == 5
+    assert version == SCHEMA_VERSION
     assert {"server_id", "label", "label_key", "path", "notes", "last_used_at"} <= columns
 
 

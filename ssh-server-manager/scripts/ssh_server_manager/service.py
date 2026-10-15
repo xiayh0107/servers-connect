@@ -8,16 +8,19 @@ from typing import Any, Sequence
 
 import yaml
 
-from .db import Database
+from .db import Database, ConflictError
+from .credential_lock import credential_lock
+from .credential_keys import read_snapshot, load_snapshot
 from .validation import (
     ValidationError,
+    validate_label,
     is_skill_manifest_name,
     skill_name_key,
     validate_skill_description,
     validate_skill_name,
     validate_skill_path,
 )
-from .vault import VaultProtocol
+from .vault import VaultProtocol, VaultError
 
 
 MAX_SKILL_FRONTMATTER_BYTES = 64 * 1024
@@ -48,36 +51,59 @@ class CredentialService:
         self.vault = vault
 
     def create_password(self, label: str, secret: str) -> dict[str, Any]:
+        if not secret:
+            raise ValidationError("password must not be empty")
         identifier = str(uuid.uuid4())
-        credential = self.database.create_credential(
-            credential_id=identifier, label=label, kind="password", has_secret=False
-        )
-        try:
-            self.vault.set_secret(identifier, "password", secret)
-            return self.database.update_credential(identifier, has_secret=True)
-        except Exception:
-            self.vault.delete_secret(identifier, "password")
-            self.database.delete_credential(identifier)
-            raise
+        with credential_lock(self.database.path, identifier):
+            self.database.create_credential(
+                credential_id=identifier, label=label, kind="password", has_secret=False
+            )
+            try:
+                self.vault.set_secret(identifier, "password", secret)
+                return self.database.update_credential(identifier, has_secret=True)
+            except Exception:
+                self._rollback_creation(identifier)
+                raise
 
-    def create_key(self, label: str, key_path: str, passphrase: str | None = None) -> dict[str, Any]:
+    def create_key(self, label: str, key_path: str, passphrase: str | None = None,
+                   *, expected_key_revision: str | None = None) -> dict[str, Any]:
+        snapshot = read_snapshot(key_path)
+        if expected_key_revision is not None and snapshot.revision != expected_key_revision:
+            raise ConflictError("private key changed; inspect it again")
+        metadata = load_snapshot(snapshot, passphrase, allow_locked=not passphrase)
+        snapshot.confirm()
         identifier = str(uuid.uuid4())
-        credential = self.database.create_credential(
-            credential_id=identifier,
-            label=label,
-            kind="key",
-            key_path=key_path,
-            has_passphrase=False,
-        )
-        if not passphrase:
-            return credential
-        try:
-            self.vault.set_secret(identifier, "passphrase", passphrase)
-            return self.database.update_credential(identifier, has_passphrase=True)
-        except Exception:
-            self.vault.delete_secret(identifier, "passphrase")
-            self.database.delete_credential(identifier)
-            raise
+        with credential_lock(self.database.path, identifier):
+            snapshot.confirm()
+            self.database.create_credential(
+                credential_id=identifier, label=label, kind="key",
+                key_path=str(snapshot.path), has_passphrase=False,
+            )
+            try:
+                if passphrase:
+                    self.vault.set_secret(identifier, "passphrase", passphrase)
+                return self.database.update_credential(identifier, has_passphrase=bool(passphrase),
+                    key_metadata=metadata, _before_commit=snapshot.confirm)
+            except Exception:
+                self._rollback_creation(identifier)
+                raise
+
+    def _rollback_creation(self, identifier: str) -> None:
+        # A vault operation can fail after committing. Remove the provisional
+        # database row and persist any remaining cleanup rather than orphan it.
+        preview = self.database.credential_deletion_preview(identifier)
+        operation = self.database.commit_credential_deletion(identifier, operation_id=str(uuid.uuid4()),
+            expected_updated_at=preview["expected_updated_at"], expected_host_ids=preview["expected_host_ids"], detach=False)
+        remaining = []
+        for slot in operation["remaining_slots"]:
+            if slot == "config":
+                continue  # Creation has not rendered a managed config yet.
+            try:
+                self.vault.delete_secret(identifier, slot)
+            except Exception:
+                remaining.append(slot)
+        self.database.update_credential_deletion(operation["operation_id"], remaining,
+            error_code="vault_unavailable" if remaining else None)
 
     def create_agent(self, label: str) -> dict[str, Any]:
         return self.database.create_credential(label=label, kind="agent")
@@ -91,37 +117,95 @@ class CredentialService:
         secret: str | None = None,
         passphrase: str | None = None,
         clear_passphrase: bool = False,
+        expected_key_revision: str | None = None,
+        expected_updated_at: str | None = None,
     ) -> dict[str, Any]:
         credential = self.database.get_credential(identifier)
-        changes: dict[str, Any] = {}
-        if label is not None:
-            changes["label"] = label
-        if key_path is not None:
-            changes["key_path"] = key_path
-        if secret is not None:
-            if credential["kind"] != "password":
-                raise ValueError("only password credentials have a password secret")
-            self.vault.set_secret(credential["id"], "password", secret)
-            changes["has_secret"] = True
-        if passphrase is not None:
-            if credential["kind"] != "key":
-                raise ValueError("only key credentials have a passphrase")
-            self.vault.set_secret(credential["id"], "passphrase", passphrase)
-            changes["has_passphrase"] = True
-        if clear_passphrase:
-            self.vault.delete_secret(credential["id"], "passphrase")
-            changes["has_passphrase"] = False
-        return self.database.update_credential(credential["id"], **changes) if changes else credential
+        with credential_lock(self.database.path, credential["id"]):
+            credential = self.database.get_credential(credential["id"])
+            if expected_updated_at is not None and credential["updated_at"] != expected_updated_at:
+                raise ConflictError("credential changed; reload it before saving")
+            if clear_passphrase and passphrase:
+                raise ValidationError("choose either replacement or clearing of the passphrase")
+            if secret and credential["kind"] != "password":
+                raise ValidationError("only password credentials have a password secret")
+            if (passphrase or clear_passphrase or key_path is not None) and credential["kind"] != "key":
+                raise ValidationError("only key credentials have a key path or passphrase")
+            changes: dict[str, Any] = {}
+            if label is not None:
+                changes["label"] = validate_label(label)
+                for other in self.database.list_credentials():
+                    if other["id"] != credential["id"] and other["label"].casefold() == changes["label"].casefold():
+                        raise ConflictError("credential label already exists")
+            snapshot = None
+            if credential["kind"] == "key" and (key_path is not None or passphrase or expected_key_revision is not None):
+                snapshot = read_snapshot(key_path if key_path is not None else credential["key_path"])
+                if expected_key_revision is not None and expected_key_revision != snapshot.revision:
+                    raise ConflictError("private key changed; inspect it again")
+                effective = passphrase or (self.vault.get_secret(credential["id"], "passphrase") if credential["has_passphrase"] and not clear_passphrase else None)
+                changes["key_metadata"] = load_snapshot(snapshot, effective, allow_locked=not effective)
+                changes["key_path"] = str(snapshot.path)
+            elif clear_passphrase:
+                changes["key_metadata"] = None
+            actions: dict[str, str | None] = {}
+            if secret:
+                actions["password"] = secret
+                changes["has_secret"] = True
+            if passphrase:
+                actions["passphrase"] = passphrase
+                changes["has_passphrase"] = True
+            if clear_passphrase:
+                actions["passphrase"] = None
+                changes["has_passphrase"] = False
+            originals = {slot: self.vault.get_secret(credential["id"], slot) for slot in actions}
+            try:
+                if snapshot:
+                    snapshot.confirm()
+                for slot, value in actions.items():
+                    if value is None:
+                        self.vault.delete_secret(credential["id"], slot)
+                    else:
+                        self.vault.set_secret(credential["id"], slot, value)
+                if snapshot:
+                    snapshot.confirm()
+                return self.database.update_credential(credential["id"], **changes,
+                    _before_commit=snapshot.confirm if snapshot else None) if changes else credential
+            except Exception:
+                try:
+                    for slot, value in originals.items():
+                        if value is None:
+                            self.vault.delete_secret(credential["id"], slot)
+                        else:
+                            self.vault.set_secret(credential["id"], slot, value)
+                except Exception:
+                    raise VaultError("credential update failed and vault restoration failed; inspect the credential before retrying") from None
+                raise
 
     def delete(self, identifier: str) -> dict[str, Any]:
         credential = self.database.get_credential(identifier)
-        # The database enforces that referenced credentials cannot be removed.
-        removed = self.database.delete_credential(credential["id"])
-        self.vault.delete_secret(credential["id"], "password")
-        self.vault.delete_secret(credential["id"], "passphrase")
-        return removed
+        with credential_lock(self.database.path, credential["id"]):
+            preview = self.database.credential_deletion_preview(credential["id"])
+            operation = self.database.commit_credential_deletion(credential["id"], operation_id=str(uuid.uuid4()),
+                expected_updated_at=preview["expected_updated_at"], expected_host_ids=preview["expected_host_ids"], detach=False)
+            pending = []
+            for slot in operation["remaining_slots"]:
+                if slot == "config":
+                    pending.append(slot)
+                    continue
+                try:
+                    self.vault.delete_secret(credential["id"], slot)
+                except Exception:
+                    pending.append(slot)
+            operation = self.database.update_credential_deletion(operation["operation_id"], pending,
+                error_code="vault_unavailable" if pending else None)
+            return {**credential, "deletion_operation": operation}
 
     def reveal(self, identifier: str) -> dict[str, Any]:
+        credential = self.database.get_credential(identifier)
+        with credential_lock(self.database.path, credential["id"]):
+            return self._reveal_locked(credential["id"])
+
+    def _reveal_locked(self, identifier: str) -> dict[str, Any]:
         credential = self.database.get_credential(identifier)
         if credential["kind"] == "password":
             slot = "password"

@@ -4,6 +4,8 @@ import json
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, Lock
 from pathlib import Path
 
 import pytest
@@ -12,7 +14,7 @@ from fastapi.testclient import TestClient
 from ssh_server_manager import webapp
 from ssh_server_manager.cli import main
 from ssh_server_manager.db import Database
-from ssh_server_manager.ssh_runner import SSHRunner
+from ssh_server_manager.ssh_runner import FileOperationError, SSHRunner
 from ssh_server_manager.vault import MemoryVault
 
 
@@ -82,7 +84,7 @@ def test_runtime_and_workspace_are_offline_and_secret_free(backend, monkeypatch,
     monkeypatch.setattr(webapp, "get_vault", deny)
     login(client)
     runtime = client.get("/api/v1/runtime").json()
-    assert runtime["shell"] == "web" and runtime["ui"] == "legacy"
+    assert runtime["shell"] == "web" and runtime["ui"] == "modern"
     assert runtime["capabilities"]["native_window"] is False
     assert runtime["capabilities"]["max_web_transfer_bytes"] == 100 * 1024 * 1024
     result = client.get("/api/v1/hosts/BOX/workspace")
@@ -212,15 +214,17 @@ def test_file_transfers_share_limits_and_cleanup_with_legacy(backend, monkeypatc
     headers = login(client)
     monkeypatch.setattr(webapp, "MAX_WEB_TRANSFER_BYTES", 8)
     size = 4
-    def download(_self, identifier, remote_path, target):
+    def download(_self, identifier, remote_path, target, *, max_bytes=None):
+        assert max_bytes == 8
         target.write_bytes(b"x" * size)
         return {"bytes": size}
-    def upload(_self, identifier, source, remote_path):
+    def upload(_self, identifier, source, remote_path, *, overwrite=True):
+        assert overwrite is False
         return {"alias": "box", "direction": "upload", "remote_path": remote_path, "local_path": str(source), "bytes": source.stat().st_size, "latency_ms": 1}
     monkeypatch.setattr(SSHRunner, "download", download)
     monkeypatch.setattr(SSHRunner, "upload", upload)
     for prefix in ("/api/v1/hosts", "/api/servers"):
-        for size, expected in ((4, 200), (9, 400)):
+        for size, expected in ((4, 200), (9, 413 if prefix.endswith("hosts") else 400)):
             result = client.post(f"{prefix}/box/download", headers=headers, json={"path": "/srv/file"})
             assert result.status_code == expected
             assert result.headers["cache-control"] == "no-store"
@@ -269,3 +273,185 @@ def test_offline_contract_matches_artifact(tmp_path):
     assert schema["paths"]["/api/v1/hosts"]["post"]["security"] == [{"APIKeyCookie": [], "APIKeyHeader": []}]
     assert "value" not in schema["components"]["schemas"]["Credential"]["properties"]
     assert schema["components"]["schemas"]["PasswordCreate"]["properties"]["secret"]["writeOnly"] is True
+
+
+def test_cached_host_facts_geo_and_routes_are_offline(backend, monkeypatch):
+    client, app, database, _vault = backend
+    headers = login(client)
+    gateway = database.create_server(alias="gateway", hostname="10.1.2.3", username="root", proxy_jumps=["external"])
+    database.update_server("box", proxy_jumps=["gateway"])
+    database.record_test("box", status="ok", latency_ms=1, error_code=None, message="ok")
+    database.record_test("gateway", status="failed", latency_ms=1, error_code="timeout", message="timeout")
+    database.record_observation("box", facts={"os_id": "ubuntu", "os_pretty": "Ubuntu 24.04", "os_like": "debian", "kernel": "\x1bLinux"}, resolved_ip="203.0.113.5")
+    updated = client.patch("/api/v1/hosts/box", headers=headers, json={"geo": {"country_code": "jp"}})
+    assert updated.status_code == 200
+    assert updated.json()["geo"] == {"country_code": "JP", "city": None, "source": "manual"}
+
+    def deny(*_args, **_kwargs):
+        raise AssertionError("cached host reads must remain offline")
+
+    monkeypatch.setattr(app.state.services, "runner", deny)
+    monkeypatch.setattr(webapp, "get_vault", deny)
+    host = client.get("/api/v1/hosts/box").json()
+    assert host["facts"]["os_logo"] == "ubuntu"
+    assert host["facts"]["os_pretty"] == "Ubuntu 24.04"
+    assert host["facts"]["kernel"] == "Linux"
+    assert host["last_resolved_ip"] == "203.0.113.5"
+    assert host["last_success_at"] is not None
+    assert host["proxy_jump_details"][0]["id"] == gateway["id"]
+    assert client.get("/api/v1/hosts/gateway").json()["jump_for_count"] == 1
+    route = client.get("/api/v1/hosts/box/route").json()
+    assert [hop["alias"] for hop in route["hops"]] == ["external", "gateway", "box"]
+    assert route["hops"][0]["external"] is True
+    assert route["hops"][1]["external"] is False
+    assert client.get("/api/v1/hosts/box/workspace").json()["host"] == host
+    assert client.patch("/api/v1/hosts/box", headers=headers, json={"geo": None}).json()["geo"] is None
+    assert client.patch("/api/v1/hosts/box", headers=headers, json={"geo": {"country_code": "XX"}}).status_code == 400
+
+
+def test_bulk_checks_validate_whole_selection_and_deduplicate(backend, monkeypatch):
+    client, app, database, _vault = backend
+    headers = login(client)
+    host_id = database.get_server("box")["id"]
+    calls = []
+
+    def check(identifier, *, timeout):
+        calls.append((identifier, timeout))
+        return {"alias": "box", "ok": True, "latency_ms": 1, "error_code": None, "message": "ok"}
+
+    monkeypatch.setattr(app.state.services.diagnostics, "test", check)
+    assert client.post("/api/v1/hosts/test", headers=headers, json={"identifiers": ["box", "missing"]}).status_code == 404
+    assert calls == []
+    result = client.post("/api/v1/hosts/test", headers=headers, json={"identifiers": ["BOX", host_id, "box"], "timeout": 12, "concurrency": 2})
+    assert result.status_code == 200 and len(result.json()["results"]) == 1
+    assert calls == [(host_id, 12)]
+    for body in ({"identifiers": []}, {"identifiers": ["box"] * 65}, {"identifiers": ["box"], "concurrency": 5}, {"identifiers": ["box"], "timeout": 0}):
+        assert client.post("/api/v1/hosts/test", headers=headers, json=body).status_code == 422
+
+
+def test_route_matches_openssh_override_for_explicit_multi_hop(backend, monkeypatch):
+    client, _app, database, _vault = backend
+    login(client)
+    database.create_server(alias="entry", hostname="localhost", username="user", proxy_jumps=["external"])
+    database.create_server(alias="irrelevant", hostname="localhost", username="user")
+    database.create_server(alias="exit", hostname="localhost", username="user", proxy_jumps=["irrelevant"])
+    database.update_server("box", proxy_jumps=["entry", "exit"])
+    monkeypatch.setattr("ssh_server_manager.db.utc_now", lambda: "2026-10-15T12:00:00+00:00")
+    database.record_test("box", status="ok", latency_ms=1, error_code=None, message="OK")
+    monkeypatch.setattr("ssh_server_manager.db.utc_now", lambda: "2026-10-15T13:00:00+00:00")
+    database.record_test("irrelevant", status="failed", latency_ms=1, error_code="timeout", message="timeout")
+    route = client.get("/api/v1/hosts/box/route").json()
+    assert [hop["alias"] for hop in route["hops"]] == ["external", "entry", "exit", "box"]
+    assert route["blocked_by"] is None
+    database.record_test("exit", status="failed", latency_ms=1, error_code="timeout", message="timeout")
+    assert client.get("/api/v1/hosts/box/route").json()["blocked_by"] == "exit"
+
+
+def test_host_deleted_after_batch_resolution_is_a_per_host_failure(backend, monkeypatch):
+    client, app, database, _vault = backend
+    headers = login(client)
+    database.create_server(alias="remaining", hostname="localhost", username="user")
+
+    def check(identifier, *, timeout):
+        host = database.get_server(identifier)
+        if host["alias"] == "box":
+            database.delete_server(identifier)
+            database.get_server(identifier)
+        return {"alias": host["alias"], "ok": True, "latency_ms": 1, "error_code": None, "message": "ok"}
+
+    monkeypatch.setattr(app.state.services.diagnostics, "test", check)
+    result = client.post("/api/v1/hosts/test", headers=headers, json={"identifiers": ["box", "remaining"], "concurrency": 1})
+    assert result.status_code == 200
+    assert [item["ok"] for item in result.json()["results"]] == [False, True]
+
+
+def test_bulk_checks_share_global_concurrency_bound_and_isolate_failures(backend, monkeypatch):
+    _client, app, database, _vault = backend
+    service = app.state.services.diagnostics
+    for index in range(8):
+        database.create_server(alias=f"node{index}", hostname="localhost", username="user")
+    identifiers = [f"node{index}" for index in range(8)]
+    active = peak = 0
+    lock = Lock()
+    start = Barrier(2)
+
+    def check(identifier, *, timeout):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(active, peak)
+        try:
+            time.sleep(.015)
+            alias = database.get_server(identifier)["alias"]
+            if alias == "node0":
+                raise FileOperationError("unavailable", "unreachable")
+            return {"alias": alias, "ok": True, "latency_ms": 1, "error_code": None, "message": "ok"}
+        finally:
+            with lock:
+                active -= 1
+
+    def batch():
+        start.wait(timeout=5)
+        return service.test_many(identifiers, concurrency=4)
+
+    monkeypatch.setattr(service, "test", check)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _index: batch(), range(2)))
+    assert peak <= 4 and active == 0
+    for result in results:
+        assert [item["alias"] for item in result["results"]] == identifiers
+        assert result["results"][0]["ok"] is False
+        assert all(item["ok"] for item in result["results"][1:])
+
+
+@pytest.mark.parametrize("code,status", [("permission_denied", 403), ("not_found", 404), ("exists", 409), ("too_large", 413), ("not_a_directory", 502), ("auth_failed", 502), ("timeout", 502), ("unreachable", 502), ("unsupported", 501)])
+def test_file_errors_have_stable_codes_and_legacy_statuses(backend, monkeypatch, code, status):
+    client, app, _database, _vault = backend
+    login(client)
+    existing = {"name": "file", "path": "/srv/file", "type": "file", "size": 42, "modified_at": "2026-10-15T00:00:00Z", "value": "must-not-leak"} if code == "exists" else None
+
+    def fail(*_args, **_kwargs):
+        raise FileOperationError("file operation failed", code, existing=existing)
+
+    monkeypatch.setattr(app.state.services.files, "list_directory", fail)
+    result = client.get("/api/v1/hosts/box/files")
+    assert result.status_code == status
+    assert result.json()["error_code"] == code
+    assert "must-not-leak" not in result.text
+    if existing:
+        assert result.json()["existing"]["size"] == 42
+    legacy = client.get("/api/servers/box/files")
+    assert legacy.status_code == (400 if code == "too_large" else 409 if code == "exists" else 502)
+
+
+def test_file_filter_metadata_and_explicit_overwrite_contract(backend, monkeypatch):
+    client, app, _database, _vault = backend
+    headers = login(client)
+    observed = []
+
+    def directory(identifier, path, *, name_filter=None):
+        observed.append(name_filter)
+        return {"alias": "box", "path": "/srv", "parent": "/", "entries": [{"name": "file", "path": "/srv/file", "type": "symlink", "size": 4, "modified": "Oct 15 14:00", "permissions": "lrwxrwxrwx", "owner": "user", "group": "staff", "hidden": False, "uid": 1000, "gid": 100, "link_target": "release", "modified_at": "2026-10-15T14:00:00Z"}], "total": 6000, "matching_total": 1, "truncated": False, "unparsed": 0, "latency_ms": 1, "connection_checked_at": "2026-10-15T00:00:00Z"}
+
+    def upload(identifier, source, path, *, overwrite):
+        observed.append(overwrite)
+        return {"alias": "box", "direction": "upload", "remote_path": path, "bytes": source.stat().st_size, "latency_ms": 1}
+
+    monkeypatch.setattr(app.state.services.files, "list_directory", directory)
+    monkeypatch.setattr(app.state.services.files, "upload", upload)
+    result = client.get("/api/v1/hosts/box/files", params={"path": "/srv", "name_filter": "file"})
+    assert result.status_code == 200
+    assert result.json()["matching_total"] == 1
+    assert result.json()["entries"][0]["link_target"] == "release"
+    for flag in (None, "true"):
+        data = {"path": "/srv/file"}
+        if flag:
+            data["overwrite"] = flag
+        assert client.post("/api/v1/hosts/box/upload", headers=headers, data=data, files={"file": ("file", b"abcd")}).status_code == 200
+    assert observed == ["file", False, True]
+    # Local staging never derives a platform path from an untrusted filename.
+    assert client.post("/api/v1/hosts/box/upload", headers=headers, data={"path": "/srv/file"}, files={"file": ("..", b"abcd")}).status_code == 200
+    for path in (".", "..", "/srv/../file", "/srv/./file", "/srv/"):
+        assert client.post("/api/v1/hosts/box/upload", headers=headers, data={"path": path}, files={"file": ("file", b"data")}).status_code == 400
+    capabilities = client.get("/api/v1/runtime").json()["capabilities"]
+    assert capabilities["bulk_checks"] and capabilities["host_routes"] and capabilities["file_conflicts"]

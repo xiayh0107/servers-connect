@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from .host_metadata import address_scope, observation_time, sanitize_facts, sanitize_host_key, validate_geo, validate_resolved_ip
 from .paths import database_path, ensure_private_dir
 from .validation import (
     ValidationError,
@@ -34,12 +35,12 @@ from .validation import (
 )
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 SERVER_CONTEXTS_SETTING = "server_contexts"
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 class DatabaseError(RuntimeError):
@@ -83,14 +84,17 @@ class Database:
 
     def _initialize(self) -> None:
         is_new = not self.path.exists()
-        with closing(self.connect()) as connection, connection:
+        # Serialize the version read, initial DDL, and every migration together.
+        # executescript() commits a pending transaction, so static schema SQL
+        # must be executed statement by statement to retain this write lock.
+        with self.transaction() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
             if version < 0 or version > SCHEMA_VERSION:
                 raise DatabaseError(f"database schema {version} is newer than supported {SCHEMA_VERSION}")
             if version == SCHEMA_VERSION:
                 return
             if version == 0:
-                connection.executescript(
+                self._execute_schema(connection,
                     """
                 CREATE TABLE IF NOT EXISTS credentials (
                     id TEXT PRIMARY KEY,
@@ -178,12 +182,13 @@ class Database:
                 PRAGMA user_version = 5;
                 """
                 )
+                version = 5
             if version == 1:
                 connection.execute("ALTER TABLE servers ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
                 connection.execute("PRAGMA user_version = 2")
                 version = 2
             if version == 2:
-                connection.executescript(
+                self._execute_schema(connection,
                     """
                     CREATE TABLE IF NOT EXISTS skills (
                         id TEXT PRIMARY KEY,
@@ -243,7 +248,7 @@ class Database:
                 connection.execute("PRAGMA user_version = 4")
                 version = 4
             if version == 4:
-                connection.executescript(
+                self._execute_schema(connection,
                     """
                     CREATE TABLE IF NOT EXISTS server_paths (
                         id TEXT PRIMARY KEY,
@@ -262,8 +267,50 @@ class Database:
                     PRAGMA user_version = 5;
                     """
                 )
+                version = 5
+            if version == 5:
+                for column in ("facts", "last_success_at", "last_resolved_ip", "host_key", "geo"):
+                    connection.execute(f"ALTER TABLE servers ADD COLUMN {column} TEXT")
+                connection.execute("PRAGMA user_version = 6")
+                # Preserve a known successful latest check while upgrading.
+                columns = {row["name"] for row in connection.execute("PRAGMA table_info(servers)")}
+                if {"last_test_status", "last_test_at"} <= columns:
+                    connection.execute("UPDATE servers SET last_success_at = last_test_at WHERE last_test_status = 'ok'")
+                version = 6
+            if version == 6:
+                connection.execute("""CREATE TABLE IF NOT EXISTS credentials (
+                    id TEXT PRIMARY KEY, label TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    kind TEXT NOT NULL CHECK(kind IN ('password', 'key', 'agent')),
+                    key_path TEXT, has_secret INTEGER NOT NULL DEFAULT 0,
+                    has_passphrase INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+                connection.execute("ALTER TABLE credentials ADD COLUMN key_metadata TEXT")
+                connection.execute("ALTER TABLE credentials ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")
+                self._execute_schema(connection, """
+                    CREATE TABLE credential_tests (
+                        id TEXT PRIMARY KEY, credential_id TEXT NOT NULL REFERENCES credentials(id) ON DELETE CASCADE,
+                        host_id TEXT NOT NULL, checked_at TEXT NOT NULL, ok INTEGER NOT NULL, result TEXT NOT NULL
+                    );
+                    CREATE INDEX idx_credential_tests_latest ON credential_tests(credential_id, checked_at DESC);
+                    CREATE TABLE credential_deletions (
+                        operation_id TEXT PRIMARY KEY, credential_id TEXT NOT NULL,
+                        expected_updated_at TEXT NOT NULL, expected_host_ids TEXT NOT NULL,
+                        credential TEXT NOT NULL, detached_hosts TEXT NOT NULL,
+                        status TEXT NOT NULL, remaining_slots TEXT NOT NULL,
+                        attempts INTEGER NOT NULL DEFAULT 0, error_code TEXT,
+                        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+                    );
+                    PRAGMA user_version = 7;
+                """)
         if is_new and os.name != "nt":
             self.path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+    @staticmethod
+    def _execute_schema(connection: sqlite3.Connection, schema: str) -> None:
+        # These static DDL blocks contain neither triggers nor semicolon literals.
+        for statement in schema.split(";"):
+            if statement.strip():
+                connection.execute(statement)
 
     @staticmethod
     def _credential_dict(row: sqlite3.Row) -> dict[str, Any]:
@@ -276,6 +323,8 @@ class Database:
             "has_passphrase": bool(row["has_passphrase"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+            "key_metadata": json.loads(row["key_metadata"]) if row["key_metadata"] else None,
+            "revision": row["revision"],
         }
 
     @staticmethod
@@ -298,6 +347,12 @@ class Database:
             "last_test_latency_ms": row["last_test_latency_ms"],
             "last_test_error_code": row["last_test_error_code"],
             "last_test_message": row["last_test_message"],
+            "facts": json.loads(row["facts"]) if row["facts"] else None,
+            "last_success_at": row["last_success_at"],
+            "last_resolved_ip": row["last_resolved_ip"],
+            "host_key": json.loads(row["host_key"]) if row["host_key"] else None,
+            "geo": json.loads(row["geo"]) if row["geo"] else None,
+            "address_scope": address_scope(row["hostname"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -305,13 +360,23 @@ class Database:
     def list_credentials(self) -> list[dict[str, Any]]:
         with closing(self.connect()) as connection, connection:
             rows = connection.execute("SELECT * FROM credentials ORDER BY label COLLATE NOCASE").fetchall()
-        return [self._credential_dict(row) for row in rows]
+        return [self._with_credential_test(self._credential_dict(row)) for row in rows]
+
+    def _with_credential_test(self, credential: dict[str, Any]) -> dict[str, Any]:
+        with closing(self.connect()) as connection:
+            row = connection.execute("SELECT result FROM credential_tests WHERE credential_id = ? ORDER BY rowid DESC LIMIT 1", (credential["id"],)).fetchone()
+        result = json.loads(row["result"]) if row else None
+        return {**credential, "last_test": result if result and result.get("credential_revision") == credential["revision"] else None}
 
     def get_credential(self, identifier: str) -> dict[str, Any]:
         with closing(self.connect()) as connection, connection:
-            row = connection.execute(
-                "SELECT * FROM credentials WHERE id = ? OR label = ? COLLATE NOCASE", (identifier, identifier)
-            ).fetchone()
+            credential = self._get_credential(connection, identifier)
+        return self._with_credential_test(credential)
+
+    def _get_credential(self, connection: sqlite3.Connection, identifier: str) -> dict[str, Any]:
+        row = connection.execute(
+            "SELECT * FROM credentials WHERE id = ? OR label = ? COLLATE NOCASE", (identifier, identifier)
+        ).fetchone()
         if not row:
             raise NotFoundError(f"credential not found: {identifier}")
         return self._credential_dict(row)
@@ -354,34 +419,118 @@ class Database:
         return self.get_credential(identifier)
 
     def update_credential(self, identifier: str, **changes: Any) -> dict[str, Any]:
-        current = self.get_credential(identifier)
-        label = validate_label(changes.get("label", current["label"]))
-        key_path = changes.get("key_path", current["key_path"])
-        if current["kind"] == "key":
-            key_path = validate_key_path(key_path)
-        has_secret = bool(changes.get("has_secret", current["has_secret"]))
-        has_passphrase = bool(changes.get("has_passphrase", current["has_passphrase"]))
+        before_commit = changes.pop("_before_commit", None)
         try:
             with self.transaction() as connection:
+                current = self._get_credential(connection, identifier)
+                label = validate_label(changes.get("label", current["label"]))
+                key_path = changes.get("key_path", current["key_path"])
+                if current["kind"] == "key" and "key_path" in changes:
+                    key_path = validate_key_path(key_path)
+                has_secret = bool(changes.get("has_secret", current["has_secret"]))
+                has_passphrase = bool(changes.get("has_passphrase", current["has_passphrase"]))
                 connection.execute(
                     """
-                    UPDATE credentials SET label = ?, key_path = ?, has_secret = ?, has_passphrase = ?, updated_at = ?
+                    UPDATE credentials SET label = ?, key_path = ?, has_secret = ?, has_passphrase = ?, updated_at = ?,
+                        key_metadata = ?, revision = revision + 1
                     WHERE id = ?
                     """,
-                    (label, key_path, int(has_secret), int(has_passphrase), utc_now(), current["id"]),
+                    (label, key_path, int(has_secret), int(has_passphrase), utc_now(),
+                     json.dumps(changes.get("key_metadata", current["key_metadata"])) if changes.get("key_metadata", current["key_metadata"]) is not None else None,
+                     current["id"]),
                 )
+                if before_commit is not None:
+                    before_commit()
         except sqlite3.IntegrityError as exc:
             raise ConflictError(f"credential label already exists: {label}") from exc
         return self.get_credential(current["id"])
 
     def delete_credential(self, identifier: str) -> dict[str, Any]:
-        current = self.get_credential(identifier)
         try:
             with self.transaction() as connection:
+                current = self._get_credential(connection, identifier)
                 connection.execute("DELETE FROM credentials WHERE id = ?", (current["id"],))
         except sqlite3.IntegrityError as exc:
             raise ConflictError("credential is still assigned to one or more servers") from exc
         return current
+
+    def credential_deletion_preview(self, identifier: str) -> dict[str, Any]:
+        with closing(self.connect()) as connection:
+            credential = self._get_credential(connection, identifier)
+            hosts = connection.execute("SELECT id, alias FROM servers WHERE credential_id = ? ORDER BY alias COLLATE NOCASE", (credential["id"],)).fetchall()
+        return {"credential": credential, "expected_updated_at": credential["updated_at"],
+            "hosts": [dict(row) for row in hosts], "expected_host_ids": sorted(row["id"] for row in hosts)}
+
+    @staticmethod
+    def _deletion_dict(row: sqlite3.Row) -> dict[str, Any]:
+        return {"operation_id": row["operation_id"], "credential_id": row["credential_id"],
+            "credential": json.loads(row["credential"]), "detached_hosts": json.loads(row["detached_hosts"]),
+            "committed": True, "cleanup_pending": row["status"] != "complete", "status": row["status"],
+            "remaining_slots": json.loads(row["remaining_slots"]), "attempts": row["attempts"],
+            "error_code": row["error_code"], "created_at": row["created_at"], "updated_at": row["updated_at"]}
+
+    def get_credential_deletion(self, operation_id: str) -> dict[str, Any]:
+        with closing(self.connect()) as connection:
+            row = connection.execute("SELECT * FROM credential_deletions WHERE operation_id = ?", (operation_id,)).fetchone()
+        if row is None:
+            raise NotFoundError("credential deletion operation was not found")
+        return self._deletion_dict(row)
+
+    def list_credential_deletions(self, *, pending: bool = False) -> list[dict[str, Any]]:
+        with closing(self.connect()) as connection:
+            rows = connection.execute("SELECT * FROM credential_deletions " + ("WHERE status != 'complete' " if pending else "") + "ORDER BY created_at DESC LIMIT 250").fetchall()
+        return [self._deletion_dict(row) for row in rows]
+
+    def commit_credential_deletion(self, identifier: str, *, operation_id: str, expected_updated_at: str,
+                                   expected_host_ids: list[str], detach: bool) -> dict[str, Any]:
+        now = utc_now()
+        with self.transaction() as connection:
+            existing = connection.execute("SELECT * FROM credential_deletions WHERE operation_id = ?", (operation_id,)).fetchone()
+            if existing:
+                if (existing["credential_id"] != identifier or existing["expected_updated_at"] != expected_updated_at
+                        or json.loads(existing["expected_host_ids"]) != sorted(set(expected_host_ids))):
+                    raise ConflictError("deletion operation id was already used for a different request")
+                return self._deletion_dict(existing)
+            current = self._get_credential(connection, identifier)
+            hosts = connection.execute("SELECT id, alias FROM servers WHERE credential_id = ? ORDER BY alias COLLATE NOCASE", (current["id"],)).fetchall()
+            host_ids = sorted(row["id"] for row in hosts)
+            if current["updated_at"] != expected_updated_at or host_ids != sorted(set(expected_host_ids)):
+                raise ConflictError("credential or its host bindings changed; review deletion again")
+            if hosts and not detach:
+                raise ConflictError("credential is still assigned to one or more servers")
+            if detach:
+                connection.execute("""UPDATE servers SET credential_id = NULL, updated_at = ?, last_test_at = NULL,
+                    last_test_status = NULL, last_test_latency_ms = NULL, last_test_error_code = NULL,
+                    last_test_message = NULL, last_success_at = NULL WHERE credential_id = ?""", (now, current["id"]))
+            connection.execute("""INSERT INTO credential_deletions
+                (operation_id, credential_id, expected_updated_at, expected_host_ids, credential, detached_hosts,
+                 status, remaining_slots, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)""",
+                (operation_id, current["id"], expected_updated_at, json.dumps(host_ids), json.dumps(current),
+                 json.dumps([dict(row) for row in hosts]), json.dumps(["password", "passphrase", "config"]), now, now))
+            connection.execute("DELETE FROM credentials WHERE id = ?", (current["id"],))
+        return self.get_credential_deletion(operation_id)
+
+    def update_credential_deletion(self, operation_id: str, remaining_slots: list[str], *, error_code: str | None) -> dict[str, Any]:
+        with self.transaction() as connection:
+            connection.execute("""UPDATE credential_deletions SET remaining_slots = ?, status = ?,
+                attempts = attempts + 1, error_code = ?, updated_at = ? WHERE operation_id = ?""",
+                (json.dumps(remaining_slots), "pending" if remaining_slots else "complete", error_code, utc_now(), operation_id))
+        return self.get_credential_deletion(operation_id)
+
+    def record_credential_test(self, credential_id: str, result: dict[str, Any]) -> dict[str, Any]:
+        with self.transaction() as connection:
+            credential = self._get_credential(connection, credential_id)
+            result = {**result, "credential_revision": credential["revision"]}
+            connection.execute("INSERT INTO credential_tests (id, credential_id, host_id, checked_at, ok, result) VALUES (?, ?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), credential_id, result["host_id"], result["checked_at"], int(result["ok"]), json.dumps(result)))
+            connection.execute("DELETE FROM credential_tests WHERE credential_id = ? AND id NOT IN (SELECT id FROM credential_tests WHERE credential_id = ? ORDER BY rowid DESC LIMIT 50)", (credential_id, credential_id))
+        return result
+
+    def list_credential_tests(self, identifier: str) -> list[dict[str, Any]]:
+        credential = self.get_credential(identifier)
+        with closing(self.connect()) as connection:
+            rows = connection.execute("SELECT result FROM credential_tests WHERE credential_id = ? ORDER BY rowid DESC LIMIT 50", (credential["id"],)).fetchall()
+        return [json.loads(row["result"]) for row in rows]
 
     def _server_query(self) -> str:
         return """
@@ -701,13 +850,13 @@ class Database:
         return self.get_skill(identifier)
 
     def update_skill(self, identifier: str, **changes: Any) -> dict[str, Any]:
-        current = self.get_skill(identifier)
-        name = validate_skill_name(changes.get("name", current["name"]))
-        name_key = skill_name_key(name)
-        path = validate_skill_path(changes.get("path", current["path"]))
-        description = validate_skill_description(changes.get("description", current["description"]))
         try:
             with self.transaction() as connection:
+                current = self._skill_dict(connection, self._find_skill_row(connection, identifier))
+                name = validate_skill_name(changes.get("name", current["name"]))
+                name_key = skill_name_key(name)
+                path = validate_skill_path(changes.get("path", current["path"]))
+                description = validate_skill_description(changes.get("description", current["description"]))
                 connection.execute(
                     """
                     UPDATE skills
@@ -721,9 +870,9 @@ class Database:
         return self.get_skill(current["id"])
 
     def delete_skill(self, identifier: str) -> dict[str, Any]:
-        current = self.get_skill(identifier)
         try:
             with self.transaction() as connection:
+                current = self._skill_dict(connection, self._find_skill_row(connection, identifier))
                 connection.execute("DELETE FROM skills WHERE id = ?", (current["id"],))
         except sqlite3.IntegrityError as exc:
             raise ConflictError("skill is still assigned to one or more servers") from exc
@@ -917,13 +1066,14 @@ class Database:
     def update_server_path(
         self, server_identifier: str, identifier: str, **changes: Any
     ) -> dict[str, Any]:
-        current = self.get_server_path(server_identifier, identifier)
-        label = validate_path_label(changes.get("label", current["label"]))
-        label_key = path_label_key(label)
-        path = validate_saved_remote_path(changes.get("path", current["path"]))
-        notes = validate_path_note(changes.get("notes", current["notes"]))
         try:
             with self.transaction() as connection:
+                server = self._find_server_row(connection, str(server_identifier))
+                current = self._server_path_dict(self._find_server_path_row(connection, server["id"], str(identifier)), server["alias"])
+                label = validate_path_label(changes.get("label", current["label"]))
+                label_key = path_label_key(label)
+                path = validate_saved_remote_path(changes.get("path", current["path"]))
+                notes = validate_path_note(changes.get("notes", current["notes"]))
                 connection.execute(
                     """
                     UPDATE server_paths
@@ -936,22 +1086,24 @@ class Database:
             raise ConflictError(
                 f"this host already has a saved directory with that label or path: {label}"
             ) from exc
-        return self.get_server_path(server_identifier, current["id"])
+        return self.get_server_path(server["id"], current["id"])
 
     def delete_server_path(self, server_identifier: str, identifier: str) -> dict[str, Any]:
-        current = self.get_server_path(server_identifier, identifier)
         with self.transaction() as connection:
+            server = self._find_server_row(connection, str(server_identifier))
+            current = self._server_path_dict(self._find_server_path_row(connection, server["id"], str(identifier)), server["alias"])
             connection.execute("DELETE FROM server_paths WHERE id = ?", (current["id"],))
         return current
 
     def touch_server_path(self, server_identifier: str, identifier: str) -> dict[str, Any]:
-        current = self.get_server_path(server_identifier, identifier)
         with self.transaction() as connection:
+            server = self._find_server_row(connection, str(server_identifier))
+            current = self._server_path_dict(self._find_server_path_row(connection, server["id"], str(identifier)), server["alias"])
             connection.execute(
                 "UPDATE server_paths SET last_used_at = ? WHERE id = ?",
                 (utc_now(), current["id"]),
             )
-        return self.get_server_path(server_identifier, current["id"])
+        return self.get_server_path(server["id"], current["id"])
 
     def set_server_paths(
         self, server_identifier: str, entries: list[dict[str, Any]]
@@ -1050,23 +1202,29 @@ class Database:
 
     def list_servers(self) -> list[dict[str, Any]]:
         with closing(self.connect()) as connection, connection:
-            rows = connection.execute(self._server_query() + " ORDER BY s.alias COLLATE NOCASE").fetchall()
+            return self._list_servers(connection)
+
+    def _list_servers(self, connection: sqlite3.Connection) -> list[dict[str, Any]]:
+        rows = connection.execute(self._server_query() + " ORDER BY s.alias COLLATE NOCASE").fetchall()
         return [self._server_dict(row) for row in rows]
 
     def get_server(self, identifier: str) -> dict[str, Any]:
         with closing(self.connect()) as connection, connection:
-            row = connection.execute(
-                self._server_query() + " WHERE s.id = ? OR s.alias = ? COLLATE NOCASE", (identifier, identifier)
-            ).fetchone()
+            return self._get_server(connection, identifier)
+
+    def _get_server(self, connection: sqlite3.Connection, identifier: str) -> dict[str, Any]:
+        row = connection.execute(
+            self._server_query() + " WHERE s.id = ? OR s.alias = ? COLLATE NOCASE", (identifier, identifier)
+        ).fetchone()
         if not row:
             raise NotFoundError(f"server not found: {identifier}")
         return self._server_dict(row)
 
-    def _validate_server_payload(self, payload: dict[str, Any], *, current_id: str | None = None) -> dict[str, Any]:
+    def _validate_server_payload(self, payload: dict[str, Any], *, current_id: str | None = None, connection: sqlite3.Connection | None = None) -> dict[str, Any]:
         alias = validate_alias(str(payload["alias"]))
         credential_id = payload.get("credential_id") or None
         if credential_id:
-            credential_id = self.get_credential(str(credential_id))["id"]
+            credential_id = (self._get_credential(connection, str(credential_id)) if connection is not None else self.get_credential(str(credential_id)))["id"]
         normalized = {
             "alias": alias,
             "hostname": validate_hostname(str(payload["hostname"])),
@@ -1077,45 +1235,57 @@ class Database:
             "tags": validate_server_tags(payload.get("tags", [])),
             "notes": validate_server_note(payload.get("notes", "")),
             "source": str(payload.get("source", "managed")),
+            "geo": validate_geo(payload.get("geo")),
         }
-        self._validate_proxy_graph(normalized, current_id=current_id)
+        self._validate_proxy_graph(normalized, current_id=current_id, connection=connection)
         return normalized
 
-    def _validate_proxy_graph(self, candidate: dict[str, Any], *, current_id: str | None) -> None:
-        servers = self.list_servers()
+    def _validate_proxy_graph(self, candidate: dict[str, Any], *, current_id: str | None, connection: sqlite3.Connection | None = None) -> None:
+        servers = self._list_servers(connection) if connection is not None else self.list_servers()
+        old_alias = next((item["alias"].casefold() for item in servers if item["id"] == current_id), None)
+        new_alias = candidate["alias"].casefold()
+        # Validate the graph that will be committed, including dependents whose
+        # references are rewritten when an alias changes.
         graph: dict[str, list[str]] = {
-            item["alias"].casefold(): [jump.casefold() for jump in item["proxy_jumps"]]
+            item["alias"].casefold(): [new_alias if jump.casefold() == old_alias else jump.casefold()
+                                      for jump in item["proxy_jumps"]]
             for item in servers
             if item["id"] != current_id
         }
-        graph[candidate["alias"].casefold()] = [jump.casefold() for jump in candidate["proxy_jumps"]]
+        graph[new_alias] = [jump.casefold() for jump in candidate["proxy_jumps"]]
 
-        def visit(node: str, active: set[str], complete: set[str]) -> None:
-            if node in active:
-                raise ValidationError("ProxyJump configuration contains a cycle")
-            if node in complete or node not in graph:
-                return
-            active.add(node)
-            for neighbor in graph[node]:
-                visit(neighbor, active, complete)
-            active.remove(node)
-            complete.add(node)
-
-        complete: set[str] = set()
+        # Iterative DFS keeps long valid hop chains independent of Python's
+        # recursion limit. Unknown aliases remain external terminal nodes.
+        state: dict[str, int] = {}
         for node in graph:
-            visit(node, set(), complete)
+            if state.get(node) == 2:
+                continue
+            state[node] = 1
+            stack = [(node, iter(graph[node]))]
+            while stack:
+                current, neighbors = stack[-1]
+                neighbor = next(neighbors, None)
+                if neighbor is None:
+                    state[current] = 2
+                    stack.pop()
+                elif neighbor in graph:
+                    if state.get(neighbor) == 1:
+                        raise ValidationError("ProxyJump configuration contains a cycle")
+                    if state.get(neighbor) != 2:
+                        state[neighbor] = 1
+                        stack.append((neighbor, iter(graph[neighbor])))
 
     def create_server(self, **payload: Any) -> dict[str, Any]:
-        normalized = self._validate_server_payload(payload)
         identifier = str(payload.get("id") or uuid.uuid4())
         now = utc_now()
         try:
             with self.transaction() as connection:
+                normalized = self._validate_server_payload(payload, connection=connection)
                 connection.execute(
                     """
                     INSERT INTO servers
-                    (id, alias, hostname, port, username, credential_id, proxy_jumps, tags, notes, source, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, alias, hostname, port, username, credential_id, proxy_jumps, tags, notes, source, geo, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         identifier,
@@ -1128,6 +1298,7 @@ class Database:
                         json.dumps(normalized["tags"], ensure_ascii=False),
                         normalized["notes"],
                         normalized["source"],
+                        json.dumps(normalized["geo"], ensure_ascii=False) if normalized["geo"] is not None else None,
                         now,
                         now,
                     ),
@@ -1138,15 +1309,15 @@ class Database:
         return self.get_server(identifier)
 
     def update_server(self, identifier: str, **changes: Any) -> dict[str, Any]:
-        current = self.get_server(identifier)
-        payload = {**current, **changes}
-        normalized = self._validate_server_payload(payload, current_id=current["id"])
         try:
             with self.transaction() as connection:
+                current = self._get_server(connection, identifier)
+                payload = {**current, **changes}
+                normalized = self._validate_server_payload(payload, current_id=current["id"], connection=connection)
                 connection.execute(
                     """
                     UPDATE servers SET alias = ?, hostname = ?, port = ?, username = ?, credential_id = ?,
-                        proxy_jumps = ?, tags = ?, notes = ?, source = ?, updated_at = ? WHERE id = ?
+                        proxy_jumps = ?, tags = ?, notes = ?, source = ?, geo = ?, updated_at = ? WHERE id = ?
                     """,
                     (
                         normalized["alias"],
@@ -1158,10 +1329,19 @@ class Database:
                         json.dumps(normalized["tags"], ensure_ascii=False),
                         normalized["notes"],
                         normalized["source"],
+                        json.dumps(normalized["geo"], ensure_ascii=False) if normalized["geo"] is not None else None,
                         utc_now(),
                         current["id"],
                     ),
                 )
+                if (current["hostname"], current["port"]) != (normalized["hostname"], normalized["port"]):
+                    # Observations belong to the checked endpoint, not a reused alias.
+                    connection.execute(
+                        """UPDATE servers SET facts = NULL, last_resolved_ip = NULL, host_key = NULL,
+                            last_success_at = NULL, last_test_at = NULL, last_test_status = NULL,
+                            last_test_latency_ms = NULL, last_test_error_code = NULL, last_test_message = NULL
+                            WHERE id = ?""", (current["id"],),
+                    )
                 if current["alias"].casefold() != normalized["alias"].casefold():
                     dependent_rows = connection.execute("SELECT id, proxy_jumps FROM servers WHERE id != ?", (current["id"],)).fetchall()
                     for row in dependent_rows:
@@ -1182,16 +1362,13 @@ class Database:
 
     def update_server_notes(self, identifier: str, text: str | None, *, append: bool = False) -> dict[str, Any]:
         """Set or append a human-authored note without changing host settings."""
-        current = self.get_server(identifier)
         note = validate_server_note(text)
-        if append:
-            if not note:
-                raise ValidationError("note text is required when appending")
-            combined = f"{current['notes']}\n\n{note}" if current["notes"] else note
-        else:
-            combined = note
-        combined = validate_server_note(combined)
+        if append and not note:
+            raise ValidationError("note text is required when appending")
         with self.transaction() as connection:
+            current = self._get_server(connection, identifier)
+            combined = f"{current['notes']}\n\n{note}" if append and current["notes"] else note
+            combined = validate_server_note(combined)
             connection.execute(
                 "UPDATE servers SET notes = ?, updated_at = ? WHERE id = ?",
                 (combined, utc_now(), current["id"]),
@@ -1199,12 +1376,12 @@ class Database:
         return self.get_server(current["id"])
 
     def delete_server(self, identifier: str) -> dict[str, Any]:
-        current = self.get_server(identifier)
-        target = current["alias"].casefold()
-        dependents = [s["alias"] for s in self.list_servers() if target in {j.casefold() for j in s["proxy_jumps"]}]
-        if dependents:
-            raise ConflictError(f"server is used as ProxyJump by: {', '.join(dependents)}")
         with self.transaction() as connection:
+            current = self._get_server(connection, identifier)
+            target = current["alias"].casefold()
+            dependents = [s["alias"] for s in self._list_servers(connection) if target in {j.casefold() for j in s["proxy_jumps"]}]
+            if dependents:
+                raise ConflictError(f"server is used as ProxyJump by: {', '.join(dependents)}")
             connection.execute("DELETE FROM servers WHERE id = ?", (current["id"],))
         return current
 
@@ -1216,16 +1393,48 @@ class Database:
         latency_ms: int,
         error_code: str | None,
         message: str,
+        expected_endpoint: tuple[str, int] | None = None,
     ) -> dict[str, Any]:
-        current = self.get_server(identifier)
         with self.transaction() as connection:
+            current = self._get_server(connection, identifier)
+            if expected_endpoint is not None and expected_endpoint != (current["hostname"], current["port"]):
+                return current
+            checked_at = utc_now()
             connection.execute(
                 """
                 UPDATE servers SET last_test_at = ?, last_test_status = ?, last_test_latency_ms = ?,
-                    last_test_error_code = ?, last_test_message = ?, updated_at = ? WHERE id = ?
+                    last_test_error_code = ?, last_test_message = ?, updated_at = ?,
+                    last_success_at = CASE WHEN ? = 'ok' THEN ? ELSE last_success_at END WHERE id = ?
                 """,
-                (utc_now(), status, latency_ms, error_code, message[:500], utc_now(), current["id"]),
+                (checked_at, status, latency_ms, error_code, message[:500], checked_at, status, checked_at, current["id"]),
             )
+        return self.get_server(current["id"])
+
+    def record_observation(
+        self, identifier: str, *, facts: dict[str, Any] | None = None,
+        resolved_ip: str | None = None, host_key: dict[str, Any] | None = None,
+        observed_at: str | None = None,
+        expected_endpoint: tuple[str, int] | None = None,
+    ) -> dict[str, Any]:
+        """Persist explicit check results; omitted observations retain prior values."""
+        observed = observation_time(observed_at)
+        changes: dict[str, Any] = {}
+        if facts is not None:
+            changes["facts"] = json.dumps(sanitize_facts(facts, observed_at=observed), ensure_ascii=False)
+        if resolved_ip is not None:
+            changes["last_resolved_ip"] = validate_resolved_ip(resolved_ip)
+        if host_key is not None:
+            changes["host_key"] = json.dumps(sanitize_host_key(host_key, observed_at=observed))
+        with self.transaction() as connection:
+            current = self._get_server(connection, identifier)
+            if expected_endpoint is not None and expected_endpoint != (current["hostname"], current["port"]):
+                return current
+            if changes:
+                assignments = ", ".join(f"{field} = ?" for field in changes)
+                connection.execute(
+                    f"UPDATE servers SET {assignments}, updated_at = ? WHERE id = ?",
+                    (*changes.values(), observed, current["id"]),
+                )
         return self.get_server(current["id"])
 
     def get_setting(self, key: str) -> str | None:

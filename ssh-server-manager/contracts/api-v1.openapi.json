@@ -21,6 +21,72 @@
         "title": "AgentCreate",
         "type": "object"
       },
+      "AgentIdentity": {
+        "properties": {
+          "algorithm": {
+            "title": "Algorithm",
+            "type": "string"
+          },
+          "bits": {
+            "title": "Bits",
+            "type": "integer"
+          },
+          "comment": {
+            "title": "Comment",
+            "type": "string"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bits",
+          "fingerprint",
+          "algorithm",
+          "comment"
+        ],
+        "title": "AgentIdentity",
+        "type": "object"
+      },
+      "AgentMetadata": {
+        "properties": {
+          "identities": {
+            "items": {
+              "$ref": "#/components/schemas/AgentIdentity"
+            },
+            "title": "Identities",
+            "type": "array"
+          },
+          "observed_at": {
+            "title": "Observed At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "unavailable",
+              "timeout",
+              "empty",
+              "ready",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "status",
+          "identities",
+          "observed_at"
+        ],
+        "title": "AgentMetadata",
+        "type": "object"
+      },
       "AuthResult": {
         "properties": {
           "credential_id": {
@@ -75,6 +141,11 @@
             "title": "File",
             "type": "string"
           },
+          "overwrite": {
+            "default": false,
+            "title": "Overwrite",
+            "type": "boolean"
+          },
           "path": {
             "title": "Path",
             "type": "string"
@@ -87,11 +158,85 @@
         "title": "Body_upload_api_v1_hosts__identifier__upload_post",
         "type": "object"
       },
+      "BulkProbeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "concurrency": {
+            "default": 4,
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Concurrency",
+            "type": "integer"
+          },
+          "identifiers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Identifiers",
+            "type": "array"
+          },
+          "timeout": {
+            "default": 8,
+            "maximum": 120.0,
+            "minimum": 1.0,
+            "title": "Timeout",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "identifiers"
+        ],
+        "title": "BulkProbeRequest",
+        "type": "object"
+      },
+      "BulkTestResult": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/TestResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "BulkTestResult",
+        "type": "object"
+      },
       "Capabilities": {
         "properties": {
+          "bulk_checks": {
+            "default": true,
+            "title": "Bulk Checks",
+            "type": "boolean"
+          },
+          "credential_detach_delete": {
+            "default": true,
+            "title": "Credential Detach Delete",
+            "type": "boolean"
+          },
+          "credential_probe": {
+            "default": true,
+            "title": "Credential Probe",
+            "type": "boolean"
+          },
+          "credential_test_history": {
+            "default": true,
+            "title": "Credential Test History",
+            "type": "boolean"
+          },
           "credentials": {
             "default": true,
             "title": "Credentials",
+            "type": "boolean"
+          },
+          "file_conflicts": {
+            "default": true,
+            "title": "File Conflicts",
             "type": "boolean"
           },
           "files": {
@@ -99,10 +244,30 @@
             "title": "Files",
             "type": "boolean"
           },
+          "host_routes": {
+            "default": true,
+            "title": "Host Routes",
+            "type": "boolean"
+          },
           "hosts": {
             "default": true,
             "title": "Hosts",
             "type": "boolean"
+          },
+          "local_key_browser": {
+            "default": true,
+            "title": "Local Key Browser",
+            "type": "boolean"
+          },
+          "max_bulk_hosts": {
+            "default": 64,
+            "title": "Max Bulk Hosts",
+            "type": "integer"
+          },
+          "max_check_concurrency": {
+            "default": 4,
+            "title": "Max Check Concurrency",
+            "type": "integer"
           },
           "max_web_transfer_bytes": {
             "title": "Max Web Transfer Bytes",
@@ -118,9 +283,19 @@
             "title": "Native Window",
             "type": "boolean"
           },
+          "private_key_validation": {
+            "default": true,
+            "title": "Private Key Validation",
+            "type": "boolean"
+          },
           "skills": {
             "default": true,
             "title": "Skills",
+            "type": "boolean"
+          },
+          "ssh_agent_identities": {
+            "default": true,
+            "title": "Ssh Agent Identities",
             "type": "boolean"
           }
         },
@@ -244,6 +419,16 @@
             "title": "Id",
             "type": "string"
           },
+          "key_metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KeyMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "key_path": {
             "anyOf": [
               {
@@ -268,6 +453,21 @@
             "title": "Label",
             "type": "string"
           },
+          "last_test": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CredentialProbeResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revision": {
+            "default": 1,
+            "title": "Revision",
+            "type": "integer"
+          },
           "updated_at": {
             "title": "Updated At",
             "type": "string"
@@ -286,6 +486,467 @@
         "title": "Credential",
         "type": "object"
       },
+      "CredentialDeleteResult": {
+        "properties": {
+          "cleanup_pending": {
+            "title": "Cleanup Pending",
+            "type": "boolean"
+          },
+          "committed": {
+            "const": true,
+            "default": true,
+            "title": "Committed",
+            "type": "boolean"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "has_passphrase": {
+            "title": "Has Passphrase",
+            "type": "boolean"
+          },
+          "has_secret": {
+            "title": "Has Secret",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "key_metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KeyMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "key_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Path"
+          },
+          "kind": {
+            "enum": [
+              "password",
+              "key",
+              "agent"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_test": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CredentialProbeResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "revision": {
+            "default": 1,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "kind",
+          "key_path",
+          "has_secret",
+          "has_passphrase",
+          "created_at",
+          "updated_at",
+          "operation_id",
+          "cleanup_pending"
+        ],
+        "title": "CredentialDeleteResult",
+        "type": "object"
+      },
+      "CredentialDeletion": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "cleanup_pending": {
+            "title": "Cleanup Pending",
+            "type": "boolean"
+          },
+          "committed": {
+            "const": true,
+            "default": true,
+            "title": "Committed",
+            "type": "boolean"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/Credential"
+          },
+          "credential_id": {
+            "title": "Credential Id",
+            "type": "string"
+          },
+          "detached_hosts": {
+            "items": {
+              "$ref": "#/components/schemas/HostReference"
+            },
+            "title": "Detached Hosts",
+            "type": "array"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "remaining_slots": {
+            "items": {
+              "enum": [
+                "password",
+                "passphrase",
+                "config"
+              ],
+              "type": "string"
+            },
+            "title": "Remaining Slots",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "complete"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "credential_id",
+          "credential",
+          "detached_hosts",
+          "cleanup_pending",
+          "status",
+          "remaining_slots",
+          "attempts",
+          "error_code",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CredentialDeletion",
+        "type": "object"
+      },
+      "CredentialDeletionPreview": {
+        "properties": {
+          "credential": {
+            "$ref": "#/components/schemas/Credential"
+          },
+          "expected_host_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Expected Host Ids",
+            "type": "array"
+          },
+          "expected_updated_at": {
+            "title": "Expected Updated At",
+            "type": "string"
+          },
+          "hosts": {
+            "items": {
+              "$ref": "#/components/schemas/HostReference"
+            },
+            "title": "Hosts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "credential",
+          "expected_updated_at",
+          "expected_host_ids",
+          "hosts"
+        ],
+        "title": "CredentialDeletionPreview",
+        "type": "object"
+      },
+      "CredentialDetachDelete": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_host_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Expected Host Ids",
+            "type": "array"
+          },
+          "expected_updated_at": {
+            "title": "Expected Updated At",
+            "type": "string"
+          },
+          "operation_id": {
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "title": "Operation Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "expected_updated_at",
+          "expected_host_ids"
+        ],
+        "title": "CredentialDetachDelete",
+        "type": "object"
+      },
+      "CredentialProbeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "host_id": {
+            "title": "Host Id",
+            "type": "string"
+          },
+          "timeout": {
+            "default": 8,
+            "maximum": 120.0,
+            "minimum": 1.0,
+            "title": "Timeout",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "host_id"
+        ],
+        "title": "CredentialProbeRequest",
+        "type": "object"
+      },
+      "CredentialProbeResult": {
+        "properties": {
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "credential_id": {
+            "title": "Credential Id",
+            "type": "string"
+          },
+          "credential_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "password",
+                  "key",
+                  "agent"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Kind"
+          },
+          "credential_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Revision"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "host_alias": {
+            "title": "Host Alias",
+            "type": "string"
+          },
+          "host_id": {
+            "title": "Host Id",
+            "type": "string"
+          },
+          "latency_ms": {
+            "title": "Latency Ms",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "password",
+                  "publickey",
+                  "agent",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/CredentialProbeStage"
+            },
+            "title": "Stages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "message",
+          "latency_ms",
+          "checked_at",
+          "host_id",
+          "host_alias",
+          "credential_id"
+        ],
+        "title": "CredentialProbeResult",
+        "type": "object"
+      },
+      "CredentialProbeStage": {
+        "properties": {
+          "alias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alias"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "hop_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hop Index"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method"
+          },
+          "stage": {
+            "enum": [
+              "prepare",
+              "authenticate",
+              "hop"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "ok",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "const": "stage",
+            "default": "stage",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "status",
+          "message"
+        ],
+        "title": "CredentialProbeStage",
+        "type": "object"
+      },
       "CredentialUpdate": {
         "additionalProperties": false,
         "properties": {
@@ -293,6 +954,28 @@
             "default": false,
             "title": "Clear Passphrase",
             "type": "boolean"
+          },
+          "expected_key_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Key Revision"
+          },
+          "expected_updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Updated At"
           },
           "key_path": {
             "anyOf": [
@@ -489,6 +1172,17 @@
       },
       "DirectoryEntry": {
         "properties": {
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
           "group": {
             "title": "Group",
             "type": "string"
@@ -497,9 +1191,31 @@
             "title": "Hidden",
             "type": "boolean"
           },
+          "link_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Target"
+          },
           "modified": {
             "title": "Modified",
             "type": "string"
+          },
+          "modified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modified At"
           },
           "name": {
             "title": "Name",
@@ -530,6 +1246,17 @@
             ],
             "title": "Type",
             "type": "string"
+          },
+          "uid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uid"
           }
         },
         "required": [
@@ -566,6 +1293,17 @@
           "latency_ms": {
             "title": "Latency Ms",
             "type": "integer"
+          },
+          "matching_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matching Total"
           },
           "parent": {
             "anyOf": [
@@ -630,6 +1368,38 @@
             "title": "Error",
             "type": "string"
           },
+          "error_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "permission_denied",
+                  "not_found",
+                  "not_a_directory",
+                  "unreachable",
+                  "auth_failed",
+                  "timeout",
+                  "too_large",
+                  "exists",
+                  "unsupported"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "existing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileConflictEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "message": {
             "title": "Message",
             "type": "string"
@@ -648,8 +1418,191 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "FileConflictEntry": {
+        "properties": {
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          },
+          "link_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Target"
+          },
+          "modified": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modified"
+          },
+          "modified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modified At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "type": {
+            "enum": [
+              "file",
+              "directory",
+              "symlink",
+              "special"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "uid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uid"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "type",
+          "size"
+        ],
+        "title": "FileConflictEntry",
+        "type": "object"
+      },
+      "GeoInput": {
+        "additionalProperties": false,
+        "properties": {
+          "city": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "country_code": {
+            "pattern": "^[A-Za-z]{2}$",
+            "title": "Country Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "country_code"
+        ],
+        "title": "GeoInput",
+        "type": "object"
+      },
+      "GeoLocation": {
+        "properties": {
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "manual",
+              "geoip"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "country_code",
+          "source"
+        ],
+        "title": "GeoLocation",
+        "type": "object"
+      },
       "Host": {
         "properties": {
+          "address_scope": {
+            "default": "unresolved",
+            "enum": [
+              "public",
+              "private",
+              "lan",
+              "loopback",
+              "unresolved"
+            ],
+            "title": "Address Scope",
+            "type": "string"
+          },
           "alias": {
             "title": "Alias",
             "type": "string"
@@ -691,6 +1644,36 @@
             ],
             "title": "Credential Label"
           },
+          "facts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HostFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "geo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoLocation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "host_key": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HostKey"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "hostname": {
             "title": "Hostname",
             "type": "string"
@@ -698,6 +1681,33 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "jump_for_count": {
+            "default": 0,
+            "title": "Jump For Count",
+            "type": "integer"
+          },
+          "last_resolved_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Resolved Ip"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
           },
           "last_test_at": {
             "anyOf": [
@@ -761,6 +1771,13 @@
           "port": {
             "title": "Port",
             "type": "integer"
+          },
+          "proxy_jump_details": {
+            "items": {
+              "$ref": "#/components/schemas/RouteHop"
+            },
+            "title": "Proxy Jump Details",
+            "type": "array"
           },
           "proxy_jumps": {
             "items": {
@@ -831,6 +1848,16 @@
             ],
             "title": "Credential Id"
           },
+          "geo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "hostname": {
             "title": "Hostname",
             "type": "string"
@@ -874,6 +1901,248 @@
         "title": "HostCreate",
         "type": "object"
       },
+      "HostFacts": {
+        "properties": {
+          "arch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arch"
+          },
+          "cpu_cores": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Cores"
+          },
+          "cpu_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Model"
+          },
+          "disk": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk"
+          },
+          "hostname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hostname"
+          },
+          "kernel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kernel"
+          },
+          "load": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Load"
+          },
+          "memory": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory"
+          },
+          "observed_at": {
+            "title": "Observed At",
+            "type": "string"
+          },
+          "os": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Os"
+          },
+          "os_family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Os Family"
+          },
+          "os_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Os Id"
+          },
+          "os_like": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Os Like"
+          },
+          "os_logo": {
+            "default": "unknown",
+            "enum": [
+              "debian",
+              "ubuntu",
+              "rocky",
+              "alpine",
+              "rhel",
+              "fedora",
+              "arch",
+              "macos",
+              "freebsd",
+              "windows",
+              "unknown"
+            ],
+            "title": "Os Logo",
+            "type": "string"
+          },
+          "os_pretty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Os Pretty"
+          },
+          "os_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Os Version"
+          },
+          "package_manager": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Package Manager"
+          },
+          "uptime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uptime"
+          }
+        },
+        "required": [
+          "observed_at"
+        ],
+        "title": "HostFacts",
+        "type": "object"
+      },
+      "HostKey": {
+        "properties": {
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fingerprint"
+          },
+          "observed_at": {
+            "title": "Observed At",
+            "type": "string"
+          },
+          "state": {
+            "default": "unknown",
+            "enum": [
+              "verified",
+              "changed",
+              "revoked",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "observed_at"
+        ],
+        "title": "HostKey",
+        "type": "object"
+      },
       "HostReference": {
         "properties": {
           "alias": {
@@ -890,6 +2159,38 @@
           "alias"
         ],
         "title": "HostReference",
+        "type": "object"
+      },
+      "HostRoute": {
+        "properties": {
+          "alias": {
+            "title": "Alias",
+            "type": "string"
+          },
+          "blocked_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked By"
+          },
+          "hops": {
+            "items": {
+              "$ref": "#/components/schemas/RouteHop"
+            },
+            "title": "Hops",
+            "type": "array"
+          }
+        },
+        "required": [
+          "alias",
+          "hops"
+        ],
+        "title": "HostRoute",
         "type": "object"
       },
       "HostUpdate": {
@@ -916,6 +2217,16 @@
               }
             ],
             "title": "Credential Id"
+          },
+          "geo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "hostname": {
             "anyOf": [
@@ -1012,6 +2323,16 @@
               }
             ],
             "title": "Credential Id"
+          },
+          "geo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeoInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "hostname": {
             "title": "Hostname",
@@ -1209,9 +2530,183 @@
         "title": "ImportResult",
         "type": "object"
       },
+      "KeyBrowserEntry": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "file",
+              "directory"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "path",
+          "kind"
+        ],
+        "title": "KeyBrowserEntry",
+        "type": "object"
+      },
+      "KeyBrowserListRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "offset": {
+            "default": 0,
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "scope_id": {
+            "title": "Scope Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope_id"
+        ],
+        "title": "KeyBrowserListRequest",
+        "type": "object"
+      },
+      "KeyBrowserListing": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/KeyBrowserEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "root_path": {
+            "title": "Root Path",
+            "type": "string"
+          },
+          "scope_id": {
+            "title": "Scope Id",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "scope_id",
+          "root_path",
+          "path",
+          "entries",
+          "has_more"
+        ],
+        "title": "KeyBrowserListing",
+        "type": "object"
+      },
+      "KeyBrowserScope": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "root_path": {
+            "title": "Root Path",
+            "type": "string"
+          },
+          "scope_id": {
+            "title": "Scope Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope_id",
+          "root_path",
+          "expires_at"
+        ],
+        "title": "KeyBrowserScope",
+        "type": "object"
+      },
+      "KeyBrowserScopeRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "root_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Root Path"
+          }
+        },
+        "title": "KeyBrowserScopeRequest",
+        "type": "object"
+      },
       "KeyCreate": {
         "additionalProperties": false,
         "properties": {
+          "expected_key_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Key Revision"
+          },
           "key_path": {
             "title": "Key Path",
             "type": "string"
@@ -1245,6 +2740,220 @@
           "key_path"
         ],
         "title": "KeyCreate",
+        "type": "object"
+      },
+      "KeyInspectRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "key_path": {
+            "title": "Key Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_path"
+        ],
+        "title": "KeyInspectRequest",
+        "type": "object"
+      },
+      "KeyInspection": {
+        "properties": {
+          "key_metadata": {
+            "$ref": "#/components/schemas/KeyMetadata"
+          },
+          "key_revision": {
+            "title": "Key Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key_metadata",
+          "key_revision"
+        ],
+        "title": "KeyInspection",
+        "type": "object"
+      },
+      "KeyMetadata": {
+        "properties": {
+          "algorithm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Algorithm"
+          },
+          "bits": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bits"
+          },
+          "encrypted": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Encrypted"
+          },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fingerprint"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "enum": [
+                  "openssh",
+                  "pem"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format"
+          },
+          "observed_at": {
+            "title": "Observed At",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "permissions": {
+            "$ref": "#/components/schemas/KeyPermissions"
+          },
+          "status": {
+            "enum": [
+              "valid",
+              "passphrase_required",
+              "unverified"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "status",
+          "permissions",
+          "observed_at"
+        ],
+        "title": "KeyMetadata",
+        "type": "object"
+      },
+      "KeyPermissions": {
+        "properties": {
+          "assessment": {
+            "enum": [
+              "secure",
+              "unsafe",
+              "unknown"
+            ],
+            "title": "Assessment",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "posix_mode",
+              "windows_acl"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          }
+        },
+        "required": [
+          "method",
+          "assessment"
+        ],
+        "title": "KeyPermissions",
+        "type": "object"
+      },
+      "KeyValidateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "credential_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Id"
+          },
+          "expected_key_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Key Revision"
+          },
+          "key_path": {
+            "title": "Key Path",
+            "type": "string"
+          },
+          "passphrase": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passphrase"
+          },
+          "use_stored_passphrase": {
+            "default": false,
+            "title": "Use Stored Passphrase",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key_path"
+        ],
+        "title": "KeyValidateRequest",
         "type": "object"
       },
       "MasterEnroll": {
@@ -1489,6 +3198,101 @@
         "title": "RevealedSecret",
         "type": "object"
       },
+      "RouteHop": {
+        "properties": {
+          "alias": {
+            "title": "Alias",
+            "type": "string"
+          },
+          "external": {
+            "title": "External",
+            "type": "boolean"
+          },
+          "hostname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hostname"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "last_test_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test At"
+          },
+          "last_test_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test Error Code"
+          },
+          "last_test_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test Status"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          }
+        },
+        "required": [
+          "alias",
+          "external"
+        ],
+        "title": "RouteHop",
+        "type": "object"
+      },
       "RuntimeInfo": {
         "properties": {
           "api_version": {
@@ -1507,6 +3311,13 @@
             "title": "Csrf",
             "type": "string"
           },
+          "server_time": {
+            "title": "Server Time",
+            "type": "string"
+          },
+          "session": {
+            "$ref": "#/components/schemas/RuntimeSession"
+          },
           "shell": {
             "const": "web",
             "default": "web",
@@ -1514,10 +3325,13 @@
             "type": "string"
           },
           "ui": {
-            "const": "legacy",
-            "default": "legacy",
+            "const": "modern",
+            "default": "modern",
             "title": "Ui",
             "type": "string"
+          },
+          "vault": {
+            "$ref": "#/components/schemas/RuntimeVault"
           },
           "version": {
             "title": "Version",
@@ -1528,9 +3342,52 @@
           "version",
           "csrf",
           "capabilities",
-          "auth"
+          "auth",
+          "session",
+          "server_time",
+          "vault"
         ],
         "title": "RuntimeInfo",
+        "type": "object"
+      },
+      "RuntimeSession": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expires_at"
+        ],
+        "title": "RuntimeSession",
+        "type": "object"
+      },
+      "RuntimeVault": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "status": {
+            "default": "unknown",
+            "enum": [
+              "ready",
+              "unavailable",
+              "unknown"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "RuntimeVault",
         "type": "object"
       },
       "SavedPath": {
@@ -2104,6 +3961,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2113,6 +3980,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -2211,6 +4088,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2220,6 +4107,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -2310,6 +4207,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2319,6 +4226,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -2419,6 +4336,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2428,6 +4355,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -2528,6 +4465,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2537,6 +4484,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -2635,6 +4592,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2644,6 +4611,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -2736,6 +4713,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2745,6 +4732,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -2840,6 +4837,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2849,6 +4856,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -2948,6 +4965,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2957,6 +4984,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -3064,6 +5101,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3073,6 +5120,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -3094,6 +5151,276 @@
         "summary": "Update Context",
         "tags": [
           "contexts"
+        ]
+      }
+    },
+    "/api/v1/credential-deletions": {
+      "get": {
+        "operationId": "credential_deletions_api_v1_credential_deletions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "pending",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Pending",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CredentialDeletion"
+                  },
+                  "title": "Response Credential Deletions Api V1 Credential Deletions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Credential Deletions",
+        "tags": [
+          "credentials"
+        ]
+      }
+    },
+    "/api/v1/credential-deletions/{operation_id}/retry": {
+      "post": {
+        "operationId": "retry_deletion_api_v1_credential_deletions__operation_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "operation_id",
+            "required": true,
+            "schema": {
+              "title": "Operation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialDeletion"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialDeletion"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": [],
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Retry Deletion",
+        "tags": [
+          "credentials"
         ]
       }
     },
@@ -3165,6 +5492,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3174,6 +5511,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -3288,6 +5635,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3297,6 +5654,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -3321,26 +5688,25 @@
         ]
       }
     },
-    "/api/v1/credentials/{identifier}": {
-      "delete": {
-        "operationId": "delete_credential_api_v1_credentials__identifier__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "identifier",
-            "required": true,
-            "schema": {
-              "title": "Identifier",
-              "type": "string"
+    "/api/v1/credentials/key/inspect": {
+      "post": {
+        "operationId": "inspect_key_api_v1_credentials_key_inspect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyInspectRequest"
+              }
             }
-          }
-        ],
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Credential"
+                  "$ref": "#/components/schemas/KeyInspection"
                 }
               }
             },
@@ -3396,6 +5762,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3405,6 +5781,281 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": [],
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Inspect Key",
+        "tags": [
+          "credentials"
+        ]
+      }
+    },
+    "/api/v1/credentials/key/validate": {
+      "post": {
+        "operationId": "validate_key_api_v1_credentials_key_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyValidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyInspection"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": [],
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Validate Key",
+        "tags": [
+          "credentials"
+        ]
+      }
+    },
+    "/api/v1/credentials/{identifier}": {
+      "delete": {
+        "operationId": "delete_credential_api_v1_credentials__identifier__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "identifier",
+            "required": true,
+            "schema": {
+              "title": "Identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialDeleteResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialDeleteResult"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -3502,6 +6153,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3511,6 +6172,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -3617,6 +6288,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3626,6 +6307,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -3645,6 +6336,281 @@
           }
         ],
         "summary": "Update Credential",
+        "tags": [
+          "credentials"
+        ]
+      }
+    },
+    "/api/v1/credentials/{identifier}/deletion-preview": {
+      "get": {
+        "operationId": "deletion_preview_api_v1_credentials__identifier__deletion_preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "identifier",
+            "required": true,
+            "schema": {
+              "title": "Identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialDeletionPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Deletion Preview",
+        "tags": [
+          "credentials"
+        ]
+      }
+    },
+    "/api/v1/credentials/{identifier}/detach-delete": {
+      "post": {
+        "operationId": "detach_delete_api_v1_credentials__identifier__detach_delete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "identifier",
+            "required": true,
+            "schema": {
+              "title": "Identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialDetachDelete"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialDeletion"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialDeletion"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": [],
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Detach Delete",
         "tags": [
           "credentials"
         ]
@@ -3725,6 +6691,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3734,6 +6710,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -3755,6 +6741,275 @@
         "summary": "Reveal",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/credentials/{identifier}/test": {
+      "post": {
+        "operationId": "credential_test_api_v1_credentials__identifier__test_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "identifier",
+            "required": true,
+            "schema": {
+              "title": "Identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialProbeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Newline-delimited stage events followed by one result event"
+          },
+          "400": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": [],
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Credential Test",
+        "tags": [
+          "credentials"
+        ]
+      }
+    },
+    "/api/v1/credentials/{identifier}/tests": {
+      "get": {
+        "operationId": "credential_tests_api_v1_credentials__identifier__tests_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "identifier",
+            "required": true,
+            "schema": {
+              "title": "Identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CredentialProbeResult"
+                  },
+                  "title": "Response Credential Tests Api V1 Credentials  Identifier  Tests Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Credential Tests",
+        "tags": [
+          "credentials"
         ]
       }
     },
@@ -3860,6 +7115,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3869,6 +7134,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -3964,6 +7239,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3973,6 +7258,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -3994,6 +7289,133 @@
         "summary": "Create Host",
         "tags": [
           "hosts"
+        ]
+      }
+    },
+    "/api/v1/hosts/test": {
+      "post": {
+        "operationId": "test_hosts_api_v1_hosts_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkProbeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkTestResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": [],
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Test Hosts",
+        "tags": [
+          "diagnostics"
         ]
       }
     },
@@ -4072,6 +7494,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4081,6 +7513,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -4178,6 +7620,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4187,6 +7639,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -4293,6 +7755,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4302,6 +7774,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -4418,6 +7900,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4427,6 +7919,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -4537,6 +8039,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4546,6 +8058,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -4597,6 +8119,22 @@
                 }
               ],
               "title": "Path"
+            }
+          },
+          {
+            "in": "query",
+            "name": "name_filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Name Filter"
             }
           }
         ],
@@ -4661,6 +8199,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4670,6 +8218,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -4778,6 +8336,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4787,6 +8355,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -4890,6 +8468,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -4899,6 +8487,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -5005,6 +8603,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5014,6 +8622,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -5125,6 +8743,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5134,6 +8762,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -5242,6 +8880,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5251,6 +8899,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -5367,6 +9025,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5376,6 +9044,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -5484,6 +9162,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5493,6 +9181,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -5514,6 +9212,133 @@
         "summary": "Touch Path",
         "tags": [
           "paths"
+        ]
+      }
+    },
+    "/api/v1/hosts/{identifier}/route": {
+      "get": {
+        "operationId": "route_api_v1_hosts__identifier__route_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "identifier",
+            "required": true,
+            "schema": {
+              "title": "Identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostRoute"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Route",
+        "tags": [
+          "hosts"
         ]
       }
     },
@@ -5606,6 +9431,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5615,6 +9450,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -5731,6 +9576,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5740,6 +9595,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -5849,6 +9714,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5858,6 +9733,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -5957,6 +9842,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -5966,6 +9861,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -6063,6 +9968,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6072,6 +9987,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -6177,6 +10102,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6186,6 +10121,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -6207,6 +10152,376 @@
         "summary": "Import Preview",
         "tags": [
           "import"
+        ]
+      }
+    },
+    "/api/v1/local/key-browser/list": {
+      "post": {
+        "operationId": "key_browser_list_api_v1_local_key_browser_list_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyBrowserListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyBrowserListing"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": [],
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Key Browser List",
+        "tags": [
+          "local"
+        ]
+      }
+    },
+    "/api/v1/local/key-browser/scopes": {
+      "post": {
+        "operationId": "key_browser_scope_api_v1_local_key_browser_scopes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyBrowserScopeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyBrowserScope"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": [],
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Key Browser Scope",
+        "tags": [
+          "local"
+        ]
+      }
+    },
+    "/api/v1/local/ssh-agent": {
+      "get": {
+        "operationId": "ssh_agent_api_v1_local_ssh_agent_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentMetadata"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Ssh Agent",
+        "tags": [
+          "local"
         ]
       }
     },
@@ -6274,6 +10589,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6283,6 +10608,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -6392,6 +10727,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6401,6 +10746,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -6496,6 +10851,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6505,6 +10870,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -6593,6 +10968,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6602,6 +10987,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -6700,6 +11095,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6709,6 +11114,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -6825,6 +11240,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6834,6 +11259,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {
@@ -6943,6 +11378,16 @@
             },
             "description": "Conflict"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -6952,6 +11397,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
           },
           "502": {
             "content": {

@@ -42,6 +42,10 @@ def choose_descriptor(prompt: str, descriptors: list[dict[str, Any]]) -> dict[st
 
 
 def main() -> int:
+    if os.environ.get("SSM_CREDENTIAL_PROBE_ENDPOINT"):
+        from .credential_probe_helper import probe_askpass
+
+        return probe_askpass(sys.argv[1] if len(sys.argv) > 1 else "")
     prompt = sys.argv[1] if len(sys.argv) > 1 else ""
     item = choose_descriptor(prompt, load_descriptors())
     if not item:

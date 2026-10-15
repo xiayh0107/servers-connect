@@ -13,6 +13,13 @@ from ssh_server_manager.validation import ValidationError
 from ssh_server_manager.ssh_runner import SSHError, SSHRunner
 
 
+@pytest.fixture(autouse=True)
+def isolate_check_metadata(monkeypatch):
+    # These tests mock the SSH/SFTP transport, not DNS or local known_hosts.
+    # Metadata subprocess behavior has its own isolated regression suite.
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.collect_probe_metadata", lambda *args, **kwargs: {})
+
+
 def test_test_classifies_auth_failure(tmp_path, monkeypatch):
     database = Database(tmp_path / "manager.db")
     database.create_server(alias="box", hostname="box.example", port=22, username="alice")
@@ -272,6 +279,7 @@ def test_exec_accepts_binary_stdin_without_text_coercion(tmp_path, monkeypatch):
 
 
 def test_sftp_directory_listing_is_structured_and_keeps_host_key_checks(tmp_path, monkeypatch):
+    monkeypatch.setattr(SSHRunner, "_file_metadata", lambda *_args, **_options: None)
     database = Database(tmp_path / "manager.db")
     database.create_server(alias="box", hostname="box.example", port=22, username="alice")
     monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
@@ -287,6 +295,9 @@ lrwxrwxrwx    ? alice users           3 Jul 14 08:12 current
 """
 
     def fake_run(command, **kwargs):
+        if command[0] == "ssh":
+            assert "StrictHostKeyChecking=yes" in command
+            return subprocess.CompletedProcess(command, 127, stdout="", stderr="python3 unavailable")
         assert command[0] == "sftp"
         assert command[-1] == "box"
         assert "StrictHostKeyChecking=yes" in command

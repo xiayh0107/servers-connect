@@ -22,6 +22,34 @@ class VaultProtocol(Protocol):
     def diagnose(self) -> dict[str, object]: ...
 
 
+class ObservedVault:
+    """Cache health only from explicitly requested secret operations."""
+    def __init__(self, vault: VaultProtocol, metadata: dict) -> None:
+        self.vault = vault
+        self.metadata = metadata
+
+    def _call(self, method, *arguments):
+        try:
+            result = method(*arguments)
+        except Exception:
+            self.metadata["status"] = "unavailable"
+            raise
+        self.metadata["status"] = "ready"
+        return result
+
+    def set_secret(self, credential_id: str, slot: str, value: str) -> None:
+        self._call(self.vault.set_secret, credential_id, slot, value)
+
+    def get_secret(self, credential_id: str, slot: str) -> str | None:
+        return self._call(self.vault.get_secret, credential_id, slot)
+
+    def delete_secret(self, credential_id: str, slot: str) -> None:
+        self._call(self.vault.delete_secret, credential_id, slot)
+
+    def diagnose(self) -> dict[str, object]:
+        return self.vault.diagnose()
+
+
 def account_name(credential_id: str, slot: str) -> str:
     if slot not in {"password", "passphrase"}:
         raise VaultError(f"unsupported secret slot: {slot}")
@@ -66,13 +94,13 @@ class KeyringVault:
         try:
             self.keyring.set_password(SERVICE_NAME, account_name(credential_id, slot), value)
         except self.errors.KeyringError as exc:
-            raise VaultError(f"credential vault rejected the secret: {exc}") from exc
+            raise VaultError("credential vault rejected the secret") from None
 
     def get_secret(self, credential_id: str, slot: str) -> str | None:
         try:
             return self.keyring.get_password(SERVICE_NAME, account_name(credential_id, slot))
         except self.errors.KeyringError as exc:
-            raise VaultError(f"credential vault could not read the secret: {exc}") from exc
+            raise VaultError("credential vault could not read the secret") from None
 
     def delete_secret(self, credential_id: str, slot: str) -> None:
         try:
@@ -80,7 +108,7 @@ class KeyringVault:
         except self.errors.PasswordDeleteError:
             return
         except self.errors.KeyringError as exc:
-            raise VaultError(f"credential vault could not delete the secret: {exc}") from exc
+            raise VaultError("credential vault could not delete the secret") from None
 
     def diagnose(self) -> dict[str, object]:
         backend_type = f"{self.backend.__class__.__module__}.{self.backend.__class__.__name__}"

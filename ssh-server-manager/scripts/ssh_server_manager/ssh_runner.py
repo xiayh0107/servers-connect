@@ -11,17 +11,33 @@ import subprocess
 import sys
 import sysconfig
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
 from .db import Database, NotFoundError, utc_now
+from .host_metadata import sanitize_facts, sanitize_text
 from .paths import runtime_dir
+from .probe_metadata import collect_probe_metadata, connection_diagnostics
 from .ssh_config import render_config
 from .validation import ValidationError, validate_remote_path
+from .remote_files import (
+    MAX_METADATA_BYTES, METADATA_PREFIX, METADATA_SCRIPT, clean_remote_text,
+    file_error_code, normalize_metadata, run_metadata_command, validate_web_file_path,
+)
 
 
 class SSHError(RuntimeError):
     pass
+
+
+class FileOperationError(SSHError):
+    """A stable file-operation failure, including optional conflict metadata."""
+
+    def __init__(self, message: str, error_code: str, *, existing: dict[str, Any] | None = None) -> None:
+        super().__init__(clean_remote_text(redact(message), 4000))
+        self.error_code = error_code
+        self.existing = existing
 
 
 PROMPT_REDACTIONS = [
@@ -157,10 +173,14 @@ def _summarize_remote_identity(raw: dict[str, str]) -> dict[str, str]:
 
     if name:
         details["os"] = name
+    if raw.get("os_pretty"):
+        details["os_pretty"] = raw["os_pretty"]
     if os_id:
         details["os_id"] = os_id
     if os_version:
         details["os_version"] = os_version
+    if raw.get("os_like"):
+        details["os_like"] = raw["os_like"]
     if family:
         details["os_family"] = family[0]
         if family[1]:
@@ -171,7 +191,7 @@ def _summarize_remote_identity(raw: dict[str, str]) -> dict[str, str]:
         details["kernel"] = kernel_name
     if raw.get("arch"):
         details["arch"] = raw["arch"]
-    return details
+    return sanitize_facts(details)
 
 
 class SSHRunner:
@@ -434,15 +454,19 @@ class SSHRunner:
                     "name": name,
                     "type": kind,
                     "size": int(values["size"]),
-                    "modified": f'{values["month"]} {values["day"]} {values["when"]}',
+                    "modified": clean_remote_text(f'{values["month"]} {values["day"]} {values["when"]}'),
                     "permissions": permissions,
-                    "owner": values["owner"],
-                    "group": values["group"],
+                    "owner": clean_remote_text(values["owner"]),
+                    "group": clean_remote_text(values["group"]),
+                    "uid": int(values["owner"]) if values["owner"].isascii() and values["owner"].isdigit() else None,
+                    "gid": int(values["group"]) if values["group"].isascii() and values["group"].isdigit() else None,
+                    "modified_at": None,
+                    "link_target": None,
                     "hidden": name.startswith("."),
                 }
             )
         if not current_directory:
-            raise SSHError("SFTP did not report the remote working directory")
+            raise FileOperationError("SFTP did not report the remote working directory", "unreachable")
         for entry in entries:
             entry["path"] = posixpath.join(current_directory, entry["name"])
         entries.sort(key=lambda item: (item["type"] != "directory", item["name"].casefold()))
@@ -455,6 +479,8 @@ class SSHRunner:
         *,
         timeout: int = 12,
         reuse: int = 300,
+        name_filter: str | None = None,
+        enrich: bool = True,
     ) -> dict[str, Any]:
         """List one remote directory through the OpenSSH SFTP subsystem."""
         remote_path = validate_remote_path(path)
@@ -481,8 +507,9 @@ class SSHRunner:
                 latency_ms=latency,
                 error_code="timeout",
                 message=f"remote directory listing exceeded {timeout + 5} seconds",
+                expected_endpoint=(server["hostname"], server["port"]),
             )
-            raise SSHError(f"remote directory listing exceeded {timeout + 5} seconds") from exc
+            raise FileOperationError(f"remote directory listing exceeded {timeout + 5} seconds", "timeout") from exc
         except OSError as exc:
             latency = round((time.monotonic() - start) * 1000)
             self.database.record_test(
@@ -491,32 +518,63 @@ class SSHRunner:
                 latency_ms=latency,
                 error_code="ssh-not-found",
                 message="sftp is unavailable; install the OpenSSH client and retry",
+                expected_endpoint=(server["hostname"], server["port"]),
             )
-            raise SSHError("sftp is unavailable; install the OpenSSH client and retry") from exc
+            raise FileOperationError("sftp is unavailable; install the OpenSSH client and retry", "unreachable") from exc
         latency = round((time.monotonic() - start) * 1000)
-        diagnostics = redact(result.stderr.strip())
-        operation_failed = bool(SFTP_OPERATION_ERROR_RE.search(diagnostics))
+        diagnostics = sanitize_text(redact(result.stderr), limit=4000)
+        # Preserve line boundaries for recognition only; displayed/persisted
+        # diagnostics strip controls and Unicode formatting characters.
+        operation_failed = bool(SFTP_OPERATION_ERROR_RE.search(result.stderr))
         if result.returncode != 0:
             self.database.record_test(
                 server["id"],
                 status="failed",
                 latency_ms=latency,
-                error_code=classify_error(result.stderr, result.returncode),
+                error_code=classify_error(diagnostics, result.returncode),
                 message=diagnostics or f"SFTP exited with status {result.returncode}",
+                expected_endpoint=(server["hostname"], server["port"]),
             )
-            raise SSHError(diagnostics or f"SFTP exited with status {result.returncode}")
+            raise FileOperationError(diagnostics or f"SFTP exited with status {result.returncode}", file_error_code(diagnostics, result.returncode))
         connection = self.database.record_test(
             server["id"],
             status="ok",
             latency_ms=latency,
             error_code=None,
             message="SFTP connection succeeded",
+            expected_endpoint=(server["hostname"], server["port"]),
         )
+        if (connection["hostname"], connection["port"]) != (server["hostname"], server["port"]):
+            raise FileOperationError("host address changed during the file operation; retry", "unreachable")
         if operation_failed:
-            raise SSHError(diagnostics or "remote directory operation failed")
+            raise FileOperationError(diagnostics or "remote directory operation failed", file_error_code(diagnostics))
         current_directory, entries, unparsed = self._parse_directory_listing(result.stdout)
         total = len(entries)
+        if name_filter:
+            needle = name_filter.casefold()
+            entries = [entry for entry in entries if needle in entry["name"].casefold()]
+        matching_total = len(entries)
         visible_entries = entries[:MAX_DIRECTORY_ENTRIES]
+        if enrich and visible_entries:
+            try:
+                metadata = self._file_metadata(
+                    server, {"mode": "entries", "path": current_directory,
+                             "names": [entry["name"] for entry in visible_entries]},
+                    timeout=timeout, reuse=reuse,
+                )
+            except FileOperationError:
+                metadata = None
+            extras = metadata.get("entries", {}) if metadata else {}
+            if isinstance(extras, dict):
+                for entry in visible_entries:
+                    extra = normalize_metadata(extras.get(entry["name"]))
+                    # Do not combine metadata from a replaced file or a shell
+                    # namespace that differs from the SFTP directory.
+                    if (extra and extra["type"] == entry["type"] and extra["size"] == entry["size"]
+                            and all(entry[key] is None or entry[key] == extra[key] for key in ("uid", "gid"))):
+                        for key in ("uid", "gid", "modified_at", "link_target", "owner", "group"):
+                            if extra[key] is not None:
+                                entry[key] = extra[key]
         normalized = current_directory.rstrip("/") or "/"
         parent = None if normalized == "/" else posixpath.dirname(normalized) or "/"
         return {
@@ -525,11 +583,80 @@ class SSHRunner:
             "parent": parent,
             "entries": visible_entries,
             "total": total,
-            "truncated": total > len(visible_entries),
+            "matching_total": matching_total,
+            "truncated": matching_total > len(visible_entries),
             "unparsed": unparsed,
             "latency_ms": latency,
             "connection_checked_at": connection["last_test_at"],
         }
+
+    def _file_metadata(
+        self, server: dict[str, Any], request: dict[str, Any], *, timeout: int, reuse: int,
+    ) -> dict[str, Any] | None:
+        """One bounded optional SSH metadata probe, using the managed route."""
+        request_json = json.dumps(request, ensure_ascii=True)
+        if len(request_json) > 2 * 1024 * 1024:
+            return None
+        command = self._base_command(server, timeout=timeout, reuse=reuse)
+        command[-1:-1] = ["-T", "-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1"]
+        command.append("python3 -c " + shlex.quote(METADATA_SCRIPT))
+        try:
+            result, exceeded = run_metadata_command(
+                command, request=request_json, env=self._environment(server), timeout=timeout + 5,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise FileOperationError("remote metadata check timed out", "timeout") from exc
+        except OSError:
+            return None
+        if exceeded:
+            return None
+        if result.returncode == 255:
+            raise FileOperationError("remote metadata connection failed", file_error_code(result.stderr, result.returncode))
+        if result.returncode != 0 or len(result.stdout) > MAX_METADATA_BYTES:
+            return None
+        for line in reversed(result.stdout.splitlines()):
+            if line.startswith(METADATA_PREFIX):
+                try:
+                    document = json.loads(line[len(METADATA_PREFIX):])
+                except (ValueError, TypeError):
+                    return None
+                if not isinstance(document, dict):
+                    return None
+                if document.get("ok") is False:
+                    code = document.get("error_code")
+                    if code not in {"not_found", "not_a_directory", "permission_denied", "exists", "unreachable"}:
+                        code = "unreachable"
+                    raise FileOperationError(f"remote file metadata check failed: {code.replace('_', ' ')}", code)
+                return document if document.get("ok") is True else None
+        return None
+
+    def stat_file(
+        self, identifier: str, path: str, *, timeout: int = 12, reuse: int = 300,
+        follow_symlinks: bool = True,
+    ) -> dict[str, Any]:
+        """Read remote file metadata before a bounded download or safe upload.
+
+        The SFTP parent listing is authoritative even if a shell is chrooted
+        differently. A symlink's target size cannot be established by that
+        listing, so bounded downloads fail closed for symlinks.
+        """
+        remote = validate_web_file_path(path)
+        # SFTP and an SSH shell can have different filesystem namespaces (e.g.
+        # chroot). Only SFTP metadata may authorize a transfer or overwrite.
+        parent = posixpath.dirname(remote) or "."
+        # Browsing allows the current directory, whereas web destinations do not.
+        listing = self.list_directory(
+            identifier, parent, timeout=timeout, reuse=reuse,
+            name_filter=posixpath.basename(remote), enrich=False,
+        )
+        entry = next((item for item in listing["entries"] if item["name"] == posixpath.basename(remote)), None)
+        if entry is None:
+            if listing["truncated"]:
+                raise FileOperationError("cannot verify a file beyond the directory limit; use the CLI", "permission_denied")
+            raise FileOperationError("remote file was not found", "not_found")
+        if follow_symlinks and entry["type"] == "symlink":
+            raise FileOperationError("cannot verify a symlink target size on this host; use the CLI", "permission_denied")
+        return entry
 
     def _run_transfer(
         self,
@@ -539,6 +666,7 @@ class SSHRunner:
         timeout: int,
         reuse: int,
         stream: bool,
+        batch_mode: bool = False,
     ) -> tuple[int, str, str]:
         """Run one sftp transfer, either streaming to the terminal or captured.
 
@@ -546,6 +674,10 @@ class SSHRunner:
         signal available without reimplementing the protocol.
         """
         command = self._sftp_command(server, timeout=timeout, reuse=reuse, quiet=not stream)
+        if batch_mode:
+            # Abort before publishing if put failed; explicit BatchMode=no in
+            # _sftp_command still permits managed AskPass authentication.
+            command[-1:-1] = ["-b", "-"]
         try:
             result = subprocess.run(
                 command,
@@ -559,21 +691,21 @@ class SSHRunner:
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            raise SSHError(
-                f"transfer exceeded {timeout + TRANSFER_TIMEOUT_GRACE} seconds"
+            raise FileOperationError(
+                f"transfer exceeded {timeout + TRANSFER_TIMEOUT_GRACE} seconds", "timeout"
             ) from exc
         except OSError as exc:
-            raise SSHError("sftp is unavailable; install the OpenSSH client and retry") from exc
+            raise FileOperationError("sftp is unavailable; install the OpenSSH client and retry", "unreachable") from exc
         return result.returncode, result.stdout or "", result.stderr or ""
 
     def _finish_transfer(self, returncode: int, stderr: str) -> None:
-        diagnostics = redact(stderr.strip())
+        diagnostics = sanitize_text(redact(stderr), limit=4000)
         if returncode != 0:
-            raise SSHError(diagnostics or f"SFTP exited with status {returncode}")
+            raise FileOperationError(diagnostics or f"SFTP exited with status {returncode}", file_error_code(diagnostics, returncode))
         # sftp exits 0 even when the transfer itself failed, so stderr is the
         # only reliable signal. Same trap list_directory works around.
-        if SFTP_OPERATION_ERROR_RE.search(diagnostics):
-            raise SSHError(diagnostics or "remote file transfer failed")
+        if SFTP_OPERATION_ERROR_RE.search(stderr):
+            raise FileOperationError(diagnostics or "remote file transfer failed", file_error_code(diagnostics))
 
     def download(
         self,
@@ -584,6 +716,7 @@ class SSHRunner:
         timeout: int = 120,
         reuse: int = 300,
         stream: bool = False,
+        max_bytes: int | None = None,
     ) -> dict[str, Any]:
         """Copy one remote file to a local path over SFTP."""
         remote = validate_remote_path(remote_path)
@@ -592,6 +725,14 @@ class SSHRunner:
         destination = Path(local_path)
         server = self.database.get_server(identifier)
         start = time.monotonic()
+        if max_bytes is not None:
+            if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 0:
+                raise ValidationError("download limit must be a nonnegative integer")
+            metadata = self.stat_file(identifier, remote, timeout=min(timeout, 12), reuse=reuse)
+            if metadata["type"] != "file":
+                raise FileOperationError("remote source must be a regular file", "permission_denied")
+            if metadata["size"] > max_bytes:
+                raise FileOperationError("file is larger than the web transfer limit; use serverctl get instead", "too_large")
         returncode, _stdout, stderr = self._run_transfer(
             server,
             batch=self._transfer_batch("get", remote, str(destination)),
@@ -604,13 +745,16 @@ class SSHRunner:
         # sftp reports a failed get on stderr rather than by exit code, so a
         # missing destination here means the transfer silently did nothing.
         if not destination.exists():
-            raise SSHError(f"transfer reported success but {destination} was not written")
+            raise FileOperationError(f"transfer reported success but {destination} was not written", "unreachable")
+        downloaded_size = destination.stat().st_size
+        if max_bytes is not None and downloaded_size > max_bytes:
+            raise FileOperationError("file grew beyond the web transfer limit; use serverctl get instead", "too_large")
         return {
             "alias": server["alias"],
             "direction": "download",
             "remote_path": remote,
             "local_path": str(destination),
-            "bytes": destination.stat().st_size,
+            "bytes": downloaded_size,
             "latency_ms": latency,
         }
 
@@ -623,6 +767,7 @@ class SSHRunner:
         timeout: int = 120,
         reuse: int = 300,
         stream: bool = False,
+        overwrite: bool = True,
     ) -> dict[str, Any]:
         """Copy one local file to a remote path over SFTP."""
         remote = validate_remote_path(remote_path)
@@ -632,6 +777,55 @@ class SSHRunner:
         size = source.stat().st_size
         server = self.database.get_server(identifier)
         start = time.monotonic()
+        if not overwrite:
+            validate_web_file_path(remote)
+            try:
+                existing = self.stat_file(identifier, remote, timeout=min(timeout, 12), reuse=reuse, follow_symlinks=False)
+            except FileOperationError as exc:
+                if exc.error_code != "not_found":
+                    raise
+            else:
+                raise FileOperationError("remote destination already exists; confirm overwrite before retrying", "exists", existing=existing)
+            temporary = posixpath.join(posixpath.dirname(remote), ".ssm-upload-" + uuid.uuid4().hex)
+            prefix = "@cd\n" if remote.startswith("~/") else ""
+            publication_target = remote[2:] if prefix else remote
+            publication_temp = temporary[2:] if prefix else temporary
+            batch = prefix + "\n".join([
+                f"@put -p {self._sftp_path(str(source))} {self._sftp_path(publication_temp)}",
+                f"@ln {self._sftp_path(publication_temp)} {self._sftp_path(publication_target)}",
+                f"@rm {self._sftp_path(publication_temp)}", "",
+            ])
+            succeeded = False
+            try:
+                returncode, _stdout, stderr = self._run_transfer(
+                    server, batch=batch, timeout=timeout, reuse=reuse,
+                    stream=False, batch_mode=True,
+                )
+                try:
+                    self._finish_transfer(returncode, stderr)
+                except FileOperationError as failure:
+                    # OpenSSH reports EEXIST as generic "remote link: Failure".
+                    # Re-read the authoritative SFTP target to classify a race.
+                    try:
+                        existing = self.stat_file(identifier, remote, timeout=min(timeout, 12), reuse=reuse, follow_symlinks=False)
+                    except FileOperationError:
+                        raise failure
+                    raise FileOperationError("remote destination already exists; confirm overwrite before retrying", "exists", existing=existing) from failure
+                succeeded = True
+            finally:
+                if not succeeded:
+                    # Batch aborts before rm on failure, so cleanup is a second
+                    # operation over the shared master, never a target removal.
+                    cleanup = prefix + f"@rm {self._sftp_path(publication_temp)}\n@quit\n"
+                    try:
+                        self._run_transfer(server, batch=cleanup, timeout=min(timeout, 12), reuse=reuse, stream=False)
+                    except FileOperationError:
+                        pass
+            return {
+                "alias": server["alias"], "direction": "upload", "remote_path": remote,
+                "local_path": str(source), "bytes": size,
+                "latency_ms": round((time.monotonic() - start) * 1000),
+            }
         returncode, _stdout, stderr = self._run_transfer(
             server,
             batch=self._transfer_batch("put", str(source), remote),
@@ -652,9 +846,13 @@ class SSHRunner:
     def test(self, identifier: str, *, timeout: int = 8) -> dict[str, Any]:
         server = self.database.get_server(identifier)
         command = self._base_command(server, timeout=timeout)
-        command[-1:-1] = ["-T", "-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1"]
+        # Debug metadata identifies the negotiated public host key, but never
+        # enters user-facing failure messages or changes verification policy.
+        command[command.index("LogLevel=ERROR")] = "LogLevel=DEBUG1"
+        command[-1:-1] = ["-T", "-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1", "-o", "FingerprintHash=sha256"]
         command.append("true")
         start = time.monotonic()
+        stderr = ""
         try:
             result = subprocess.run(
                 command,
@@ -665,21 +863,32 @@ class SSHRunner:
                 check=False,
             )
             latency = round((time.monotonic() - start) * 1000)
+            stderr = result.stderr
             success = result.returncode == 0
-            error_code = None if success else classify_error(result.stderr, result.returncode)
-            message = "connection succeeded" if success else redact(result.stderr.strip() or "SSH returned no diagnostics")
+            diagnostics = connection_diagnostics(result.stderr)
+            error_code = None if success else classify_error(diagnostics, result.returncode)
+            message = "connection succeeded" if success else redact(diagnostics or "SSH returned no diagnostics")
         except subprocess.TimeoutExpired:
             latency = round((time.monotonic() - start) * 1000)
             success, error_code, message = False, "timeout", f"connection exceeded {timeout + 5} seconds"
         except OSError as exc:
             latency = round((time.monotonic() - start) * 1000)
             success, error_code, message = False, "ssh-not-found", str(exc)
+        message = sanitize_text(redact(message), limit=4000)
         self.database.record_test(
             server["id"],
             status="ok" if success else "failed",
             latency_ms=latency,
             error_code=error_code,
             message=message,
+            expected_endpoint=(server["hostname"], server["port"]),
+        )
+        observation = collect_probe_metadata(
+            server, ssh_binary=self.ssh_binary, config=command[command.index("-F") + 1],
+            success=success, stderr=stderr, timeout=min(timeout, 2),
+        )
+        self.database.record_observation(
+            server["id"], expected_endpoint=(server["hostname"], server["port"]), **observation,
         )
         return {
             "alias": server["alias"],
@@ -862,28 +1071,28 @@ class SSHRunner:
             "ok": True,
             "latency_ms": probe["latency_ms"],
             "message": "Remote system responded (Windows)",
-            "details": details,
+            "details": sanitize_facts(details),
         }
 
     def diagnose(self, identifier: str, *, timeout: int = 8) -> dict[str, Any]:
         """Run a bounded, read-only host diagnosis for the CLI and web UI."""
         server = self.database.get_server(identifier)
         proxy_jumps = list(server.get("proxy_jumps", []))
-        missing_jumps = []
+        external_jumps = []
         for jump in proxy_jumps:
             try:
                 self.database.get_server(jump)
             except NotFoundError:
-                missing_jumps.append(jump)
+                external_jumps.append(jump)
 
         checks: list[dict[str, Any]] = [
             {
                 "id": "profile",
                 "label": "Host profile",
-                "status": "failed" if missing_jumps else "ok",
+                "status": "warning" if external_jumps else "ok",
                 "message": (
-                    f"ProxyJump alias not found: {', '.join(missing_jumps)}"
-                    if missing_jumps
+                    f"External ProxyJump aliases are resolved by OpenSSH configuration: {', '.join(external_jumps)}"
+                    if external_jumps
                     else "Local host profile is valid"
                 ),
                 "details": {
@@ -925,6 +1134,13 @@ class SSHRunner:
                 }
             )
             remote_result = self._probe_remote_identity(server, timeout=timeout)
+            if remote_result["ok"] and remote_result.get("details"):
+                facts = sanitize_facts(remote_result["details"])
+                remote_result["details"] = facts
+                self.database.record_observation(
+                    server["id"], facts=facts, observed_at=facts["observed_at"],
+                    expected_endpoint=(server["hostname"], server["port"]),
+                )
             checks.append(
                 {
                     "id": "remote",

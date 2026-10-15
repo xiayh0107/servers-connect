@@ -41,13 +41,17 @@ def test_password_never_enters_database(tmp_path):
 
 
 def test_key_path_and_passphrase(tmp_path):
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ed25519
     key = tmp_path / "id_test"
-    key.write_text("fixture", encoding="utf-8")
+    key.write_bytes(ed25519.Ed25519PrivateKey.generate().private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+        serialization.BestAvailableEncryption(b"passphrase")))
     database = Database(tmp_path / "manager.db")
     vault = MemoryVault()
     service = CredentialService(database, vault)
     credential = service.create_key("Test key", str(key), "passphrase")
-    assert credential["key_path"] == str(key)
+    assert credential["key_path"] == str(key.resolve())
     assert credential["has_passphrase"] is True
     assert service.reveal(credential["id"])["slot"] == "passphrase"
 

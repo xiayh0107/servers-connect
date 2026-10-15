@@ -120,6 +120,19 @@ def render_config(
     destination: str | Path | None = None,
     original: str | Path | None = None,
 ) -> Path:
+    # Serialize the snapshot and replacement with mutations and other renders,
+    # including CLI processes. Atomic replace alone cannot stop an older
+    # snapshot from overwriting a newer configuration after a concurrent edit.
+    with database.transaction():
+        return _render_config(database, destination=destination, original=original)
+
+
+def _render_config(
+    database: Database,
+    *,
+    destination: str | Path | None = None,
+    original: str | Path | None = None,
+) -> Path:
     destination_path = Path(destination) if destination else managed_ssh_config_path()
     original_path = Path(original) if original else original_ssh_config_path()
     destination_path = destination_path.expanduser().resolve()
@@ -137,7 +150,9 @@ def render_config(
     for server in database.list_servers():
         lines.extend(_render_server(server, credentials.get(server["credential_id"])))
     if original_path.exists() and original_path != destination_path:
-        lines.extend([f"Include {quote_value(str(original_path))}", ""])
+        # Include inherits the active Host condition. Reset it so defaults and
+        # external aliases remain available to every managed host and jump.
+        lines.extend(["Host *", f"  Include {quote_value(str(original_path))}", ""])
     content = "\n".join(lines)
     destination_path.parent.mkdir(parents=True, exist_ok=True)
     if os.name != "nt":
