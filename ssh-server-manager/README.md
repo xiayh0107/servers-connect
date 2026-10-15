@@ -77,12 +77,14 @@ browser with a one-time tokenized URL.
   skill to several related nodes or several skills to one host, and resolve
   exact `applies_to` partitions before an agent acts. Bindings are routing
   metadata, not remote authorization. Manage a host's assignments directly
-  from its Connections row or active Workspace; use the Skill Library for
+  from Hosts details; use the Skills page for
   discovery and registration.
 - **Three credential kinds** — vault-backed passwords, private keys with
   optional vault-backed passphrases, and ssh-agent/OpenSSH defaults.
-  Credentials are reusable across servers and protected against deletion
-  while referenced.
+  Credentials are reusable across servers. Default deletion rejects references;
+  the Web UI can preview references and explicitly detach before deleting.
+  Inspect and validate private keys locally, or test a selected credential
+  independently without changing host bindings or health records.
 - **OpenSSH import** — parses your `~/.ssh/config` (following `Include`),
   resolves each literal alias with `ssh -G`, previews before applying.
 - **Managed config rendering** — atomic, user-only-permission writes to
@@ -109,11 +111,12 @@ browser with a one-time tokenized URL.
   [docs/mounting.md](docs/mounting.md).
 - **Local web UI** — manage servers and credentials, test connections,
   create/rename/delete tags and bulk-assign searchable hosts, choose
-  system/light/dark themes, import config, browse remote directories read-only
-  over SFTP with explicit download and upload actions, keep a host's saved
-  directories one click away, copy file references for an agent, and reveal a stored secret
-  after passkey or master-password re-authentication. Connection status expires
-  instead of staying green. Inspect or shut down a background instance with
+  system/light/dark/contrast themes and selectable accents, import config, and
+  browse remote directories with saved paths, tabs, server-side name filtering,
+  and explicit download/upload actions. Conflicts require an explicit overwrite.
+  Hosts distinguish connection checks from system diagnosis and show the last
+  successful observation. Reveal a stored secret for 15 seconds after passkey
+  or master-password re-authentication. The session shows its actual expiry. Inspect or shut down a background instance with
   `serverctl ui --status` / `--stop` — no pid bookkeeping.
 - **Diagnostics** — `serverctl doctor` checks ssh availability and version,
   SFTP availability, mount backend availability, vault backend safety, database

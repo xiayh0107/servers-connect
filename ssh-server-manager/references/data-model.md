@@ -15,11 +15,33 @@ assignment rewrite the registry and all affected connection tags in one SQLite
 transaction, so an invalid host assignment rolls the complete change back.
 
 Connection status is a timestamped observation, not a persistent online flag.
-Successful SFTP browsing and explicit SSH tests both update it. The UI treats a
-successful result as fresh for two minutes and then presents it as historical;
-it does not probe every stored host in the background.
+Successful SFTP browsing and explicit host SSH tests both update it. The UI
+shows saved status and observation times; it does not probe every stored host
+in the background. Independent credential probes have separate history and
+never change a host's health record.
+
+SQLite schema 6 adds nullable `facts`, `last_success_at`, `last_resolved_ip`,
+`host_key`, and `geo` fields. Successful diagnostics retain sanitized system
+facts with their `observed_at`, `os_like`, and closed `os_logo` key. Failed
+checks replace the latest result but keep previous successful facts and
+`last_success_at`. A locally resolved IP comes from an explicit check and may
+differ from the peer address through ProxyJump. Host-key state is `verified`,
+`unknown`, `changed`, or `revoked`; stored fingerprints do not replace OpenSSH
+verification. Manual geography stores an ISO country code and optional city.
+`address_scope` is derived from the literal hostname without DNS. Inventory and
+detail reads perform no DNS, SSH, or vault operations.
+
+Changing hostname or port clears observations and test history for the old
+endpoint, and delayed results from that endpoint cannot repopulate them.
+User-entered geography, notes, tags, paths, and skill bindings remain. Schema
+initialization and migrations, partial updates, and route validation hold a
+SQLite immediate write transaction so separate processes cannot apply stale
+read/merge/write snapshots or race a schema upgrade.
 
 Reject whitespace, shell metacharacters, and OpenSSH wildcard characters in managed aliases. Reject invalid ports, self-jumps, and managed ProxyJump cycles.
+When an alias changes, validate the complete graph with dependent references
+rewritten before committing. Creating or renaming a profile into a previously
+external hop also validates the resulting managed graph.
 
 ## Credential profiles
 
@@ -29,7 +51,40 @@ A credential contains a unique label and one authentication kind:
 - `key`: absolute private-key path plus an optional vault-backed passphrase.
 - `agent`: OpenSSH defaults or ssh-agent; no stored secret.
 
-Credentials may be reused by multiple connection profiles. Block deletion while referenced. Never delete the referenced key file.
+Credentials may be reused by multiple connection profiles. Default deletion
+refuses references. A separate explicit preview/detach-delete operation checks
+the expected revision/timestamp and exact host ID set, then detaches references,
+deletes the credential and records cleanup work in one transaction. Never
+delete the referenced key file.
+
+Schema 7 adds an integer credential `revision`, nullable cached `key_metadata`,
+`credential_tests` and `credential_deletions`. Earlier schemas migrate in order
+without discarding host observations, existing credentials or bindings. Public
+key metadata includes the observed format, algorithm, fingerprint, bits,
+encryption and permissions assessment; encrypted keys can have nullable public
+fields until validated. Private-key bytes and passwords/passphrases are never
+stored in SQLite. Read-only credential summaries use this cache, not a fresh
+file/vault lookup.
+
+Credential updates increment the revision. Test results record that revision
+and are bounded to the latest 50 completed results; the current `last_test`
+ignores older revisions while their history remains available. Credential
+deletion cascades its test history. Tests temporarily override the target
+host's credential without modifying its saved binding or health record.
+
+The deletion journal survives removal of its credential. It stores an operation
+ID, sanitized credential metadata, detached host references, remaining vault
+slots/config cleanup, attempt count and a sanitized error code. Secret values
+are never journaled. A completed DB deletion with failed cleanup remains
+committed/pending rather than appearing fully erased. Retry is idempotent and
+does not re-detach hosts or remove the user's key file. Partial credential
+creation failures use the same journal if compensating vault cleanup fails.
+
+Per-credential cross-process locks serialize vault mutation, tests, reveal,
+binding changes and deletion. Private-key saves verify the same bounded file
+snapshot before database commit; a changed key aborts and restores the prior
+vault value. Browser key revision tokens and directory scopes are ephemeral,
+session-bound metadata, never persisted credential material.
 
 ## Host-bound skills
 
@@ -84,7 +139,12 @@ exists.
 
 ## SSH config
 
-Render managed entries first and include the original user config last so explicit managed values win while unrelated defaults remain available. Detect and reject an Include cycle involving the generated file. Write atomically with user-only permissions.
+Render managed entries first, reset with `Host *`, then include the original
+user config so explicit managed values win while unrelated defaults and
+external aliases remain available. Detect and reject an Include cycle involving
+the generated file. Write atomically with user-only permissions.
+Hold the database write lock across the saved-profile snapshot and atomic
+replacement so a concurrent render cannot publish an older configuration last.
 
 ## Import
 

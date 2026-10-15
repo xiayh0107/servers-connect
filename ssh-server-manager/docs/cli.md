@@ -37,7 +37,7 @@ serverctl ui --stop [--json]
 ```
 
 `web` names the browser shell explicitly. `ui` remains a compatibility alias;
-both use the same existing frontend, options, and lifecycle record. Launching a
+both use the same bundled React frontend, options, and lifecycle record. Launching a
 second managed runtime fails with guidance to check its status or stop it, even
 when two launches start at the same moment.
 
@@ -76,6 +76,10 @@ Notes:
 
 - Aliases are case-insensitively unique; whitespace, shell metacharacters,
   and OpenSSH wildcards are rejected.
+- `list` and `show` read saved metadata without DNS, SSH, or vault access.
+  JSON includes nullable `facts`, `last_success_at`, `last_resolved_ip`,
+  `host_key`, and manual `geo`, plus `address_scope` (`public`, `private`,
+  `lan`, `loopback`, or `unresolved`) derived from the literal hostname.
 - `--proxy-jump` may repeat to build an ordered hop chain; self-jumps and
   cycles are rejected. Passing `--proxy-jump` during `edit` replaces the
   whole chain.
@@ -91,7 +95,13 @@ Notes:
   StrictHostKeyChecking) and reports `latency_ms` plus one of:
   `authentication-failed`, `host-key-untrusted`, `timeout`,
   `connection-refused`, `dns-failed`, `network-unreachable`,
-  `ssh-not-found`, `ssh-failed`. Exit code `1` on failure.
+  `ssh-not-found`, `ssh-failed`. Exit code `1` on failure. Failed checks
+  replace the latest test result while retaining `last_success_at` and the
+  last successful diagnostic facts. Explicit tests also save a locally
+  resolved IP when available and host-key fingerprint/state observations
+  (`verified`, `unknown`, `changed`, or `revoked`). The local DNS result is
+  not a guaranteed peer IP through ProxyJump, and saved fingerprints do not
+  replace OpenSSH host-key verification.
 - `diagnose` runs read-only checks for the local profile, SSH handshake, SFTP
   home-directory access, and a fixed remote system-summary command. The result
   identifies the operating system across Linux distributions (os-release with
@@ -101,7 +111,13 @@ Notes:
   `arch`/`pacman`, `alpine`/`apk`, `macos`/`brew`) alongside kernel, CPU,
   uptime/load, memory, and root-disk details when the host exposes them. It
   never returns credentials or raw remote output; `--json` includes structured
-  check results. Exit code `1` only when at least one check fails.
+  check results. A successful remote summary is retained as sanitized `facts`
+  with `observed_at`, `os_like`, and a closed `os_logo` key for offline reads.
+  Exit code `1` only when at least one check fails.
+- Changing a host's hostname or port clears saved observations and test
+  history for the old endpoint. User notes, tags, and manual geography remain.
+  Partial metadata updates and ProxyJump validation run within one SQLite
+  write transaction so concurrent edits retain independent changes.
 - `note` lets a user or agent set, append, or clear the server's human-readable
   note without changing its SSH connection settings. Notes are local metadata;
   never put passwords, key passphrases, or other secrets in them.
@@ -126,9 +142,22 @@ Notes:
   never through arguments or environment variables.
 - There is **no** command that prints a stored secret. Reveal requires the
   web UI plus passkey / master-password re-authentication.
-- Only the private key **path** is stored; the key file itself is never
-  read or displayed, and removing the credential never deletes the file.
-- A credential referenced by any server cannot be removed.
+- Private keys are locally parsed before saving to verify format and passphrase
+  and cache public metadata. Only the key **path** and metadata are stored;
+  private-key contents are never displayed or copied to the database. Removing
+  the credential never deletes the file. Unsupported formats fail explicitly.
+- Blank replacement input preserves a saved password/passphrase. Whitespace is
+  significant; `--clear-passphrase` explicitly clears a saved passphrase.
+- CLI removal still refuses credentials referenced by any server. The Web UI
+  offers a separate reference preview and explicit **Detach and delete** action.
+  Its durable journal reports committed deletion with pending vault/config
+  cleanup accurately and supports retries across runtime restarts.
+- Independent credential testing, key Browse/Inspect/Validate and public agent
+  identities are Web/API features, without new CLI subcommands. A Web credential
+  test temporarily chooses that credential for any saved host, runs no remote
+  command, and changes neither the host binding nor its health record. Agent
+  tests use only agent keys without default-key fallback; ordinary connections
+  retain managed OpenSSH behavior. See [the Web UI](web-ui.md).
 
 ## Host-bound skills
 
@@ -280,7 +309,15 @@ vault.
 - Without `--json` the transfer streams sftp's own progress meter. With
   `--json` it is captured and reported as bytes and duration.
 - One file at a time. Recursive transfers are not supported; use `serverctl
-  mount` or `rsync` over the managed config for a whole tree.
+  mount` or a remote archive through `serverctl exec` for a whole tree.
+
+Browser transfers use a separate 100 MiB limit, advertised by
+`/api/v1/runtime`. HTTP uploads refuse existing destinations by default;
+explicit `overwrite=true` permits an authorized replacement. The CLI command
+surface is unchanged: CLI transfers have no web size cap, and CLI `put` can
+replace an existing remote file. Default web uploads require SFTP hard-link
+support and fail safely when unavailable; web downloads refuse an unverifiable
+symlink target size. See [the web UI](web-ui.md) for the versioned file API.
 
 ## Mounting
 

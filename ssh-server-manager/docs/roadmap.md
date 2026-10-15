@@ -32,7 +32,9 @@ ecosystem). Ordered by expected impact.
    no secret-bearing tool results. The Skill remains the recommended path.
 8. **Session logging for `connect`** — opt-in local transcript with
    secret redaction.
-9. **Mosh / jump-host UX niceties** — detect mosh availability; render
-   `ProxyJump` chains in the UI graphically.
+9. **Mosh support** — detect availability. The 0.9.0 Hosts details already
+   render managed and external `ProxyJump` hops from the backend route.
+10. **Local GeoIP and optional desktop shell** — separate follow-up work after
+    the 0.9.0 six-page Web UI. Neither is required by the browser or CLI.
 
 Non-goals: cloud sync of secrets, telemetry, subscriptions, Electron.

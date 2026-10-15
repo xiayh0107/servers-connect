@@ -6,7 +6,11 @@
 - Bind the UI to loopback only. Validate the Host and Origin headers, exchange a one-time launch token for an HttpOnly SameSite session, and require a CSRF header on mutations.
 - Select a free loopback port by default. Never print a launch token; when manual launch is required, write it only to an explicitly selected mode-600 file.
 - Require WebAuthn user verification before revealing a secret. When WebAuthn is unavailable, require the locally enrolled Argon2id master password.
-- Make reveal grants single-use and short-lived. Mark reveal responses `Cache-Control: no-store` and clear rendered secrets from the DOM after 15 seconds.
+- Make credential-specific reveal grants single-use and valid for 30 seconds.
+  Revoke a deleted credential's grants in every browser session. Mark reveal
+  responses `Cache-Control: no-store` and clear rendered secrets after 15
+  seconds, on close, or when the page is hidden. Never include reveal views or
+  secret input in screenshots, traces, history state or browser storage.
 - Allow connections and tests to consume a vault secret without returning it to the caller. UI reveal authentication protects plaintext display, not ordinary SSH use.
 - Keep web file *browsing* read-only. Use OpenSSH SFTP with literal quoted paths, reject path control characters, and return metadata rather than file contents.
 - Expose transfer as an explicit action, never a side effect of browsing. Download and upload are CSRF-protected POST routes, size-capped, and staged only inside the private runtime directory, which is cleared when the request ends.
@@ -25,3 +29,33 @@
 - Host-skill registration is not content pinning, signing, or sandboxing. Skill
   files remain same-user local code; agents must re-resolve when the target
   changes and apply each skill only to its returned `applies_to` aliases.
+- Inspect/validate private keys only on explicit local actions. Load bounded
+  OpenSSH/PEM bytes with cryptography in process memory; never send passphrases
+  through command arguments, environment variables, temporary files or logs.
+  Return public metadata only. Encrypted keys without a passphrase must have
+  nullable public metadata rather than an invented fingerprint.
+- Bind key revision tokens to the browser session, canonical path and exact
+  file snapshot, with a short expiry. Verify the snapshot again before saving;
+  a file change aborts database mutation and restores any previous vault value.
+  Empty replacement input retains a secret; only explicit clear removes it.
+  Preserve spaces exactly and reject ambiguous replacement-plus-clear input.
+- Local key-browser scopes authorize a canonical root for one browser session.
+  List path/name/type only; skip symlinks/junctions, reject outside paths and
+  verify directory identities to prevent replacement races. Expiration of the
+  scope or browser session removes scope/revision authorization. Do not expand
+  traversal or enumerate another directory implicitly.
+- Inspect public agent identities with the local agent listing command only,
+  with a timeout and bounded results. Do not load keys into the agent or return
+  private material. Unknown permission/vault evidence must stay unknown.
+- Independent credential probes may consume secrets internally but must run
+  no remote command, preserve host bindings/health records, and restrict auth
+  to the selected credential kind. Agent probes must not fall back to default
+  private keys. A `none` connection cannot prove credential use. Trust local
+  authentication evidence, not a remote banner or unsolicited stdout message.
+- Serialize credential mutations/tests/reveal/bindings/deletion across processes.
+  Default deletion refuses references; explicit detach/delete validates a fresh
+  reference snapshot and journals cleanup atomically with the DB deletion.
+  Never journal secrets or delete key files. Persist and report failed cleanup
+  as pending; retries must remain idempotent and cannot imply erasure until the
+  vault/config work actually succeeds. Sanitize vault exceptions and probe
+  stages rather than returning backend or SSH output containing secrets.

@@ -15,7 +15,7 @@ def test_marketing_page_declares_utf8_before_localized_copy():
 def test_marketing_page_stays_on_the_simple_paint_path():
     encoded = WEBSITE_HTML.encode()
 
-    # The scenario demo stays lightweight: no framework, SVG, or additional asset.
+    # The scenario demo stays lightweight: no framework or SVG; product screenshots load lazily.
     assert len(encoded) <= 90_000
     assert len(gzip.compress(encoded, compresslevel=9, mtime=0)) <= 21_000
     assert "backdrop-filter" not in WEBSITE_HTML
@@ -122,3 +122,12 @@ def test_marketing_page_footer_version_tracks_the_package():
     assert f"v{version}" in WEBSITE_HTML
 
 
+
+
+def test_marketing_page_shows_all_shipped_views_without_real_state():
+    screens = set(re.findall(r'data-product-screen="([a-z-]+)"', WEBSITE_HTML))
+    assert screens == {"hosts", "host-details", "files", "tags", "skills", "credentials"}
+    assert 'loading="lazy"' in WEBSITE_HTML
+    assert "fictional acceptance data" in WEBSITE_HTML
+    for screen in screens:
+        assert (REPO_ROOT / "website" / "assets" / f"ui-{screen}.png").is_file()

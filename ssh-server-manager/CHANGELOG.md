@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Migrate host metadata to SQLite schema 6: retain sanitized successful system
+  facts with `os_like`, closed `os_logo`, and observation time; last-success
+  history; locally resolved IP; host-key fingerprint/state; and optional manual
+  geography. Inventory and details remain offline, with literal address scope.
+  Hostname/port changes invalidate observations for the previous endpoint.
+- Serialize partial host/notes/path updates, route validation, schema
+  initialization/migrations, and SSH-config rendering with SQLite write locks
+  to preserve concurrent changes and prevent stale config replacement.
+- Add saved host-route inspection and selected-host bulk tests to API v1:
+  validate the full batch before remote work, cap batches at 64 hosts, and share
+  four batch-check slots across requests. Advertise capabilities at runtime.
+- Add nullable numeric ownership, UTC modification time, and symlink-target
+  metadata for remote files when available; filter names before the 5,000-entry
+  response cap and expose matching counts. Enforce the existing 100 MiB web
+  transfer limit before and after downloads, refuse unverifiable symlink
+  downloads, and publish default uploads without replacement using SFTP hard
+  links. Fail safely when that operation is unsupported; support explicit
+  overwrite and structured v1 file errors. CLI transfer behavior is unchanged.
 - Add shared application services for hosts, credentials, files, saved paths,
   diagnostics, contexts, Skills and imports; CLI and legacy HTTP routes reuse
   these use cases and their SSH-config side effects.
@@ -14,13 +32,40 @@
 - Filter versioned responses, keep validation errors free of supplied secrets,
   enforce session expiry and share canonical single-use reveal grants between
   legacy and v1 routes. Preserve CSRF, host-key checks and web transfer limits.
-- Keep the existing frontend; defer its replacement and desktop shell to the
-  dedicated Paper design phase.
+- Replace the shipped frontend with a React + TypeScript + Vite application over
+  the shared API v1 client. Complete Hosts, host details, Files, Tags, Skills and
+  Credentials with browser-history selection and dialogs, explicit actions, draft
+  Save/Discard flows, narrow-screen layouts and dated offline metadata.
+- Add schema 7 credential revisions, nullable public-key metadata and separate
+  authentication history. Stream independent credential tests against any saved
+  host without changing its saved credential or health; verify the selected
+  authentication method, and disable default-key/password fallback for agent
+  tests. Unauthenticated connections do not verify a credential.
+- Validate supported OpenSSH/PEM private keys and passphrases in memory before
+  save, using session-bound file revisions to reject changed files. Preserve
+  blank replacement secrets and literal passphrase whitespace; expose explicit
+  passphrase clearing. Add scoped local key browsing, algorithm/fingerprint and
+  platform permission metadata, and explicit SSH-agent identity inspection.
+- Add credential deletion previews and explicit detach/delete with snapshot
+  checks, per-credential cross-process locks and atomic host detachment.
+  Persist unfinished vault cleanup for idempotent retry; retain default deletion
+  refusal for referenced credentials and leave private-key files intact.
+- Report real session expiry and server time, and observed vault name/status
+  without implicit vault access. Revoke deleted credentials' reveal grants in
+  every session; keep grants single-use for 30 seconds and display secrets for
+  at most 15 seconds, clearing them on hide/close.
+- Commit generated API types, the npm lockfile and packaged frontend assets;
+  check type/contract drift and reproducible builds with gzip size budgets.
+  Add frontend interaction tests and disposable browser acceptance fixtures for
+  actual direct/multi-hop/external-jump SSH, authentication failure, SFTP
+  conflicts, explicit overwrite, large directories and metadata fallback.
+  Desktop packaging and automatic GeoIP remain optional future work.
 - Allow an immediate fixed-`--port` restart after `--stop` on macOS/Linux, hold
   an exclusive OS lock so simultaneous launches cannot both serve, and write the
   runtime record before the launch URL file.
 - API v1 updates are `PATCH`-only for hosts and credentials; contexts are
-  renamed/rebound/deleted at `/api/v1/contexts/{name}` without request bodies.
+  renamed/rebound with `PATCH` and deleted without a request body at
+  `/api/v1/contexts/{name}`.
   Pin the schema toolchain in `contracts/constraints.txt` for the drift check.
 - Close SQLite connections after initialization and reads, including error paths,
   so disposable UI fixtures release database files before cleanup on Windows.

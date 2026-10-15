@@ -87,3 +87,29 @@ vault check on Linux — see [platforms.md](platforms.md#linux).
   *before* uninstalling if you want the vault entries cleaned up.
 - The rendered config at `~/.ssh/ssh-server-manager.conf` can be deleted;
   your original `~/.ssh/config` was never modified.
+
+## Upgrade to 0.9.0
+
+Stop the running Web UI before upgrading:
+
+```bash
+serverctl web --stop
+pipx upgrade ssh-server-manager
+# or: uv tool upgrade ssh-server-manager
+```
+
+Back up the SQLite database in the platform data directory before upgrading.
+With the Web UI and other serverctl processes stopped, copy `manager.db` to a
+private backup directory. Keep the OS vault entries and referenced private-key
+files in place; the database contains references and metadata, not their secrets.
+Opening the database migrates schema 5 (0.8.0) or development schema 6 to schema 7
+transactionally. IDs, routes, tags, notes, directories, Skills and reveal settings
+are preserved. A newer unsupported schema is rejected. To return to 0.8.0, stop
+all processes and restore the pre-upgrade database backup before starting it.
+
+The wheel and source distribution include the fingerprinted production Web
+assets and their manifest. Running an installed package or a source checkout
+does not require Node.js or an internet connection for the UI. Node 22 is needed
+only when changing the frontend source; see [frontend development](https://github.com/xiayh0107/servers-connect/blob/main/ssh-server-manager/frontend/README.md).
+If the native vault is unavailable, credential operations report that state;
+there is no fallback that saves secrets in a file.

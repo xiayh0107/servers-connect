@@ -4,180 +4,230 @@
 serverctl web
 ```
 
-A management interface served from `127.0.0.1` only — it is not a cloud
-dashboard and cannot be reached from the network. The command picks a free
-port, prints only the port number, and opens your browser with a one-time
-tokenized URL.
+The bundled React + TypeScript interface opens in your browser and is served
+from loopback only. Its six views are Hosts, host details, Files, Tags, Skill
+Library and Credentials. It replaces the former frontend and uses the same
+local database, managed OpenSSH configuration and OS credential vault as the
+CLI. No cloud service, CDN scripts, external fonts or Node.js runtime is needed
+by an installed package.
 
-`serverctl ui` remains a compatibility alias with all existing options. Both
-commands share one lifecycle record and reject a second managed launch while
-the first is active. The browser opens after backend startup completes. The
-frontend remains the current UI; its successor will be designed separately in
-Paper. The new [backend and API contract](backend.md) is available for that work.
-
-## Launching
+## Launching and sessions
 
 | Situation | Command |
 |---|---|
-| Normal use | `serverctl ui` |
-| Enter a server's password right after adding it | `serverctl ui --credential ALIAS` (opens directly on that server's edit dialog with the new-credential form expanded) |
+| Normal use | `serverctl web` (`serverctl ui` is a compatible alias) |
+| Enter credentials for a new host | `serverctl ui --credential ALIAS` |
 | Fixed port | `serverctl ui --port 8422` |
-| Browser can't be auto-opened (e.g. remote desktop) | `serverctl ui --no-open --url-file /path/to/private-url` then open the URL from that mode-600 file yourself |
-| Check whether the UI is running | `serverctl ui --status` |
-| Stop a UI left running in the background | `serverctl ui --stop` |
+| Browser cannot be opened automatically | `serverctl ui --no-open --url-file /path/to/private-url` |
+| Check the managed UI | `serverctl ui --status` |
+| Stop the managed UI | `serverctl ui --stop` |
 
-The launch token is single-use: once a browser session is established, the
-URL stops working (and the `--url-file` is deleted). Restart `serverctl ui`
-to get a new one. Sessions last 12 hours. The `--credential` target travels
-in the URL fragment, which browsers never send to the server — it only
-steers which dialog the page opens.
+The launcher picks a free port, prints only the port number, and opens a
+single-use tokenized URL. The token never appears in terminal output. A
+manually requested URL file is private and deleted when consumed or stopped.
+`web` and `ui` share one lifecycle record; use an existing window when the
+managed runtime is already active.
 
-## Start with your hosts
+Browser sessions last 12 hours. The sidebar countdown uses the server's actual
+`session.expires_at` and `server_time`; it does not assume a new 12-hour window
+on every page load. A 401 shows a session-expired screen without replaying the
+previous action. Launch a new session through the CLI when needed.
 
-The UI opens on **Hosts**. The inventory shows host, endpoint, tags, last saved
-connection status, and actions without overview cards. Search matches aliases,
-hostnames, usernames, tags, and notes; the tag filter scopes the same list.
+Host/Origin checks, same-site cookies, CSRF and strict content-security policy
+apply to all views. Browser Back/Forward follows host and library selections
+and may reopen a local dialog, but does not repeat a write, transfer, probe or
+secret authorization. Secret fields are not saved in URLs, browser storage or
+dialog-history metadata. Do not capture credential input, reveal views, launch
+URLs, cookies or tokens in screenshots or browser traces.
 
-Select a host name to open its read-only details: full notes, endpoint, port,
-ProxyJump route, credential label and the latest saved check. Opening details
-never starts SSH or SFTP and never reveals a secret. **Copy SSH command** copies
-`serverctl connect ALIAS`, so the existing managed authentication and host-key
-checks apply when you run it in your terminal. **Browse files** and **Edit host**
-remain explicit actions. Close or Escape returns focus to the host list; browser
-Back and Forward follow the detail view.
+## Hosts and host details
 
-An empty inventory offers **Add host** and **Import config**. A failed inventory
-load shows an error and **Try again**, rather than presenting an empty list as
-success. Existing light/dark/high-contrast themes and accent choices apply to
-both the list and details.
+![Hosts inventory using disposable fixture data](https://xiayh0107.github.io/servers-connect/assets/ui-hosts.png)
 
-## What you can do
+Hosts shows aliases, cached system identity, latest saved check and latency,
+endpoint, tags and credential metadata. Search and tag/status filters run over
+the loaded inventory. Group by route or tag, select hosts for a bounded batch
+check, and customize row actions. Hide details to conceal endpoint, username,
+credential and notes in both displayed rows and search matches.
 
-- **Hosts** — add, edit, remove; assign reusable project/environment tags;
-  manage ordered ProxyJump chains; run individual or selected-host connection
-  tests with latency and classified errors; open **Diagnostics** on a host to
-  inspect its local profile, SSH, SFTP, and remote system summary. Use **Note**
-  on a host row or the active workspace to append or edit local server notes.
-  The inventory keeps host, endpoint,
-  tags, status, and actions as its five primary columns; credential and jump
-  details stay under the endpoint instead of widening the table.
-- **Files** — choose a server and browse its remote home or another directory
-  over SFTP; use breadcrumbs, show/hide dotfiles, and copy an
-  `ALIAS:/absolute/path` reference for an agent. Visible file references can be
-  copied in one batch. Modification values use one visual format, and access
-  bits include owner/group/others labels and a full explanatory tooltip.
-  Browsing is read-only; downloading a file and uploading into the current
-  directory are separate, explicit actions.
-- **Saved directories** — keep a host's working directories a click away
-  instead of retyping them. Save the directory you are in, jump straight back to
-  it later, and the list orders itself by what you actually use. Saved
-  directories are local metadata: they record where you work, never what is
-  there.
-- **Tags** — tag a host by project, environment, role, or any other useful
-  dimension, then use the global tag selector to scope both the workspace and
-  connection inventory to that subset. The last selection is stored on this
-  device. **Tags** is a dedicated library for inline creation, rename, deletion,
-  usage counts, and host previews. In **Hosts**, select one or more hosts
-  and open the single **Edit tags** picker: checked, mixed, and empty states
-  show current membership, and clicking an item adds or removes it. Search for
-  an existing tag or type a new name and choose **Create** to create and assign
-  it in one operation. The same picker opens from every Tags table cell. Tags
-  remain clickable filters, and every tag keeps one categorical color across
-  the sidebar, tables, chips, and pickers. In the server editor, tags
-  are searchable chips: Enter adds a typed value, Backspace removes the last
-  chip, and suggestions reuse existing tags. The Files sidebar also shows each
-  host's first tag and remaining count; click that summary to open the
-  same add/remove/create picker without leaving the workspace.
-- **Skill Library** — browse a local skill library, discover candidates from standard
-  agent skill directories, and explicitly register one by its directory or
-  `SKILL.md` path. Bind a registered skill to one or several selected hosts,
-  or edit the host set later in bulk. One host may use several skills and one
-  skill may cover a related node group. Discovery is offline and read-only;
-  registering or binding never installs a skill or runs its instructions.
-  Missing, invalid, renamed, and same-name conflicting paths remain visible as
-  errors instead of being silently replaced. Host-first management is available
-  without visiting the library: every row in **Hosts** shows an
-  **Assign skills** or skill-count control, and the active Host Workspace shows
-  its attached Skills, readiness, and a host-scoped picker. Bindings make a
-  Skill eligible for that Host; normal Skill trigger rules still decide whether
-  the Agent uses it for a particular task.
-- **Themes** — follow the operating-system appearance or explicitly choose the
-  light, dark, or high-contrast token set, then pick one of seven accent
-  palettes (indigo, teal, emerald, amber, rose, violet, graphite) from the
-  header. Accent choices persist locally, adapt to every base theme, and keep
-  the high-contrast theme's yellow focus ring. No theme assets or external
-  fonts are downloaded.
-- **Credentials** — create password / key / agent credentials, edit or
-  replace secrets, copy referenced key paths, and see which servers use them.
-  Vault and reveal-protection status live together above the credential list.
-  Secret input fields post directly to the loopback API; values are never
-  rendered back.
-- **Import** — preview your `~/.ssh/config` and apply selected aliases.
-- **Reveal** — display a stored password/passphrase, gated as below.
+Add, edit, duplicate and remove hosts explicitly. Import OpenSSH aliases by
+previewing the source config first; replacing a matching alias requires the
+explicit overwrite selection. The host editor supports ordered managed or
+external ProxyJump aliases, reusable credentials, tags, notes and a manual
+country/city override. Location does not run an automatic GeoIP lookup.
+
+Select an alias to open its details. The view reads local workspace and route
+metadata and never starts DNS, SSH, SFTP or vault access. It displays:
+
+- Saved ordered route with external boundaries and a historical blocked-hop
+  hint, rather than an untested live reachability verdict.
+- Literal address scope, locally resolved IP snapshot, manual location,
+  credential reference, jump usage and last successful check.
+- Host-key state/fingerprint and sanitized system facts with observation time.
+- Notes, saved directories and assigned Agent Skills.
+
+![Host details with cached connection and system metadata](https://xiayh0107.github.io/servers-connect/assets/ui-host-details.png)
+
+**Run check** and **Full diagnosis** are explicit remote actions. Failed checks
+retain the last successful timestamp and prior system facts. Changing hostname
+or port clears observations for the previous endpoint. Saved facts and statuses
+remain observations, not proof a host is currently online. The locally resolved
+IP through a jump chain need not be the remote peer address; saved host-key
+states never bypass OpenSSH verification.
+
+**Browse files** opens the selected host's file workspace. **Copy** copies a
+`serverctl connect ALIAS` command for the user's own terminal. Notes, saved-path
+changes and Skill assignments are explicit local writes. Host Skill bindings
+route instructions; they do not install or execute anything.
+
+## Files and saved directories
+
+![Files workspace using disposable fixture data](https://xiayh0107.github.io/servers-connect/assets/ui-files.png)
+
+Files connects to the host you explicitly select and starts at its remote home
+or the requested saved directory. Tabs keep independent host/path context.
+Breadcrumbs and the editable location bar navigate directories; refresh is
+explicit. Saved paths can be added, edited, removed and revisited without
+retaining file contents. A saved path is a user bookmark, not proof that its
+remote directory still exists.
+
+The listing supports name filters, hidden-file controls, sorting and selection.
+Filters reach the backend before its 5,000-entry response cap. Count hints show
+returned entries, matching entries and total parsed entries, and report
+truncation. Metadata includes type/size, permission bits, owner/group, nullable
+numeric UID/GID, UTC modification time and symlink target. Missing enrichment
+falls back to numeric ownership or an unavailable marker; the UI does not infer
+a precise timestamp from the legacy SFTP date string.
+
+Browsing returns metadata only. Downloading a selected file and **Upload here**
+are explicit CSRF-protected actions, with the transfer bound to its original
+host and directory even if you switch tabs while it runs. The runtime advertises
+the 100 MiB web limit. Downloads check source size before transfer and staged
+size afterward; nonregular entries and symlinks with unverifiable target size
+are refused. Use `serverctl get` / `serverctl put` for larger transfers.
+
+An upload first refuses an existing destination. Its conflict dialog shows
+available existing metadata and offers a different filename or explicit
+replacement. A new destination is staged beside its target and published with
+SFTP's no-replace hard-link operation, protecting files created during transfer.
+A server without this operation fails safely with an unsupported error.
+Explicit replacement sends `overwrite=true`. Internal staging paths are never
+returned, and temporary local files are removed at request completion. The
+CLI's existing transfer behavior is unchanged.
+
+Permission denied, missing paths, authentication failure, timeout, conflicts,
+size limits and unsupported publication have distinct errors. A failed or stale
+listing is not presented as a newly empty directory or a successful connection.
+
+## Tags
+
+![Tags list and draft membership editor](https://xiayh0107.github.io/servers-connect/assets/ui-tags.png)
+
+Tags uses a searchable, sortable left list and a right-hand tag editor. Rename a
+tag and check or uncheck host membership as one draft; All/Tagged/Untagged and a
+host filter help choose members. Adding/Removing badges and the unsaved-change
+count show what will change. **Save changes** writes the name and complete host
+set in one transaction; **Discard** restores the saved state. Unrelated tags
+remain attached to those hosts.
+
+**New tag** can create an empty reusable tag or assign initial hosts. Deletion
+requires confirmation, removes only that tag, and preserves host connection
+settings. Names are unique without regard to case, limited to 40 characters,
+and reject reserved commas/control characters.
+
+## Skill Library
+
+![Skill Library metadata and host assignments](https://xiayh0107.github.io/servers-connect/assets/ui-skills.png)
+
+The searchable left list shows registered name, path, status and assigned
+hosts. The right view shows frontmatter description, local SKILL.md path,
+readiness, last refreshed time and draft host assignments. **Save assignments**
+replaces that Skill's complete host set; **Discard** restores saved bindings.
+Save or discard a draft before refreshing metadata.
+
+**Discover local skills** explicitly scans standard local skill roots and
+reports available, registered, invalid or conflicting candidates. It does not
+register anything. **Register skill** accepts an exact local path (a skill
+directory or its SKILL.md); **Refresh** re-reads its metadata. Missing paths,
+invalid frontmatter and name mismatches remain visible. A registered Skill must
+have its host assignments removed and saved before **Unregister** can delete
+its registration; the local file and directory are preserved.
+
+One host can use several Skills and one Skill can cover several hosts. Bindings
+make a Skill eligible for the selected hosts; normal trigger rules decide
+whether an agent uses it. Discovery and registration install or execute nothing.
+
+## Credentials
+
+![Credentials inventory with metadata only](https://xiayh0107.github.io/servers-connect/assets/ui-credentials.png)
+
+Credentials has a searchable list with key/password/agent filters and a right
+editor for the selected reusable identity. Ordinary list and detail reads show
+metadata only and never read a key file or vault value. The vault name/status
+may be unknown until an explicit operation observes the actual backend.
+
+Password and passphrase replacements are entered directly into the local UI.
+Leaving a field blank preserves the saved value; spaces remain part of the
+secret. A saved passphrase is cleared only by the explicit clear control.
+Private-key credentials point to a local file; the manager never deletes that
+file when a credential is removed.
+
+For a key, **Browse** opens a local path picker scoped to the directory you
+explicitly authorize (default `~/.ssh`). This is a Web picker, not an OS-native
+file dialog. It lists path/name/type only, skips links/junctions and rejects
+navigation outside its scope. **Inspect** reads bounded key bytes locally to
+show format, encryption, algorithm, SHA256 public fingerprint, bits and
+permissions. Encryption can make algorithm/fingerprint unavailable until
+**Validate** successfully verifies the supplied or existing saved passphrase.
+Unsupported key formats return an explicit error. A permission assessment can
+be unknown, especially when reliable platform evidence is unavailable.
+
+The key is loaded in process memory; its bytes/passphrase are never returned or
+placed in command arguments, environment variables or temporary files. The
+save uses a short-lived, session-bound revision of the inspected file. Changing
+the path, passphrase or clear selection invalidates the previous inspection;
+if the file changes before commit, save fails and preserves the prior state.
+Agent inspection is explicit and lists only local public agent identities.
+
+**Test on host** authenticates the selected credential to any saved host,
+including one not yet bound to that credential. It shows live stages and the
+real method/outcome, runs no remote command, and preserves the host's binding
+and health history. Password tests use only password authentication; key tests
+use the selected private key; agent tests use only the agent without default
+key fallback. Normal host connections continue to use the managed OpenSSH
+configuration. An unauthenticated `none` connection is reported as
+`credential-not-used`. Test history belongs to the credential version; replacing
+its material clears the current verified result while preserving older history.
+
+**Delete…** loads a fresh reference preview. **Detach and delete** explicitly
+removes exactly those host bindings and the credential in one transaction.
+A stale preview conflicts before commit. If vault or managed-config cleanup
+fails after commit, the UI shows a pending cleanup operation with **Retry
+cleanup**; it does not pretend the secret was removed or restore the deleted
+binding. The durable journal survives runtime restarts. The compatible default
+DELETE/CLI removal still refuses referenced credentials. Hosts, files and
+private-key files are preserved.
 
 ## Revealing a secret
 
-1. Click reveal on a credential.
-2. Authenticate with a **passkey** (Touch ID / Windows Hello / security
-   key) — or the **master password** if you enrolled one (Argon2id-hashed,
-   rate-limited to 5 attempts per minute).
-3. The grant is single-use and expires in 30 seconds; the revealed value is
-   wiped from the page after 15 seconds.
+1. Choose **Reveal** for a credential.
+2. Authenticate with a registered passkey (Touch ID, Windows Hello or a
+   security key), or an enrolled master password.
+3. Consume a credential-specific, single-use grant valid for 30 seconds.
 
-Set up either factor in the UI's auth section: register a passkey (works
-on `localhost` without HTTPS) and/or enroll a master password as fallback.
+The master password is Argon2id-hashed and verification is rate-limited to five
+attempts per minute. The revealed value is cleared after 15 seconds, on close,
+or when the page becomes hidden. Reveal grants are revoked for all browser
+sessions when the credential is deleted. Connecting, testing and key validation
+consume secrets internally and do not require revealing them to the browser.
 
-Ordinary operations — connecting, testing, executing — never require
-reveal: they consume vault secrets without returning them.
+## Appearance and development
 
-Remote file browsing follows the same rule. It uses the managed OpenSSH
-configuration, normal host-key verification, ProxyJump chain, and AskPass
-credential flow. Browsing returns directory metadata only; it never reads file
-contents.
+System, light, dark and high-contrast themes and seven accents are stored
+locally. Teal is the default. All resources are bundled and the interface adapts
+to compact and mobile widths.
 
-Transfers are the one place the browser touches file contents, and only when you
-click. Download and upload are CSRF-protected `POST` requests capped at 100 MB,
-staged inside the private runtime directory and cleared when the request ends.
-Anything larger belongs on `serverctl get` / `serverctl put`.
-
-The Skills workspace follows the same explicit-action model. The library shows
-registered name, description, local path, readiness, and bound hosts; discovery
-only proposes local candidates. Removing a skill is blocked until its hosts are
-detached, and deletes neither `SKILL.md` nor its directory. Host bindings are
-context for an agent, not permission to connect or make changes.
-
-Status indicators are deliberately time-aware. Green means an SSH test or SFTP
-operation succeeded within the last two minutes, and the label includes how
-recently it was verified. Older results become an amber “Last reachable” state;
-they never remain indefinitely green. Failed connection attempts immediately
-replace the previous result. The UI avoids automatically probing every host,
-which would be slow and could trigger many authentication prompts.
-
-## Performance baseline
-
-The local UI stays framework-free and self-contained, uses system fonts, and
-makes no CDN or third-party network requests. Automated tests keep the core
-HTML, stylesheet and app script below 107 KB uncompressed / 26 KB compressed.
-The initial Hosts view also loads the dependency-free tag/search/selection
-assets (below 48 KB / 11.5 KB) and host-details assets (below 22 KB / 7 KB).
-Existing diagnostics, notes, and workspace helpers remain separate local assets.
-The Agent Skills library and host-binding picker stay lazy: they load only when
-the Skills view or an active host needs them.
-
-Opening the UI and selecting host details do not initiate an SSH connection.
-Remote work begins only after an explicit **Browse files**, **Test**, diagnostics
-or transfer action. Directory filtering and sorting happen locally, while
-large results render in batches of 250 rows so a directory with thousands of
-entries does not create thousands of DOM nodes at once. Motion is limited to a
-lightweight loading pulse and is disabled by the reduced-motion preference.
-
-Host details read the existing bootstrap state and make no additional API
-requests.
-
-See [ui-ux-research.md](ui-ux-research.md) for the evidence and task-model
-audit behind the host and tag interaction.
-
-## If something misbehaves
-
-See [faq.md](faq.md) and the
-[troubleshooting playbook](../references/troubleshooting.md).
+See [the backend/API contract](backend.md) for route details and
+[the frontend build guide](../frontend/README.md) for source, generated types,
+reproducible assets and isolated verification. Local GeoIP automation and a
+native desktop shell remain optional future enhancements.

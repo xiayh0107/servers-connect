@@ -116,6 +116,8 @@ SECTIONS: list[tuple[str, list[Page]]] = [
                  "What is shipped and what is being considered next."),
             Page(PKG / "docs/ui-ux-research.md", "ui-ux-research", "UI/UX research",
                  "The evidence behind the host and tag interaction model."),
+            Page(PKG / "docs/validation.md", "validation", "Validation",
+                 "Reproduce contract, browser, package and upgrade acceptance checks."),
         ],
     ),
 ]

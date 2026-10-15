@@ -20,7 +20,7 @@ Work from `ssh-server-manager/`. A project venv already exists at `.venv/`
 (create it with `./scripts/bootstrap` if missing).
 
 ```bash
-.venv/bin/python -m pytest tests/        # full suite, sub-second
+.venv/bin/python -m pytest tests/        # isolated Python regression suite
 ./scripts/serverctl doctor --json        # end-to-end health check
 ```
 
@@ -41,34 +41,52 @@ path or signal assumptions without an `os.name` branch).
 - `scripts/ssh_server_manager/vault.py`, `askpass.py` — secret storage and
   out-of-band authentication. Read `references/security.md` before touching.
 
-## Web UI assets are committed minified
+## Web UI source and generated assets
 
-`scripts/ssh_server_manager/assets/ui/` holds the shipped (minified) files —
-there is no separate source tree. Edit them only through
-`scripts/build-ui beautify <workdir>` → edit → `scripts/build-ui minify
-<workdir>`; the script pins the verified toolchain (terser round-trips the
-committed JS byte-identically, lightningcss with modern targets for CSS) and
-enforces the size budgets from `tests/test_ui_assets.py`. Two traps it
-guards against: csso silently deletes `@media (width<=NNNpx)` blocks — never
-substitute it — and `webapp.py` injects lazy assets by string-replacing the
-literal `<div class=app-shell>`, which the minify step asserts is preserved.
-Always finish with `tests/test_ui_assets.py`: it greps the minified output
-for exact tokens.
+`ssh-server-manager/frontend/` is the React + TypeScript + Vite source tree.
+Edit `frontend/src/`, never hand-edit generated files in
+`scripts/ssh_server_manager/assets/ui/`. Commit source, `package-lock.json`,
+generated API types, and built assets together. Node.js 22.12 or newer is
+required for development; installed wheels serve the bundled build without
+Node.js, a development server, external fonts, or CDN scripts.
+
+From `ssh-server-manager/`:
+
+```bash
+npm ci --prefix frontend
+npm run check-types --prefix frontend
+npm test --prefix frontend
+npm run build --prefix frontend
+npm run check-build --prefix frontend -- --allow-uncommitted
+.venv/bin/python -m pytest tests/test_ui_assets.py tests/test_webapp.py tests/test_webapp_security.py
+```
+
+After an API change, regenerate `contracts/api-v1.openapi.json` with the
+pinned contract toolchain, then run `npm run typegen --prefix frontend` and
+review both diffs. `check-types` verifies generated types; `check-build`
+rebuilds in a temporary directory, compares every asset and manifest byte,
+rejects source maps, and checks the initial 150 KiB / total 250 KiB gzip
+budgets. Its default also rejects uncommitted assets; the flag above is for
+local validation before committing. CI runs the default check on committed
+output. Run `npm run e2e --prefix frontend -- --project=smoke` for disposable
+browser fixtures and the SSH project for real loopback authentication/SFTP
+coverage; see `frontend/README.md` for prerequisites. Never capture secrets,
+launch URLs, session cookies, or reveal views in screenshots or traces.
 
 Radius and spacing are tokenized: use the `--radius-sm/md/lg/xl` and
 `--space-1..7` scales from `styles.css` `:root` instead of adding new pixel
 literals, and keep the shipped default accent teal (Indigo stays a
-user-selectable option via explicit `themes.css` blocks). The rationale
+user-selectable option). The rationale
 lives in `docs/ui-ux-research.md` ("Design tokens").
 
-`hosts.js` / `hosts.css` are readable, dependency-free detail sidecars, like
-`notes` and `workspace`; edit them directly. `hosts.js` only reads bootstrap
-state. Keep opening host details free of network/SSH/vault operations.
-For interaction regressions, run `node tests/test_host_details_node.mjs` and
-`npm ci --prefix tests/ui && npm test --prefix tests/ui` from
-`ssh-server-manager/`. These are development-only dependencies; shipped UI
-assets remain dependency-free. See `tests/manual/README.md` for disposable
-loopback browser fixtures.
+Keep opening host details free of DNS/SSH/SFTP/vault operations. Host routes,
+cached observations, workspace paths and credential summaries are local
+metadata. Remote checks, file browsing, credential tests, local key Browse,
+key validation and agent inspection require their explicit controls. Use the
+shared `/api/v1` client for cookie/CSRF/error handling and generated DTOs.
+Browser history may restore a metadata dialog but must never replay a write,
+transfer or authentication action. Do not persist secret form values in URLs,
+browser storage, dialog-history metadata, tests, or screenshots.
 
 ## Documentation must stay in sync
 

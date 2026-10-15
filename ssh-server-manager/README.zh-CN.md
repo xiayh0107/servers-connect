@@ -59,13 +59,13 @@ cd servers-connect/ssh-server-manager
 ## 功能
 
 - **连接档案** —— 别名、主机、端口、用户、项目/场景标签、备注、有序 ProxyJump 跳板链（带环路检测）。
-- **主机专属 Agent Skills** —— 发现并登记本地 skill；一个 skill 可绑定一组相关节点，一台主机也可组合多个 skill；Agent 执行前按精确的 `applies_to` 范围解析。可直接从 Connections 行或当前 Host Workspace 管理该主机的绑定，全局 Skill Library 负责发现与登记。绑定只负责上下文路由，不代表远程操作授权。
+- **主机专属 Agent Skills** —— 发现并登记本地 skill；一个 skill 可绑定一组相关节点，一台主机也可组合多个 skill；Agent 执行前按精确的 `applies_to` 范围解析。可从 Hosts 详情管理该主机的绑定，全局 Skills 页面负责发现、登记和刷新。绑定只负责上下文路由，不代表远程操作授权。
 - **三种凭据类型** —— 保险库密码、私钥（可选保险库口令）、ssh-agent/OpenSSH 默认。凭据可被多台服务器复用，被引用时禁止删除。
 - **OpenSSH 导入** —— 解析 `~/.ssh/config`（跟随 `Include`），用 `ssh -G` 解析每个字面量别名，先预览后应用。
 - **托管配置渲染** —— 原子写入、仅本用户可读的 `~/.ssh/ssh-server-manager.conf`；原配置始终最后加载，不影响既有默认值。
 - **连接测试** —— `server test` 报告延迟和分类错误码（认证失败 / 主机密钥不受信 / 超时 / DNS 失败等），并记录历史。
 - **远程执行** —— `serverctl exec 别名 -- 命令 参数`；`--shell` 跑管道和复合命令，`--stdin`/`--stdin-binary` 流式传输文件，`--reuse N` 复用连接（macOS/Linux），`--json` 输出机器可读结果。
-- **本地 Web UI** —— 可新建、重命名、删除标签，搜索并批量分配主机，也可按项目/场景筛选；支持跟随系统、亮色和暗色主题；状态会随检查结果过期，不会永久显示在线；通过 SFTP 只读浏览远程目录并复制给 Agent 使用的文件引用；查看已存秘密前需通行密钥或主密码重新认证；后台运行的界面可用 `serverctl ui --status` / `--stop` 查看和关闭，无需手工记 PID。
+- **本地 Web UI** —— 可新建、重命名、删除标签，搜索并批量分配主机，也可按项目/场景筛选；Hosts、Files、Tags、Skills、Credentials 与主机详情均使用真实 API，支持系统、亮色、暗色、高对比主题和可选强调色。连接检查与系统诊断分开操作，展示历史观察及最后成功时间；Files 支持标签页、常用目录、服务端过滤、明确覆盖和容量限制；私钥可显式检查与验证，凭据可独立测试、预览引用并明确解绑删除。查看秘密前需通行密钥或主密码重新认证，15 秒后自动清除；后台运行的界面可用 `serverctl ui --status` / `--stop` 查看和关闭，无需手工记 PID。
 - **诊断** —— `serverctl doctor` 检查 ssh 与 sftp 可用性、OpenSSH 版本、保险库后端安全性、数据库与配置路径、Python 依赖。
 
 ## 平台支持

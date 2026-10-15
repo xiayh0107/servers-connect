@@ -95,11 +95,28 @@ selection.
 
 `serverctl web` is the explicit browser-shell command; `ui` remains a compatible
 alias with the same flags, credential deep link, and shared `--status`/`--stop`
-record. Both still open the existing UI. If a managed UI is already running,
+record. Both open the bundled React interface for Hosts, host details, Files,
+Tags, Skill Library and Credentials. If a managed UI is already running,
 report that status and use its existing window; do not stop it merely to launch
 another. Keep agent host operations on the CLI, which calls shared application
 services directly and does not require a running HTTP server. The versioned local
 API is for UI integrations, not a shortcut around secret-entry or reveal rules.
+
+The Credentials view can inspect and validate a local OpenSSH/PEM key, list
+public agent identities, and test a selected credential on any saved host
+without rebinding it or changing host health records. Tests are explicit remote
+authentication actions, not inventory reads. A password test permits only
+password; a key test uses the selected key; an agent test permits agent keys
+only, without default-key fallback. Normal connections retain their managed
+OpenSSH behavior. A connection accepted with `none` does not verify a
+credential. Do not introduce tests merely to make a library look healthy.
+
+Route passphrase entry and validation through the human's hidden local prompt
+or UI. Never pass a secret through HTTP commands, argv, environment variables,
+logs, screenshots or chat. Empty replacement input preserves the saved secret;
+explicit **Clear passphrase** clears it. The Web key picker returns scoped path
+metadata only; it is not a desktop dialog or a way to retrieve key contents.
+Saved metadata can omit an encrypted key's fingerprint until validation.
 
 ## Choose the workflow
 
@@ -116,7 +133,11 @@ API is for UI integrations, not a shortcut around secret-entry or reveal rules.
 - To add a server that is not managed yet, follow **When the user wants to add a server** below: collect the fields in chat, create the profile, then route secret entry through `serverctl ui --credential ALIAS`.
 - To add or update secrets, prefer the local UI — `serverctl ui --credential ALIAS` opens the browser directly on that server's credential form. When using the CLI, let `getpass` prompt locally; never pass a password as an argument or environment variable.
 - To diagnose access, run `serverctl server test <alias> --json` before connecting.
-- To identify a host's operating system — or before suggesting install/admin commands — run `serverctl server diagnose <alias> --json`: its remote check reports `os`, `os_family`, and `package_manager` (Linux distros, macOS, BSDs, and Windows hosts), so use the reported package manager instead of guessing `apt`.
+- To identify a host's operating system or choose install/admin commands, use
+  recent saved `facts` from inventory first. If they are missing or stale, run
+  `serverctl server diagnose <alias> --json`: its remote check reports `os`,
+  `os_family`, and `package_manager` across Linux, macOS, BSDs, and Windows, so
+  use the reported package manager instead of guessing `apt`.
 - To record a user or agent observation, use `serverctl server note <alias> --text "..." --append --json`; notes are local metadata and must never contain secrets.
 - To find where a host keeps its files, run `serverctl path resolve <alias> [<alias> ...] --json` before browsing or transferring. It reports the directories the user saved, in one read and without connecting; identical paths across hosts arrive grouped under `applies_to`.
 - To browse a host's files visually, run `serverctl ui`, choose the host under **Files**, and start from its remote home directory.
@@ -134,7 +155,7 @@ stays attached to the user's keyboard. Agent tool-execution environments run
 one command at a time without one, so never run `connect` yourself and never
 run a `server test` first just to stall — respond in seconds, not minutes:
 
-1. Check the host's `last_test` in `server list --json`. Only run
+1. Check the host's `last_test_status` and `last_test_at` in `server list --json`. Only run
    `serverctl server test <alias> --json --timeout 10` when there is no recent
    successful result.
 2. Reply briefly: give the exact absolute `serverctl connect <alias>` command
@@ -167,7 +188,7 @@ falling back to raw ssh.
    and re-create to work around a conflict, and never treat a taken
    credential label as anything other than a `credential edit` task.
 3. Route the credential by kind. You may create `agent` credentials and
-   passphrase-less key credentials yourself (`credential add-agent`,
+   unencrypted, passphrase-less key credentials yourself (`credential add-agent`,
    `credential add-key` without `--store-passphrase`) and attach them with
    `server edit ALIAS --credential LABEL`. A password or key passphrase is
    different: the CLI prompt needs a local TTY an agent tool call does not
@@ -199,6 +220,12 @@ onboarding options.
   untested), then a compact table with only alias, host:port, user, and last
   test status. Keep per-field detail, speculation about causes, and raw JSON
   for follow-up questions.
+- Inventory and `server show --json` read saved metadata without DNS, SSH, or
+  vault access. Use cached `facts` when available: `observed_at` dates the
+  successful diagnostic snapshot, and `os_id`/`os_like`/`os_family` identify
+  the system. Treat `last_success_at` as history, not current reachability;
+  check freshness before using those facts for a requested system change.
+  Run `diagnose` only when the task needs facts that are missing or stale.
 - Run only the commands the user's request needs. Do not add unrequested
   tests, doctor runs, or fleet-wide sweeps; offer them as a next step instead.
 - Treat host-bound skills as routing context, not permission. A binding never
@@ -230,6 +257,24 @@ onboarding options.
 ## Managed data
 
 The manager stores metadata in a platform-local SQLite database and renders a managed OpenSSH config without editing the user's original `~/.ssh/config`. Passwords and key passphrases live in macOS Keychain, Windows Credential Locker, or Linux Secret Service.
+
+Saved host facts and the closed `os_logo` key are sanitized local snapshots.
+`address_scope` classifies the configured hostname literally, without resolving
+it. `last_resolved_ip` records a local DNS result from an explicit check; through
+ProxyJump it need not be the remote peer's address. Saved `host_key` fingerprints
+and states (`verified`, `unknown`, `changed`, `revoked`) describe the last
+explicit check and never replace OpenSSH verification. Manual `geo` metadata is
+optional; no GeoIP lookup runs when reading inventory. Changing hostname or
+port clears observations for the old endpoint while retaining manual geography.
+
+Credential summaries include only cached key metadata and a version-specific
+last test. They never read key files or the vault implicitly. Default CLI/API
+credential removal still refuses a referenced credential. The Web UI offers a
+separate explicit detach/delete preview; after its database commit, vault/config
+cleanup may remain pending in a durable journal. Report that state accurately
+and use **Retry cleanup** rather than claiming secrets were erased. Private-key
+files are preserved. Reveal still requires credential-specific reauthentication:
+the grant lasts 30 seconds, is single-use, and plaintext display lasts 15 seconds.
 
 Read `references/security.md` before changing credential, reveal, AskPass, browser-session, or host-key behavior. Read `references/data-model.md` before changing schemas or import/render semantics.
 

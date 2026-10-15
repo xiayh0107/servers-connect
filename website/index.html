@@ -232,6 +232,12 @@ html[data-lang="zh"] body [lang="en"] { display: none; }
 }
 
 /* Demo section */
+.product-section { padding: 0 0 64px; }
+.product-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0 16px; }
+.product-tabs button { padding: 8px 16px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); cursor: pointer; }
+.product-tabs button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-strong); }
+.product-screen { display: block; width: 100%; height: auto; border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: #f7f8f9; }
+.product-caption { color: var(--text-secondary); margin-top: 12px; font-size: 13px; }
 .demo-section { padding: 0 0 96px; }
 .demo-intro {
   margin-bottom: 20px;
@@ -754,11 +760,28 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.75); }
     </div>
   </section>
 
+  <section class="product-section" aria-labelledby="productTitle">
+    <div class="container-wide">
+      <p class="eyebrow"><span lang="en">The local Web UI</span><span lang="zh-CN">本地 Web 界面</span></p>
+      <h2 id="productTitle"><span lang="en">Your hosts, files, and credentials together.</span><span lang="zh-CN">主机、文件与凭据，在同一个界面里。</span></h2>
+      <div class="product-tabs" aria-label="Product screenshots">
+        <button type="button" data-product-screen="hosts" aria-pressed="true">Hosts</button>
+        <button type="button" data-product-screen="host-details" aria-pressed="false">Host details</button>
+        <button type="button" data-product-screen="files" aria-pressed="false">Files</button>
+        <button type="button" data-product-screen="tags" aria-pressed="false">Tags</button>
+        <button type="button" data-product-screen="skills" aria-pressed="false">Skills</button>
+        <button type="button" data-product-screen="credentials" aria-pressed="false">Credentials</button>
+      </div>
+      <img id="productScreenshot" class="product-screen" src="assets/ui-hosts.png" alt="Hosts page of the local SSH Server Manager Web UI with fictional acceptance data" width="1440" height="900" loading="lazy">
+      <p class="product-caption"><span lang="en">Screenshots of the shipped interface with fictional acceptance data. Host checks and diagnostics are explicit. File conflicts require your overwrite choice.</span><span lang="zh-CN">发行版界面截图，使用虚构的验收数据。连接检查与诊断由你主动触发；文件冲突需明确选择覆盖。</span></p>
+    </div>
+  </section>
+
   <section class="demo-section" id="demo" aria-labelledby="demoTitle">
     <div class="container-wide">
       <div class="demo-intro">
         <div>
-          <p class="eyebrow"><span lang="en">Live product demo</span><span lang="zh-CN">在线产品演示</span></p>
+          <p class="eyebrow"><span lang="en">Interactive workflow sample</span><span lang="zh-CN">工作流互动示例</span></p>
           <h2 id="demoTitle"><span lang="en">Try the workspace you both share.</span><span lang="zh-CN">现在体验你们共用的工作区。</span></h2>
         </div>
         <p>
@@ -778,8 +801,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.75); }
           <aside class="demo-sidebar">
             <div class="demo-brand"><span class="demo-mark">&gt;_</span><span><strong>SSH Manager</strong><small>Local control plane</small></span></div>
             <nav class="demo-nav" aria-label="Demo views">
-              <button type="button" data-demo-view="workspace"><span class="nav-glyph">□</span>Workspace</button>
-              <button type="button" data-demo-view="connections" class="active"><span class="nav-glyph">═</span>Connections <b id="demoHostCount">0</b></button>
+              <button type="button" data-demo-view="workspace"><span class="nav-glyph">□</span>Files</button>
+              <button type="button" data-demo-view="connections" class="active"><span class="nav-glyph">═</span>Hosts <b id="demoHostCount">0</b></button>
               <button type="button" data-demo-view="tags"><span class="nav-glyph">◇</span>Tags <b id="demoTagCount">0</b></button>
               <button type="button" data-demo-view="skills"><span class="nav-glyph">✦</span>Skill Library <b id="demoSkillCount">0</b></button>
               <button type="button" data-demo-view="credentials"><span class="nav-glyph">⌁</span>Credentials <b>3</b></button>
@@ -792,7 +815,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.75); }
           </aside>
           <div class="demo-main">
             <header class="demo-header">
-              <div><p class="eyebrow" id="demoViewEyebrow">Connection inventory</p><h2 id="demoViewTitle">Connections</h2><p id="demoViewDescription">Manage endpoints, credentials, and jump hosts.</p></div>
+              <div><p class="eyebrow" id="demoViewEyebrow">Connection inventory</p><h2 id="demoViewTitle">Hosts</h2><p id="demoViewDescription">Manage endpoints, credentials, and jump hosts.</p></div>
               <div class="demo-header-actions">
                 <select class="demo-select" id="demoTagFilter" aria-label="Filter demo hosts by tag"><option value="*">All hosts</option></select>
                 <button class="demo-control" id="resetDemo" type="button">Reset demo</button>
@@ -917,6 +940,14 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.75); }
 <script>
 (function () {
 var root = document.documentElement;
+var productScreenshot = document.getElementById("productScreenshot");
+document.querySelectorAll("[data-product-screen]").forEach(function (button) {
+  button.addEventListener("click", function () {
+    document.querySelectorAll("[data-product-screen]").forEach(function (item) { item.setAttribute("aria-pressed", String(item === button)); });
+    productScreenshot.src = "assets/ui-" + button.dataset.productScreen + ".png";
+    productScreenshot.alt = button.textContent + " page of the local SSH Server Manager Web UI with fictional acceptance data";
+  });
+});
 var langButton = document.getElementById("langToggle");
 var agentDialog = document.getElementById("agentDialog");
 var copyButton = document.getElementById("copyAgentCommand");
@@ -948,7 +979,7 @@ var selectedIds = new Set();
 var pickerHostIds = [];
 var state = { view: "connections", hostId: "atlas-prod", filter: "*", query: "", path: "/" };
 var viewCopy = {
-connections: ["CONNECTION INVENTORY", "Connections", "Manage endpoints, credentials, and jump hosts."],
+connections: ["HOST INVENTORY", "Hosts", "Manage endpoints, credentials, and jump hosts."],
 workspace: ["REMOTE WORKSPACE", "Files", "Browse remote files without opening a shell."],
 tags: ["HOST ORGANIZATION", "Tags", "Label hosts for fast filtering by project, environment, or role."],
 skills: ["SKILL REGISTRY", "Skill Library", "Discover and register reusable skills, then assign them to hosts."],

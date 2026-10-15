@@ -108,8 +108,50 @@ open another. Agent commands use shared Python application services directly,
 so host inventory and remote CLI work do not depend on an HTTP runtime.
 UI integrations can use the typed `/api/v1` contract described in
 [Backend architecture](backend.md); its cookie, CSRF and credential-specific
-reveal authentication requirements apply to every shell. The current frontend
-remains in place pending its separate Paper design.
+reveal authentication requirements apply to every shell. The bundled React
+frontend implements Hosts, host details, Files, Tags, Skills and Credentials
+over that contract. Users do not need Node.js to run the installed package. The
+runtime reports the actual session expiry and server time; vault status stays
+unknown until an explicit vault operation observes a result.
+
+Host inventory and details read saved local metadata without DNS, SSH, or vault
+access. Successful diagnostics retain sanitized system `facts` with an
+`observed_at` timestamp and closed `os_logo` key; JSON also exposes
+`last_success_at`, the last locally resolved IP, host-key state, optional manual
+geography, and literal address scope. These are dated observations: a failed
+check keeps the previous successful facts, and cached metadata never proves
+that a host is currently reachable. Check only when the requested task needs
+fresh information.
+
+For UI integrations, `/api/v1/runtime` advertises bulk-check, route, file-conflict,
+and transfer-limit capabilities. `GET /api/v1/hosts/{id}/route` reads the saved
+ProxyJump route without probing; `POST /api/v1/hosts/test` checks an explicitly
+selected batch of at most 64 hosts with concurrency from 1 to 4. Every selected
+host must exist before any check starts. The file API supports optional name
+filtering, nullable precise metadata, structured errors, and uploads that refuse
+existing destinations unless `overwrite=true` is supplied for an authorized
+replacement. These are HTTP contracts; agents continue using the existing CLI
+commands and the same credential boundary.
+
+Credentials inventory is local metadata: opening the page does not read private
+keys or access the vault. Explicit key inspection and validation parse supported
+OpenSSH/PEM files in memory, bind validation to the file saved, and return public
+metadata rather than private-key contents. A blank replacement secret preserves
+the saved value; clearing a key passphrase is a separate explicit choice.
+The browser's independent credential test streams authentication stages against
+any saved host without changing its binding or health observations. Agent tests
+use only the agent, with default-file/password fallback disabled; ordinary host
+connections retain their configured OpenSSH behavior. A connection accepted
+without authentication does not count as verification of the selected credential.
+
+The CLI still refuses to remove a credential referenced by a host. The Web UI
+previews all affected hosts and explicitly confirms detaching and deleting.
+Database changes commit together; incomplete vault cleanup is kept in a durable
+journal and can be retried without repeating the detach. Reveal requires a
+credential-specific, single-use grant that expires after 30 seconds; the UI
+displays a revealed value for at most 15 seconds and clears it when hidden or
+closed. Never include reveal, password entry, launch URLs, cookies, CSRF values
+or passphrases in screenshots, traces, logs or agent messages.
 
 The skill instructs the agent to:
 
@@ -119,7 +161,8 @@ The skill instructs the agent to:
   `~/bin/serverctl`, or `scripts/serverctl` inside the skill directory;
 - use `--json` output for every query (`server list`, `server test`, …);
 - never request, print, or store secret values;
-- prefer `server test` before connecting, and use classified error codes
+- use a recent saved successful check before connecting, test when needed,
+  and use classified error codes
   (`authentication-failed`, `host-key-untrusted`, `timeout`, …) to
   diagnose failures;
 - route secret entry to the local UI or hidden `getpass` prompts, both of

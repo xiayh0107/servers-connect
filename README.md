@@ -347,7 +347,7 @@ serverctl get gpu01:/remote/result.csv ./
 serverctl put ./config.yaml gpu01:/remote/config.yaml
 ```
 
-The local Web UI also provides read-only SFTP browsing.
+The Files page browses SFTP directories, uploads with conflict confirmation, and downloads ordinary files within the runtime transfer limit.
 
 ---
 

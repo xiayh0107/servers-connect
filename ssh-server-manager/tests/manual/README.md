@@ -1,4 +1,11 @@
-# Isolated Hosts UI smoke fixture
+# Disposable Web UI fixtures
+
+Build the React frontend before launching either Python fixture. Neither fixture
+uses the developer's host database, SSH configuration or OS credential vault.
+The automated browser suite is described below; its real SSH project disables
+screenshots, traces and videos because the standard login flow contains secrets.
+
+## Hosts inventory and denial fixture
 
 This developer-only launcher serves the actual shipped UI and production web
 routes. It uses a temporary database, an empty `MemoryVault`, and reserved
@@ -8,13 +15,17 @@ upload, and download. Import, skill discovery/registration, and credential-file
 editing are also denied. No real host, user database, keychain, SSH config, or
 skill directory is used.
 
-## Launch
+### Launch
 
-From `ssh-server-manager/` after `scripts/bootstrap`:
+From `ssh-server-manager/` after `scripts/bootstrap` (or `scripts/bootstrap.cmd`
+on Windows) and `npm ci --prefix frontend`:
 
 ```sh
+npm run build --prefix frontend
 .venv/bin/python tests/manual/hosts_fixture.py --port 8765 --open-browser
 ```
+
+Use `.venv\Scripts\python.exe` instead of `.venv/bin/python` on Windows.
 
 The browser receives the normal one-time launch URL. The terminal prints only
 the mode and private URL file's path, never the token. For browser tooling, omit
@@ -31,7 +42,7 @@ announced temporary directory's `runtime/` folder. Stop with Ctrl-C; the entire
 temporary directory is removed. Restart to reset data or get another one-time
 launch URL. Choose a distinct unused URL-file path for each concurrent instance.
 
-## Modes
+### Modes
 
 - `--mode demo`: eight hosts; production/staging/development/legacy contexts;
   successful, failed, and never-run checks; agent/password/no credential;
@@ -46,13 +57,12 @@ launch URL. Choose a distinct unused URL-file path for each concurrent instance.
 The last two modes fail `database.list_servers()` after seeding and should be
 used only for bootstrap/error/retry checks. They do not simulate remote health.
 
-## Host list / search / detail checklist
+### Host list / search / detail checklist
 
 1. At desktop and narrow viewport widths, scan all eight hosts and verify status,
-   alias/address, username, port, tags and credential summary are understandable
-   (the inventory scrolls horizontally on narrow screens). With visible system
-   scrollbars, confirm the detail drawer keeps both edges inside the viewport
-   and the tag filter still displays its selected value.
+   alias/address, username, port, tags and credential summary are understandable.
+   With visible system scrollbars, confirm dialogs stay inside the viewport and
+   filters remain readable; wide tables may scroll horizontally.
 2. Search by alias, address, username and context where supported; try mixed
    case, whitespace, a long query, and a query with no matches; clear search
 3. Filter production, staging and the empty `archived-empty` context; verify
@@ -71,15 +81,63 @@ used only for bootstrap/error/retry checks. They do not simulate remote health.
 9. Reload the same authenticated tab; verify the session survives. A fresh
    cookie-less tab cannot reuse the consumed token or fetch bootstrap data
 
+## Real loopback SSH/SFTP fixture
+
+`modern_fixture.py` serves the shipped frontend and production API against
+temporary, real SSH/SFTP listeners implemented with Paramiko. The Python test
+extra supplies Paramiko; the machine must also have the system OpenSSH client.
+It generates disposable client/server keys and a trusted `known_hosts` file,
+keeps strict host-key checking enabled, and uses a `MemoryVault`. Connections and
+forwarding are restricted to fixture loopback ports. There is no general remote
+shell or PTY: only the product's fixed health and metadata probes are accepted.
+
+The fixture seeds direct, two-managed-hop and external-jump routes, a rejected
+key, a metadata fallback host, a directory with 5,005 entries, empty and Unicode
+paths, an existing upload target, and a file above the Web transfer limit. It
+supports SFTP's atomic no-replacement and explicit overwrite operations. Local
+imports, Skill discovery/registration and credential-file edits are denied.
+Generated fixture keys may be used for independent credential testing.
+
+The Playwright SSH project starts and stops this fixture automatically. For
+manual browser testing, choose a new private directory, then run:
+
+```sh
+.venv/bin/python tests/manual/modern_fixture.py \
+  --url-file PATH_TO_PRIVATE_DIR/launch-url \
+  --ready-file PATH_TO_PRIVATE_DIR/ready.json
+```
+
+Consume the launch file privately in browser tooling; do not echo its contents,
+copy it into a screenshot or save it in a trace. The normal one-use launch flow
+creates the session and removes the launch file. `ready.json` contains only the
+base URL, host IDs and transfer limit. Stop with Ctrl-C; temporary SSH listeners,
+keys, data and runtime state are cleaned up. `--stdin-stop` is available for
+automation, including Windows, and stops on `stop` or EOF.
+
 ## Automated checks
 
 ```sh
 .venv/bin/python -m pytest tests/test_hosts_fixture.py tests/test_webapp_security.py
 .venv/bin/python -m pytest tests/
-node tests/test_host_details_node.mjs
-npm ci --prefix tests/ui
-npm test --prefix tests/ui
+npm ci --prefix frontend
+npm run check-types --prefix frontend
+npm test --prefix frontend
+npm run build --prefix frontend
+npm run check-build --prefix frontend -- --allow-uncommitted
+npm exec --prefix frontend playwright -- install chromium
+npm run e2e --prefix frontend -- --project=smoke
+npm run e2e --prefix frontend -- --project=ssh
 ```
+
+The frontend source and lockfile are in `frontend/`; old sidecar Node tests and
+the former `tests/ui` package have been replaced. The smoke project uses safe
+synthetic API data for six-page interaction and desktop/mobile screenshot
+coverage. The SSH project exercises real direct/multi-hop/external routing,
+diagnosis and authentication failure, independent credential verification,
+routed SFTP browse/download/upload conflicts, explicit overwrite, large-directory
+filtering, empty folders, nullable metadata and the transfer cap. Its interpreter
+defaults to the product `.venv`; override it with `SSM_E2E_PYTHON` if needed.
+See [`../../frontend/README.md`](../../frontend/README.md) for build/contract checks.
 
 The fixture regressions cover isolation/cleanup, all four data modes, denied
 remote/import/file operations, mode-600 one-time URL handling, actual loopback
