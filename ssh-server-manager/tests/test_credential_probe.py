@@ -17,6 +17,7 @@ import pytest
 
 from ssh_fixture_permissions import private_ssh_fixture_file
 
+from ssh_server_manager.askpass import HOST_KEY_CONFIRM_ENV
 from ssh_server_manager.credential_probe import CredentialProbeRunner, _Broker, _external_config, _method, _ProbeError, _ProcessTree, _terminate_windows_job, _windows_callback_command
 from ssh_server_manager.credential_probe_helper import _request, _strict_descriptor, probe_askpass
 from ssh_server_manager.db import Database
@@ -61,6 +62,26 @@ def test_request_configuration_changes_only_selected_target(tmp_path, request_st
     assert database.get_server(host["id"]) == snapshot
     if os.name != "nt":
         assert config.stat().st_mode & 0o777 == 0o600
+
+
+def test_probe_environment_clears_interactive_host_confirmation(request_state, tmp_path, monkeypatch):
+    database, credential, host, vault = request_state
+    monkeypatch.setenv(HOST_KEY_CONFIRM_ENV, "terminal")
+    # A synthetic existing launcher avoids consulting any installed application.
+    launcher = tmp_path / "askpass.exe"
+    launcher.touch()
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.SSHRunner._windows_askpass_candidates",
+                        lambda: [launcher])
+    runner = CredentialProbeRunner(database, lambda: vault)
+    hops = runner._hops(host, credential)
+    broker = _Broker(hops, lambda: vault)
+    try:
+        environment = runner._environment(hops, tmp_path, broker)
+        assert HOST_KEY_CONFIRM_ENV not in environment
+        assert environment["SSH_ASKPASS_REQUIRE"] == "force"
+        assert environment["SSM_CREDENTIAL_PROBE_ENDPOINT"]
+    finally:
+        broker.close()
 
 
 def test_external_alias_resolution_never_executes_saved_hooks(tmp_path):

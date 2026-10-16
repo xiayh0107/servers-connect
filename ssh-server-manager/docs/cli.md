@@ -353,6 +353,12 @@ serverctl exec ALIAS [--shell] [--stdin | --stdin-binary]
 - `connect` opens an interactive shell and requires a real terminal. Without
   a TTY (pipes, agent tool calls, cron) it fails fast with exit code `2` and
   points to `exec` instead of hanging.
+- With OpenSSH's normal `ask` policy, the first connection shows the server's
+  host-key fingerprint in that terminal, including when a saved password or
+  passphrase is supplied by AskPass. Check it against a trusted source before
+  confirming with `yes` or the matching fingerprint. A missing terminal or
+  declined confirmation fails closed. Stricter SSH policies still apply;
+  changed or revoked keys require investigation rather than automatic removal.
 - Everything after `--` is the remote command. Without `--shell`, each
   argument is quoted for a POSIX remote shell — write
   `exec web1 -- ls -la /var/log`, not a single string.

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fix first-use host-key confirmation for interactive `serverctl connect`
+  when AskPass supplies a saved password or key passphrase. Show the OpenSSH
+  confirmation in the human's controlling terminal and return only their
+  explicit answer; reject missing terminals and preserve configured trust
+  policies. Agent calls, Web checks, transfers and credential tests continue
+  to refuse unknown keys, and changed or revoked keys are never auto-replaced.
+
 ## 0.9.0 — 2026-10-15
 
 - Migrate host metadata to SQLite schema 6: retain sanitized successful system

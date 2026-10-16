@@ -24,6 +24,7 @@
   case-insensitively unique; same-name paths conflict, and missing, invalid, or
   renamed files must never be silently replaced with another candidate.
 - Require normal OpenSSH known-host validation. Never silently accept or discard host keys.
+- Only interactive CLI `connect` may delegate a first-use OpenSSH host-key confirmation to the human's controlling terminal. Require explicit terminal input; fail closed without that terminal. Do not enable this path for agent calls, Web checks, transfers, or independent credential probes, and preserve stricter configured SSH trust policies.
 - Redact password-like prompts, vault values, launch tokens, session cookies, and CSRF tokens from diagnostics.
 - Treat same-user local code as inside the OS account trust boundary. The UI authentication layer is an additional disclosure gate, not a replacement for OS account security.
 - Host-skill registration is not content pinning, signing, or sandboxing. Skill

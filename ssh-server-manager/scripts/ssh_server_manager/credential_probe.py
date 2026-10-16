@@ -30,6 +30,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
+from .askpass import HOST_KEY_CONFIRM_ENV
 from .db import Database, utc_now
 from .paths import original_ssh_config_path, runtime_dir
 from .ssh_config import quote_value, split_config_line
@@ -677,7 +678,7 @@ class CredentialProbeRunner:
     def _environment(self, hops: list[dict[str, Any]], directory: Path, broker: _Broker) -> dict[str, str]:
         environment = {key: value for key, value in os.environ.items()
                        if not key.startswith("SSM_CREDENTIAL_PROBE_") and key not in {
-                           "SSM_ASKPASS_MAP", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE"}}
+                           HOST_KEY_CONFIRM_ENV, "SSM_ASKPASS_MAP", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE"}}
         if os.name == "nt":
             launcher = next((path for path in SSHRunner._windows_askpass_candidates() if path.exists()), None)
             if launcher is None:

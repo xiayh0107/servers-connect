@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -9,6 +10,8 @@ from ssh_server_manager.db import Database
 import pytest
 
 from ssh_server_manager.cli import build_parser, normalize_remote_command
+from ssh_server_manager.askpass import HOST_KEY_CONFIRM_ENV
+from ssh_server_manager.ssh_config import quote_value
 from ssh_server_manager.validation import ValidationError
 from ssh_server_manager.ssh_runner import SSHError, SSHRunner
 
@@ -18,6 +21,72 @@ def isolate_check_metadata(monkeypatch):
     # These tests mock the SSH/SFTP transport, not DNS or local known_hosts.
     # Metadata subprocess behavior has its own isolated regression suite.
     monkeypatch.setattr("ssh_server_manager.ssh_runner.collect_probe_metadata", lambda *args, **kwargs: {})
+
+
+@pytest.fixture
+def password_runner(tmp_path, monkeypatch):
+    # The transport is mocked; keep assertion tracebacks free of unrelated
+    # developer environment values as well as application state.
+    monkeypatch.setattr(os, "environ", {})
+    database = Database(tmp_path / "manager.db")
+    credential = database.create_credential(label="Fixture password", kind="password", has_secret=True)
+    server = database.create_server(alias="box", hostname="box.example", port=22, username="alice",
+                                    credential_id=credential["id"])
+    original = tmp_path / "original.conf"
+    original.write_text("Host *\n  StrictHostKeyChecking yes\n")
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(original))
+    monkeypatch.setenv(HOST_KEY_CONFIRM_ENV, "terminal")
+    monkeypatch.setattr(SSHRunner, "_askpass_launcher", lambda self: tmp_path / "askpass")
+    return SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp"), server, original
+
+
+@pytest.mark.parametrize("input_tty,output_tty", [(True, True), (False, True), (True, False), (False, False)])
+def test_only_interactive_connect_delegates_host_confirmation_without_overriding_policy(
+        password_runner, monkeypatch, input_tty, output_tty):
+    runner, _, original = password_runner
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: input_tty)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: output_tty)
+    calls = []
+
+    def call(command, *, env):
+        calls.append((command, env))
+        assert env["SSH_ASKPASS_REQUIRE"] == "force"
+        assert env.get(HOST_KEY_CONFIRM_ENV) == ("terminal" if input_tty and output_tty else None)
+        assert not any(value.startswith("StrictHostKeyChecking=") for value in command)
+        config = Path(command[command.index("-F") + 1]).read_text()
+        assert f"Include {quote_value(str(original))}" in [line.strip() for line in config.splitlines()]
+        assert original.read_text() == "Host *\n  StrictHostKeyChecking yes\n"
+        return 0
+
+    monkeypatch.setattr(subprocess, "call", call)
+    assert runner.connect("box") == 0
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("operation", ["test", "execute", "sftp"])
+def test_background_checks_commands_and_sftp_clear_inherited_host_confirmation(
+        password_runner, monkeypatch, operation):
+    runner, server, _ = password_runner
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        assert HOST_KEY_CONFIRM_ENV not in kwargs["env"]
+        assert kwargs["env"]["SSH_ASKPASS_REQUIRE"] == "force"
+        assert "StrictHostKeyChecking=yes" in command
+        return subprocess.CompletedProcess(command, 0,
+            stdout="Remote working directory: /home/alice\n" if command[0] == "sftp" else "", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    if operation == "test":
+        assert runner.test(server["id"])["ok"] is True
+    elif operation == "execute":
+        assert runner.execute(server["id"], ["true"], capture=True)["ok"] is True
+    else:
+        assert runner.list_directory(server["id"], "~", enrich=False)["path"] == "/home/alice"
+    assert calls
 
 
 def test_test_classifies_auth_failure(tmp_path, monkeypatch):

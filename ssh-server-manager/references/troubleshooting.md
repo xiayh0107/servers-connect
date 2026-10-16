@@ -70,6 +70,25 @@ subsystem. A successful interactive shell does not guarantee that SFTP is
 enabled. Directory permission errors are surfaced in the panel; unknown host
 keys remain a hard failure.
 
+## First connection reports “Host key verification failed”
+
+This can happen before account authentication: the SSH server's host key is
+not yet trusted on this computer. It is unrelated to whether that account
+has previously logged in. In your own terminal, run:
+
+```bash
+./scripts/serverctl connect ALIAS
+```
+
+Under OpenSSH's normal `ask` policy, compare the displayed fingerprint with
+the server administrator's trusted value before answering `yes` or the
+matching fingerprint. AskPass continues to supply your saved credential.
+Web checks and agent calls cannot confirm this prompt. An explicit
+`StrictHostKeyChecking=yes` policy continues to reject unknown keys until
+you provision the verified trust record yourself. Changed or revoked keys
+require investigation; do not delete records or disable verification merely
+to make the error disappear.
+
 ## SSH succeeds but a web port is unreachable
 
 First verify the service on the server itself, then verify the container or

@@ -80,6 +80,13 @@ states never bypass OpenSSH verification.
 changes and Skill assignments are explicit local writes. Host Skill bindings
 route instructions; they do not install or execute anything.
 
+An unknown host-key error means the server's identity has not been trusted
+locally; it does not establish whether the account password is correct.
+Paste the copied `connect` command into your own terminal to review the
+fingerprint under OpenSSH's normal `ask` policy. Compare it with a trusted
+source before confirming. Saved passwords remain supplied by the vault.
+Web checks do not accept keys, and changed or revoked keys require investigation.
+
 ## Files and saved directories
 
 ![Files workspace using disposable fixture data](https://xiayh0107.github.io/servers-connect/assets/ui-files.png)

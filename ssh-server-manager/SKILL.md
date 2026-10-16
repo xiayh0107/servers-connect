@@ -169,6 +169,14 @@ run a `server test` first just to stall — respond in seconds, not minutes:
 Keep the whole explanation to two or three sentences. Do not present a
 numbered menu of connection modes.
 
+If a check reports an unknown host key, hand the same `connect` command to
+the user's terminal and ask them to compare the displayed fingerprint with
+a trusted source before confirming. Interactive `connect` can pass that
+confirmation to the human while AskPass still supplies the saved credential.
+Agent calls and Web checks cannot approve a host key. A changed or revoked
+key requires investigation; never remove known-host entries or relax the
+user's SSH policy to make a connection succeed.
+
 ## When the user wants to add a server
 
 Drive the whole onboarding yourself instead of waiting for the user to
