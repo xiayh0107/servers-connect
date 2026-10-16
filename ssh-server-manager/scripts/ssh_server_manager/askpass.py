@@ -83,6 +83,13 @@ def _read_windows_confirmation(prompt: str) -> str | None:
     from ctypes import wintypes
 
     kernel = _windows_console_kernel()
+    kernel.GetConsoleProcessList.argtypes = [ctypes.POINTER(wintypes.DWORD), wintypes.DWORD]
+    kernel.GetConsoleProcessList.restype = wintypes.DWORD
+    # CONIN$/CONOUT$ are usable only with an attached console. A nonzero
+    # required buffer length proves attachment without enumerating its PIDs.
+    process = (wintypes.DWORD * 1)()
+    if not kernel.GetConsoleProcessList(process, len(process)):
+        return None
     kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
                                   wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
     kernel.CreateFileW.restype = wintypes.HANDLE

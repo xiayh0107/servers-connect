@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ import pytest
 
 from ssh_server_manager.cli import build_parser, normalize_remote_command
 from ssh_server_manager.askpass import HOST_KEY_CONFIRM_ENV
+from ssh_server_manager.ssh_config import quote_value
 from ssh_server_manager.validation import ValidationError
 from ssh_server_manager.ssh_runner import SSHError, SSHRunner
 
@@ -23,6 +25,9 @@ def isolate_check_metadata(monkeypatch):
 
 @pytest.fixture
 def password_runner(tmp_path, monkeypatch):
+    # The transport is mocked; keep assertion tracebacks free of unrelated
+    # developer environment values as well as application state.
+    monkeypatch.setattr(os, "environ", {})
     database = Database(tmp_path / "manager.db")
     credential = database.create_credential(label="Fixture password", kind="password", has_secret=True)
     server = database.create_server(alias="box", hostname="box.example", port=22, username="alice",
@@ -51,7 +56,7 @@ def test_only_interactive_connect_delegates_host_confirmation_without_overriding
         assert env.get(HOST_KEY_CONFIRM_ENV) == ("terminal" if input_tty and output_tty else None)
         assert not any(value.startswith("StrictHostKeyChecking=") for value in command)
         config = Path(command[command.index("-F") + 1]).read_text()
-        assert str(original) in config
+        assert f"Include {quote_value(str(original))}" in [line.strip() for line in config.splitlines()]
         assert original.read_text() == "Host *\n  StrictHostKeyChecking yes\n"
         return 0
 

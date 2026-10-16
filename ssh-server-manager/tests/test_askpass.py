@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 import select
 import subprocess
@@ -105,7 +106,8 @@ def test_posix_confirmation_rejects_a_nonterminal_and_reclaims_descriptor(monkey
 class ConsoleKernel:
     def __init__(self, failure=None, response="yes\r\n"):
         self.failure, self.response = failure, response
-        self.opened, self.closed, self.written = [], [], []
+        self.opened, self.closed, self.written, self.reads = [], [], [], []
+        self.GetConsoleProcessList = self._function(self.processes)
         self.CreateFileW = self._function(self.open)
         self.GetConsoleMode = self._function(self.mode)
         self.WriteConsoleW = self._function(self.write)
@@ -115,6 +117,10 @@ class ConsoleKernel:
     @staticmethod
     def _function(method):
         return lambda *args: method(*args)
+
+    def processes(self, buffer, size):
+        assert len(buffer) == size == 1 and buffer._type_ is wintypes.DWORD
+        return 0 if self.failure == "no-console" else 4
 
     def open(self, name, access, share, security, disposition, flags, template):
         assert name in ("CONIN$", "CONOUT$") and share == 3 and disposition == 3
@@ -138,12 +144,13 @@ class ConsoleKernel:
 
     def read(self, handle, buffer, size, pointer, control):
         assert handle == 11 and control is None and size == 1023
+        self.reads.append(handle)
         buffer.value = self.response
         pointer._obj.value = len(self.response)
         return self.failure != "read"
 
 
-@pytest.mark.parametrize("failure", [None, "CONIN$", "CONOUT$", "mode-11", "mode-12", "raw", "write", "partial-write", "read"])
+@pytest.mark.parametrize("failure", [None, "no-console", "CONIN$", "CONOUT$", "mode-11", "mode-12", "raw", "write", "partial-write", "read"])
 def test_windows_confirmation_uses_console_devices_and_closes_every_handle(monkeypatch, failure):
     kernel = ConsoleKernel(failure)
     monkeypatch.setattr(askpass, "_windows_console_kernel", lambda: kernel)
@@ -152,6 +159,12 @@ def test_windows_confirmation_uses_console_devices_and_closes_every_handle(monke
     assert kernel.closed == list(reversed(kernel.opened))
     if failure is None:
         assert kernel.written == [prompt]
+    if failure == "no-console":
+        assert kernel.opened == kernel.closed == kernel.written == kernel.reads == []
+    assert kernel.GetConsoleProcessList.argtypes == [ctypes.POINTER(wintypes.DWORD), wintypes.DWORD]
+    assert kernel.GetConsoleProcessList.restype is wintypes.DWORD
+    if failure == "no-console":
+        return
     assert kernel.GetConsoleMode.argtypes == [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
     assert kernel.ReadConsoleW.restype is wintypes.BOOL
 
@@ -170,6 +183,39 @@ def no_vault():
 sys.modules['ssh_server_manager.vault'] = types.SimpleNamespace(get_vault=no_vault)
 from ssh_server_manager.askpass import main
 raise SystemExit(main())
+"""
+
+_NO_TERMINAL_CHILD = """
+import json, os, sys, types
+phase_file = sys.argv[2]
+attached_console = None
+vault_attempted = False
+def phase(stage):
+    with open(phase_file, 'w', encoding='utf-8') as output:
+        json.dump({'stage': stage, 'attached_console': attached_console,
+                   'vault_attempted': vault_attempted}, output)
+phase('start')
+def no_vault():
+    global vault_attempted
+    vault_attempted = True
+    raise AssertionError('host-key prompt attempted vault access')
+sys.modules['ssh_server_manager.vault'] = types.SimpleNamespace(get_vault=no_vault)
+from ssh_server_manager import askpass
+phase('import')
+if os.name == 'nt':
+    import ctypes
+    from ctypes import wintypes
+    kernel = askpass._windows_console_kernel()
+    kernel.GetConsoleProcessList.argtypes = [ctypes.POINTER(wintypes.DWORD), wintypes.DWORD]
+    kernel.GetConsoleProcessList.restype = wintypes.DWORD
+    buffer = (wintypes.DWORD * 1)()
+    phase('console-check')
+    attached_console = bool(kernel.GetConsoleProcessList(buffer, len(buffer)))
+    phase('console' if attached_console else 'no-console')
+phase('main')
+result = askpass.main()
+phase('done')
+raise SystemExit(result)
 """
 
 _CONTROLLING_TERMINAL_PARENT = """
@@ -238,11 +284,24 @@ def test_askpass_subprocess_uses_controlling_pty_with_redirected_stdio(tmp_path,
 
 
 def test_askpass_without_controlling_terminal_never_reads_redirected_yes_or_vault(tmp_path):
-    result = subprocess.run([sys.executable, "-c", _HOST_CONFIRM_CHILD, HOST_PROMPT], input=b"yes\n",
-                            capture_output=True, env=_child_environment(tmp_path),
-                            start_new_session=os.name != "nt",
-                            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-                            timeout=5)
+    phase_file = tmp_path / "askpass-phase.json"
+    try:
+        result = subprocess.run([sys.executable, "-c", _NO_TERMINAL_CHILD, HOST_PROMPT, str(phase_file)],
+                                input=b"yes\n", capture_output=True, env=_child_environment(tmp_path),
+                                start_new_session=os.name != "nt",
+                                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                                timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            phase = json.loads(phase_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            phase = {"stage": "unavailable"}
+        pytest.fail("AskPass no-terminal timeout: " + json.dumps(phase, sort_keys=True), pytrace=False)
+    phase = json.loads(phase_file.read_text(encoding="utf-8"))
+    assert phase["stage"] == "done"
+    assert phase["vault_attempted"] is False
+    if os.name == "nt":
+        assert phase["attached_console"] is False
     assert result.returncode == 1
     assert result.stdout == result.stderr == b""
 
