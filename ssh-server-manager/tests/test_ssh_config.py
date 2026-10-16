@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import stat
 import shutil
@@ -31,7 +32,7 @@ def fixture_ssh():
 def effective_values(ssh, config, alias):
     result = subprocess.run(
         [ssh, "-G", "-F", str(config), alias], capture_output=True,
-        text=True, timeout=10,
+        encoding="utf-8", errors="replace", timeout=10,
     )
     assert result.returncode == 0, result.stderr
     values = {}
@@ -40,6 +41,29 @@ def effective_values(ssh, config, alias):
             key, value = line.split(" ", 1)
             values.setdefault(key, []).append(value)
     return values
+
+
+def include_failure_diagnostics(ssh, config, alias):
+    """Failure-only evidence from this isolated fixture, never user config."""
+    evidence = {"fixture_config": config.read_text(encoding="utf-8")}
+    for name, arguments in (
+        ("client_version", ["-V"]),
+        ("include_debug", ["-vvv", "-G", "-F", str(config), alias]),
+    ):
+        try:
+            result = subprocess.run(
+                [ssh, *arguments], stdin=subprocess.DEVNULL,
+                capture_output=True, encoding="utf-8", errors="replace", timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            evidence[name] = "unavailable"
+            continue
+        lines = (result.stdout + "\n" + result.stderr).splitlines() if name == "client_version" else result.stderr.splitlines()
+        evidence[name] = [
+            line for line in lines
+            if line.startswith("OpenSSH") or (name == "include_debug" and "include" in line.casefold())
+        ]
+    return json.dumps(evidence, ensure_ascii=True)
 
 
 def test_rendered_config_contains_no_secret_and_includes_original(tmp_path):
@@ -95,11 +119,19 @@ def test_original_defaults_and_external_aliases_apply_before_last_host(tmp_path)
     assert external["port"] == ["22022"]
 
 
-def test_unbound_host_keeps_original_identity_and_literal_include_filename(tmp_path):
+@pytest.mark.parametrize("source_name", [
+    "[source] 中文 100% ${SSM_TEST_SOURCE} config.conf",
+    "source.conf",
+    "[source].conf",
+    "source100%.conf",
+    "source${SSM_TEST_SOURCE}.conf",
+    "source中文.conf",
+], ids=["combined", "plain", "brackets", "percent", "dollar", "unicode"])
+def test_unbound_host_keeps_original_identity_and_literal_include_filename(tmp_path, source_name):
     ssh = fixture_ssh()
     database = Database(tmp_path / "manager.db")
     database.create_server(alias="box", hostname="127.0.0.9", port=2200, username="managed")
-    original = tmp_path / "[source] 中文 100% ${SSM_TEST_SOURCE} config.conf"
+    original = tmp_path / source_name
     dummy_key = tmp_path / "dummy-key"
     original.write_text(
         "Host box\n  HostName 127.0.0.10\n  Port 2300\n  User original\n"
@@ -108,7 +140,7 @@ def test_unbound_host_keeps_original_identity_and_literal_include_filename(tmp_p
     private_ssh_fixture_file(original)
     managed = render_config(database, destination=tmp_path / "other" / "managed.conf", original=original, ssh_binary=ssh)
     effective = effective_values(ssh, managed, "box")
-    assert effective["identityfile"] == [dummy_key.as_posix()]
+    assert effective["identityfile"] == [dummy_key.as_posix()], include_failure_diagnostics(ssh, managed, "box")
     assert effective["identitiesonly"] == ["yes"]
     assert effective["hostname"] == ["127.0.0.9"]
     assert effective["port"] == ["2200"]
@@ -182,6 +214,19 @@ def test_custom_source_cycle_is_rejected_before_replacing_managed(tmp_path):
     assert managed.read_text(encoding="utf-8") == "existing config\n"
 
 
+def test_literal_class_include_cycle_rejects_missing_managed_destination(tmp_path):
+    database = Database(tmp_path / "manager.db")
+    managed = tmp_path / "[managed] ${literal}.conf"
+    source = tmp_path / "source.conf"
+    include = ssh_config._IncludePaths().format(managed)
+    source.write_text(f"Include {include}\n", encoding="utf-8")
+    assert not managed.exists()
+    assert includes_target(source, managed)
+    with pytest.raises(SSHConfigError, match="cycle"):
+        render_config(database, destination=managed, original=source)
+    assert not managed.exists()
+
+
 def test_import_source_validator_checks_format_and_cycle_without_writing(tmp_path):
     managed = tmp_path / "managed.conf"
     managed.write_text("previous config\n", encoding="utf-8")
@@ -231,6 +276,14 @@ def test_native_windows_include_uses_forward_slash_absolute_path(monkeypatch):
     monkeypatch.setattr(ssh_config, "_cygpath_for_client", lambda binary: None)
     paths = ssh_config._IncludePaths("native-ssh", windows=True)
     assert paths.format(PureWindowsPath(r"D:\custom profile\original.conf")) == '"D:/custom profile/original.conf"'
+
+
+def test_include_literal_glob_classes_survive_native_separator_normalization(monkeypatch):
+    monkeypatch.setattr(ssh_config, "_cygpath_for_client", lambda binary: None)
+    paths = ssh_config._IncludePaths("native-ssh", windows=True)
+    formatted = paths.format(PureWindowsPath("D:/[source]*?${literal}.conf"))
+    assert formatted == "D:/[[]source][*][?][$]{literal}.conf"
+    assert "\\" not in formatted
 
 
 @pytest.mark.parametrize("banner,expands", [

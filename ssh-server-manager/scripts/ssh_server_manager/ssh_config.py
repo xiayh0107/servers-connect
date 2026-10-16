@@ -155,8 +155,11 @@ class _IncludePaths:
         # Protect only the layers used by this client before config quoting.
         if "%" in value and self._include_expands_tokens():
             value = value.replace("%", "%%")
+        # Native Windows OpenSSH normalizes backslashes into separators
+        # before globbing. Single-character classes protect literal glob
+        # characters without depending on backslash escape support.
         value = "".join(
-            "[$]" if char == "$" else "\\" + char if char in "\\*?[" else char
+            "[" + char + "]" if char in "$*?[" else "\\\\" if char == "\\" else char
             for char in value
         )
         return quote_value(value)
@@ -181,6 +184,11 @@ def _expand_include(pattern: str, paths: _IncludePaths) -> list[Path]:
     # Keep a literal candidate too: native Windows paths may use backslashes
     # as separators in existing hand-written configuration.
     candidates = [paths.local(pattern)]
+    # A generated managed destination may not exist yet, so glob alone cannot
+    # discover a cycle through a literal single-character class. Decode only
+    # these exact singleton forms; retain the original glob candidate too.
+    literal = re.sub(r"\[(\[|\*|\?|\$)\]", lambda match: match.group(1), pattern)
+    candidates.append(paths.local(literal))
     escaped: list[str] = []
     position = 0
     while position < len(pattern):
