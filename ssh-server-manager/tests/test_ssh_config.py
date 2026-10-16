@@ -212,14 +212,15 @@ def test_msys_cycle_check_converts_posix_include_with_selected_client(tmp_path, 
     monkeypatch.setattr(ssh_config, "_cygpath_for_client", lambda binary: converter)
     # The fake converter returns this platform's temporary path. Production
     # cygpath -w returns a drive-qualified Windows path instead.
+    managed_resolved = str(managed.resolve())
     is_absolute = ssh_config.ntpath.isabs
-    monkeypatch.setattr(ssh_config.ntpath, "isabs", lambda value: value == str(managed.resolve()) or is_absolute(value))
+    monkeypatch.setattr(ssh_config.ntpath, "isabs", lambda value: value == managed_resolved or is_absolute(value))
     calls = []
 
     def run(command, **kwargs):
         calls.append(command)
         assert command[1:] == ["-w", "-C", "UTF8", "--", "/c/fixture/managed.conf"]
-        return SimpleNamespace(returncode=0, stdout=str(managed.resolve()) + "\n")
+        return SimpleNamespace(returncode=0, stdout=managed_resolved + "\n")
 
     monkeypatch.setattr(ssh_config.subprocess, "run", run)
     assert includes_target(source, managed, _paths=ssh_config._IncludePaths("fixture-ssh", windows=True))
@@ -230,6 +231,52 @@ def test_native_windows_include_uses_forward_slash_absolute_path(monkeypatch):
     monkeypatch.setattr(ssh_config, "_cygpath_for_client", lambda binary: None)
     paths = ssh_config._IncludePaths("native-ssh", windows=True)
     assert paths.format(PureWindowsPath(r"D:\custom profile\original.conf")) == '"D:/custom profile/original.conf"'
+
+
+@pytest.mark.parametrize("banner,expands", [
+    ("OpenSSH_for_Windows_9.5p2, LibreSSL fixture", False),
+    ("OpenSSH_9.6p1 Ubuntu-fixture, OpenSSL fixture", False),
+    ("OpenSSH_9.8p1, OpenSSL fixture", False),
+    ("OpenSSH_9.9p1, OpenSSL fixture", True),
+    ("OpenSSH_10.0p2, OpenSSL fixture", True),
+])
+def test_include_percent_filename_uses_selected_client_version(monkeypatch, banner, expands):
+    monkeypatch.setattr(ssh_config, "_cygpath_for_client", lambda binary: None)
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        assert command == ["selected-ssh", "-V"]
+        assert kwargs["stdin"] == subprocess.DEVNULL
+        assert kwargs["timeout"] == 5
+        return SimpleNamespace(returncode=0, stdout="", stderr=banner + "\n")
+
+    monkeypatch.setattr(ssh_config.subprocess, "run", run)
+    paths = ssh_config._IncludePaths("selected-ssh", windows=True)
+    assert paths.format(PureWindowsPath("D:/ordinary.conf")) == "D:/ordinary.conf"
+    assert calls == []
+    source = PureWindowsPath("D:/中文 100% ${literal}.conf")
+    expected = '"D:/中文 100' + ("%%" if expands else "%") + ' [$]{literal}.conf"'
+    assert paths.format(source) == expected
+    assert paths.format(source) == expected
+    expected_local = "D:/literal" + ("%" if expands else "%%") + ".conf"
+    assert paths.local("D:/literal%%.conf").as_posix() == expected_local
+    assert calls == [["selected-ssh", "-V"]]
+
+
+@pytest.mark.parametrize("failure", ["unknown", "error", "timeout"])
+def test_include_percent_filename_rejects_unknown_client_support(monkeypatch, failure):
+    monkeypatch.setattr(ssh_config, "_cygpath_for_client", lambda binary: None)
+
+    def run(command, **kwargs):
+        assert command == ["selected-ssh", "-V"]
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired("selected-ssh", 5)
+        return SimpleNamespace(returncode=1 if failure == "error" else 0, stdout="", stderr="unknown SSH fixture\n")
+
+    monkeypatch.setattr(ssh_config.subprocess, "run", run)
+    with pytest.raises(SSHConfigError, match="Include token support"):
+        ssh_config._IncludePaths("selected-ssh", windows=True).format(PureWindowsPath("D:/100%.conf"))
 
 
 def test_msys_include_uses_selected_distribution_converter_and_caches(tmp_path, monkeypatch):

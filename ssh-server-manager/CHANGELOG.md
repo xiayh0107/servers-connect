@@ -3,9 +3,10 @@
 ## Unreleased
 
 - Fix SSH config Includes for native Windows and Git/MSYS OpenSSH, and make
-  SFTP use the same SSH client. Retain custom import sources per host without
-  mixing IdentityFile defaults across sources; reject invalid paths and
-  Include cycles before applying an import.
+  SFTP use the same SSH client. Keep literal Include paths compatible with
+  OpenSSH clients before and after 9.9's token expansion. Retain custom import
+  sources per host without mixing IdentityFile defaults across sources;
+  reject invalid paths and Include cycles before applying an import.
 - Preserve saved credentials, notes and local metadata on import overwrite.
   Expose authentication warnings, IdentityFile paths and source-config fallback
   in CLI, API v1 and the import dialog; importing does not verify login or read

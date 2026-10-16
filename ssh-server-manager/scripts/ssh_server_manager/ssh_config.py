@@ -95,8 +95,30 @@ def _cygpath_for_client(ssh_binary: str | None) -> Path | None:
 class _IncludePaths:
     def __init__(self, ssh_binary: str | None = None, *, windows: bool | None = None):
         self.windows = os.name == "nt" if windows is None else windows
-        self.cygpath = _cygpath_for_client(ssh_binary) if self.windows else None
+        self.ssh_binary = ssh_binary or shutil.which("ssh") or "ssh"
+        self.cygpath = _cygpath_for_client(self.ssh_binary) if self.windows else None
         self._converted: dict[tuple[str, str], str] = {}
+        self._expands_tokens: bool | None = None
+
+    def _include_expands_tokens(self) -> bool:
+        if self._expands_tokens is None:
+            try:
+                result = subprocess.run(
+                    [self.ssh_binary, "-V"], stdin=subprocess.DEVNULL,
+                    capture_output=True, encoding="utf-8", errors="strict", timeout=5,
+                )
+            except (OSError, subprocess.TimeoutExpired, UnicodeError) as exc:
+                raise SSHConfigError("could not determine this OpenSSH client's Include token support") from exc
+            version = re.search(
+                r"(?m)^OpenSSH(?:_for_Windows)?_(\d+)\.(\d+)(?:p\d+)?(?:,|\s|$)",
+                result.stdout + "\n" + result.stderr,
+            )
+            if result.returncode or version is None:
+                raise SSHConfigError("could not determine this OpenSSH client's Include token support")
+            # OpenSSH 9.9 introduced percent-token and environment expansion
+            # in Include. Older clients interpret a percent sign literally.
+            self._expands_tokens = tuple(map(int, version.groups())) >= (9, 9)
+        return self._expands_tokens
 
     def _convert(self, value: str, direction: str) -> str:
         assert self.cygpath is not None
@@ -129,9 +151,10 @@ class _IncludePaths:
         value = self._convert(str(path), "-u") if self.cygpath else path.as_posix()
         if any(not char.isprintable() for char in value):
             raise SSHConfigError("SSH Include source must have a printable literal path")
-        # Include expands percent tokens, then glob patterns. Protect both
-        # layers before applying config quoting, so a filename stays literal.
-        value = value.replace("%", "%%")
+        # Include expands tokens from OpenSSH 9.9 onward, then glob patterns.
+        # Protect only the layers used by this client before config quoting.
+        if "%" in value and self._include_expands_tokens():
+            value = value.replace("%", "%%")
         value = "".join(
             "[$]" if char == "$" else "\\" + char if char in "\\*?[" else char
             for char in value
@@ -139,7 +162,8 @@ class _IncludePaths:
         return quote_value(value)
 
     def local(self, value: str) -> Path:
-        value = value.replace("%%", "%")
+        if "%%" in value and self._include_expands_tokens():
+            value = value.replace("%%", "%")
         if self.cygpath and value.startswith("/"):
             value = self._convert(value, "-w")
         elif value.startswith("~"):
