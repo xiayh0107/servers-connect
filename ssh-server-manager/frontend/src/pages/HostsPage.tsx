@@ -96,5 +96,24 @@ function ImportDialog({onClose,onSaved}:{onClose:()=>void;onSaved:()=>Promise<vo
   const [config,setConfig]=useState(''),[preview,setPreview]=useState<ImportPreview>(),[overwrite,setOverwrite]=useState(false),[error,setError]=useState<unknown>(),[busy,setBusy]=useState(false);
   const sequence=useRef(0);useEffect(()=>()=>{sequence.current++;},[]);
   const run=async(apply:boolean)=>{const current=++sequence.current;setBusy(true);setError(undefined);try{if(apply){await api('/import/apply',json('POST',{...(config?{config}:{}),overwrite}));await onSaved();if(current===sequence.current)onClose();}else{const result=await api<ImportPreview>('/import/preview',json('POST',config?{config}:{}));if(current===sequence.current)setPreview(result);}}catch(reason){if(current===sequence.current)setError(reason);}finally{setBusy(false);}};
-  return <Modal title="Import OpenSSH configuration" onClose={onClose}><div className="stack"><Field label="Config path · leave blank for default"><input placeholder="~/.ssh/config" value={config} disabled={busy} onChange={e=>{sequence.current++;setConfig(e.target.value);setPreview(undefined);}}/></Field><ErrorNotice error={error}/>{preview&&<><p>{preview.items.length} hosts found</p><div className="checklist">{preview.items.map((entry,i)=><div key={i} className="mono">{entry.server.alias} · {entry.server.hostname} · {entry.action}</div>)}</div>{preview.errors.map((item,i)=><p className="notice warning" key={i}>{item.alias}: {item.message}</p>)}{preview.skipped_patterns.length>0&&<p className="muted">Skipped patterns: {preview.skipped_patterns.join(", ")}</p>}<label><input type="checkbox" checked={overwrite} disabled={busy} onChange={e=>setOverwrite(e.target.checked)}/> Explicitly replace matching aliases</label></>}</div><div className="modal-footer"><Button onClick={onClose}>Cancel</Button><Button disabled={busy} onClick={()=>void run(false)}>Preview</Button><Button variant="primary" disabled={busy||!preview} onClick={()=>void run(true)}>Import hosts</Button></div></Modal>;
+  return <Modal title="Import OpenSSH configuration" onClose={onClose}>
+    <div className="stack">
+      <Field label="Config path · leave blank for default"><input placeholder="~/.ssh/config" value={config} disabled={busy} onChange={e=>{sequence.current++;setConfig(e.target.value);setPreview(undefined);}}/></Field>
+      <ErrorNotice error={error}/>
+      {preview&&<>
+        <p>{preview.items.length} hosts found</p>
+        <div className="checklist">{preview.items.map((entry,i)=><div key={i} className="mono">{entry.server.alias} · {entry.server.hostname} · {entry.action}</div>)}</div>
+        {preview.warnings?.map(item=><div className="notice warning" key={`${item.alias}-${item.code}`}>
+          <p>{item.alias}: {item.message}</p>
+          <p>Source config: <code>{item.source_config}</code></p>
+          {item.fallback_config&&<p>Authentication fallback: <code>{item.fallback_config}</code></p>}
+          {item.identity_files.length>0&&<p>Configured IdentityFile paths: {item.identity_files.map((path,index)=><span key={index}><code>{path}</code>{index<item.identity_files.length-1?", ":""}</span>)}</p>}
+        </div>)}
+        {preview.errors.map((item,i)=><p className="notice warning" key={i}>{item.alias}: {item.message}</p>)}
+        {preview.skipped_patterns.length>0&&<p className="muted">Skipped patterns: {preview.skipped_patterns.join(", ")}</p>}
+        <label><input type="checkbox" checked={overwrite} disabled={busy} onChange={e=>setOverwrite(e.target.checked)}/> Explicitly replace matching aliases</label>
+      </>}
+    </div>
+    <div className="modal-footer"><Button onClick={onClose}>Cancel</Button><Button disabled={busy} onClick={()=>void run(false)}>Preview</Button><Button variant="primary" disabled={busy||!preview} onClick={()=>void run(true)}>Import hosts</Button></div>
+  </Modal>;
 }

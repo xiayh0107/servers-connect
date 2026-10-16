@@ -139,13 +139,27 @@ exists.
 
 ## SSH config
 
-Render managed entries first, reset with `Host *`, then include the original
-user config so explicit managed values win while unrelated defaults and
-external aliases remain available. Detect and reject an Include cycle involving
-the generated file. Write atomically with user-only permissions.
+Render managed entries first, then include each imported host's selected source
+config after its explicit managed values. Hosts imported from a custom source
+are excluded from the original config's fallback so additive IdentityFile
+directives from unrelated configs do not mix. External aliases remain available
+through fallback Includes. Format absolute paths for the actual SSH client;
+Git/MSYS uses its own bounded `cygpath` conversion on Windows, while native
+OpenSSH uses forward slashes. Reject a conversion failure or Include cycle
+before applying an import. Write atomically with user-only permissions.
 Hold the database write lock across the saved-profile snapshot and atomic
 replacement so a concurrent render cannot publish an older configuration last.
 
 ## Import
 
 Follow Include files, enumerate literal Host aliases, and resolve each alias with `ssh -G`. Copy imports into the database; do not keep them synchronized automatically. Preview additions, unchanged entries, and conflicts. Skip conflicts unless overwrite is explicit.
+
+Store each applied host's canonical source path under its stable ID in the
+`ssh_config_import_sources` setting, in the same transaction as a create or
+update. Renaming retains the source; deleting removes its association. The
+existing settings table needs no schema migration. Imported connection fields
+are snapshots, while authentication directives continue to be read by OpenSSH
+from the source config. Warnings expose this distinction and public IdentityFile
+paths without reading keys or creating credentials. Overwrite merges only
+imported connection fields with the latest record, preserving credential
+bindings, notes and other local metadata.

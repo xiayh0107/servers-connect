@@ -664,11 +664,19 @@ class ImportIssue(BaseModel):
     message: str
 
 
+class ImportWarning(ImportIssue):
+    code: Literal["authentication-not-imported"]
+    source_config: str
+    identity_files: list[str]
+    fallback_config: str | None
+
+
 class ImportPreview(BaseModel):
     config: str
     items: list[ImportItem]
     skipped_patterns: list[str]
     errors: list[ImportIssue]
+    warnings: list[ImportWarning] = Field(default_factory=list)
 
 
 class ImportResult(BaseModel):
@@ -677,3 +685,4 @@ class ImportResult(BaseModel):
     unchanged: list[str]
     skipped: list[str]
     errors: list[ImportIssue]
+    warnings: list[ImportWarning] = Field(default_factory=list)

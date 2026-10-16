@@ -56,7 +56,7 @@ def test_only_interactive_connect_delegates_host_confirmation_without_overriding
         assert env.get(HOST_KEY_CONFIRM_ENV) == ("terminal" if input_tty and output_tty else None)
         assert not any(value.startswith("StrictHostKeyChecking=") for value in command)
         config = Path(command[command.index("-F") + 1]).read_text()
-        assert f"Include {quote_value(str(original))}" in [line.strip() for line in config.splitlines()]
+        assert f"Include {quote_value(original.as_posix())}" in [line.strip() for line in config.splitlines()]
         assert original.read_text() == "Host *\n  StrictHostKeyChecking yes\n"
         return 0
 
@@ -103,6 +103,23 @@ def test_test_classifies_auth_failure(tmp_path, monkeypatch):
     result = SSHRunner(database, ssh_binary="ssh").test("box")
     assert result["ok"] is False
     assert result["error_code"] == "authentication-failed"
+
+
+def test_sftp_selects_the_same_ssh_client_used_for_config_formatting(tmp_path, monkeypatch):
+    database = Database(tmp_path / "manager.db")
+    server = database.create_server(alias="box", hostname="box.invalid", username="alice")
+    selected = str(tmp_path / "Git SSH" / "ssh.exe")
+    rendered = []
+
+    def render(_database, *, ssh_binary):
+        rendered.append(ssh_binary)
+        return tmp_path / "managed"
+
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.render_config", render)
+    runner = SSHRunner(database, ssh_binary=selected, sftp_binary="sftp")
+    command = runner._sftp_command(server, timeout=10, reuse=0)
+    assert command[command.index("-S") + 1] == selected
+    assert rendered == [selected]
 
 
 def test_diagnose_runs_profile_ssh_sftp_and_remote_checks(tmp_path, monkeypatch):

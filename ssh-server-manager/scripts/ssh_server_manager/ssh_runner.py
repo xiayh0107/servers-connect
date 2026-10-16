@@ -19,6 +19,7 @@ from .askpass import HOST_KEY_CONFIRM_ENV
 from .db import Database, NotFoundError, utc_now
 from .host_metadata import sanitize_facts, sanitize_text
 from .paths import runtime_dir
+from .process_args import literal_config_args
 from .probe_metadata import collect_probe_metadata, connection_diagnostics
 from .ssh_config import render_config
 from .validation import ValidationError, validate_remote_path
@@ -318,7 +319,7 @@ class SSHRunner:
         return environment
 
     def _base_command(self, server: dict[str, Any], *, timeout: int, reuse: int = 0) -> list[str]:
-        config = render_config(self.database)
+        config = render_config(self.database, ssh_binary=self.ssh_binary)
         command = [
             self.ssh_binary,
             "-F",
@@ -353,9 +354,11 @@ class SSHRunner:
     def _sftp_command(
         self, server: dict[str, Any], *, timeout: int, reuse: int, quiet: bool = True
     ) -> list[str]:
-        config = render_config(self.database)
+        config = render_config(self.database, ssh_binary=self.ssh_binary)
         command = [
             self.sftp_binary,
+            "-S",
+            self.ssh_binary,
             # -q also suppresses the transfer progress meter, so transfers that
             # stream to a terminal turn it off. Parsed callers keep it: the
             # listing parser assumes stdout carries nothing but sftp output.
@@ -496,7 +499,7 @@ class SSHRunner:
         start = time.monotonic()
         try:
             result = subprocess.run(
-                command,
+                literal_config_args(command),
                 input=self._directory_batch(remote_path),
                 text=True,
                 encoding="utf-8",
@@ -687,7 +690,7 @@ class SSHRunner:
             command[-1:-1] = ["-b", "-"]
         try:
             result = subprocess.run(
-                command,
+                literal_config_args(command),
                 input=batch,
                 text=True,
                 encoding="utf-8",
@@ -862,7 +865,7 @@ class SSHRunner:
         stderr = ""
         try:
             result = subprocess.run(
-                command,
+                literal_config_args(command),
                 text=True,
                 capture_output=True,
                 env=self._environment(server),
@@ -911,7 +914,7 @@ class SSHRunner:
         start = time.monotonic()
         try:
             result = subprocess.run(
-                command,
+                literal_config_args(command),
                 input="@cd\n@pwd\n@quit\n",
                 text=True,
                 encoding="utf-8",
@@ -1197,7 +1200,7 @@ class SSHRunner:
         server = self.database.get_server(identifier)
         command = self._base_command(server, timeout=timeout)
         interactive = sys.stdin.isatty() and sys.stdout.isatty()
-        return subprocess.call(command, env=self._environment(server, host_key_confirmation=interactive))
+        return subprocess.call(literal_config_args(command), env=self._environment(server, host_key_confirmation=interactive))
 
     def execute(
         self,
@@ -1219,7 +1222,7 @@ class SSHRunner:
         binary_input = isinstance(stdin_data, bytes)
         try:
             result = subprocess.run(
-                command,
+                literal_config_args(command),
                 input=stdin_data,
                 text=not binary_input,
                 capture_output=capture,

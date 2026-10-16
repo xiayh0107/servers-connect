@@ -49,3 +49,15 @@ it('requires a preview of the current SSH config before applying an import',asyn
   fireEvent.change(input,{target:{value:'/config/B'}});await act(async()=>finish({items:[],errors:[],skipped_patterns:[]}));
   expect(screen.getByRole('button',{name:'Import hosts'})).toBeDisabled();expect(mocked).toHaveBeenCalledTimes(1);
 });
+
+it('shows authentication fallback warnings before the user applies an import',async()=>{
+  const message='Authentication settings are not converted to managed credentials. After import, this host uses /selected/config or an explicitly bound credential.';
+  mocked.mockResolvedValue({config:'/selected/config',items:[],errors:[],skipped_patterns:[],warnings:[{alias:'alpha',code:'authentication-not-imported',message,source_config:'/selected/config',fallback_config:'/selected/config',identity_files:['~/.ssh/selected-key']}]});
+  render(<HostsPage hosts={[]} credentials={[]} runtime={runtime} hash="#/hosts" onRefresh={vi.fn()} onCreateCredential={vi.fn()}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Import SSH config'}));
+  fireEvent.click(screen.getByRole('button',{name:'Preview'}));
+  expect(await screen.findByText(`alpha: ${message}`)).toBeVisible();
+  expect(screen.getByText('~/.ssh/selected-key')).toBeVisible();
+  expect(screen.getAllByText('/selected/config')).toHaveLength(2);
+  expect(mocked.mock.calls.map(([path])=>path)).toEqual(['/import/preview']);
+});

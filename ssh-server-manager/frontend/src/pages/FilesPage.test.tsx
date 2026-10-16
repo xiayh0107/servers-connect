@@ -161,10 +161,137 @@ describe('Files page', () => {
     apiMock.mockImplementation(async path => {if (path.endsWith('/paths')) return []; throw new ApiError(502, 'auth_failed', 'Authentication failed');});
     render(<FilesPage hosts={hosts} runtime={runtime}/>);
     expect(await screen.findByRole('alert')).toHaveTextContent('Authentication failed');
+    expect(screen.queryByText('Loading folder…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Refresh'})).toBeEnabled();
+    expect(screen.queryByRole('table', {name: 'Remote files'})).not.toBeInTheDocument();
     expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(1);
     mockBackend(); fireEvent.click(screen.getByRole('button', {name: 'Retry folder'}));
     expect(await screen.findByRole('table', {name: 'Remote files'})).toBeVisible();
     expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(2);
+  });
+
+  it('shows a transport AbortError when this page did not cancel the request', async () => {
+    apiMock.mockImplementation(async path => {
+      if (path.endsWith('/paths')) return [];
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    });
+    render(<FilesPage hosts={hosts} runtime={runtime}/>);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Folder loading was interrupted');
+    const signal = apiMock.mock.calls.find(([path]) => path.includes('/files'))![1]!.signal!;
+    expect(signal.aborted).toBe(false);
+    expect(screen.queryByText('Loading folder…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'Refresh'})).toBeEnabled();
+    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(1);
+    mockBackend(); fireEvent.click(screen.getByRole('button', {name: 'Retry folder'}));
+    expect(await screen.findByRole('table', {name: 'Remote files'})).toBeVisible();
+  });
+
+  it('keeps a terminal error ahead of cached files and debounce waiting until a new request starts', async () => {
+    vi.useFakeTimers(); mockBackend(); render(<FilesPage hosts={hosts} runtime={runtime}/>); await act(async () => {});
+    apiMock.mockImplementation(async path => {
+      if (path.endsWith('/paths')) return [];
+      throw new ApiError(502, 'unreachable', 'Connection closed');
+    });
+    fireEvent.click(screen.getByRole('button', {name: 'Refresh'})); await act(async () => {});
+    expect(screen.getByRole('alert')).toHaveTextContent('Connection closed');
+    expect(screen.queryByRole('table', {name: 'Remote files'})).not.toBeInTheDocument();
+    const pending = deferred<DirectoryListing>();
+    apiMock.mockImplementation(async path => path.endsWith('/paths') ? [] : pending.promise);
+    fireEvent.change(screen.getByRole('textbox', {name: 'Filter this folder'}), {target: {value: 'new'}});
+    expect(screen.getByRole('alert')).toHaveTextContent('Connection closed');
+    expect(screen.queryByText('Waiting for search…')).not.toBeInTheDocument();
+    await act(async () => {vi.advanceTimersByTime(300);});
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('Loading folder…')).toBeVisible();
+    await act(async () => {pending.resolve(listing({entries: [entry('new-file')]}));});
+    expect(screen.getByRole('button', {name: 'new-file'})).toBeVisible();
+  });
+
+  it('bounds a pending folder request even when the transport ignores abort, without retrying it', async () => {
+    vi.useFakeTimers();
+    const pending = deferred<DirectoryListing>();
+    apiMock.mockImplementation(async path => path.endsWith('/paths') ? [] : pending.promise);
+    render(<FilesPage hosts={hosts} runtime={runtime}/>); await act(async () => {});
+    const signal = apiMock.mock.calls.find(([path]) => path.includes('/files'))![1]!.signal!;
+    await act(async () => {vi.advanceTimersByTime(44_999);});
+    expect(screen.getByText('Loading folder…')).toBeVisible();
+    expect(signal.aborted).toBe(false);
+    await act(async () => {vi.advanceTimersByTime(1);});
+    expect(screen.getByRole('alert')).toHaveTextContent('Folder loading timed out after 45 seconds');
+    expect(screen.queryByText('Loading folder…')).not.toBeInTheDocument();
+    expect(signal.aborted).toBe(true);
+    expect(screen.getByRole('button', {name: 'Refresh'})).toBeEnabled();
+    await act(async () => {pending.resolve(listing({entries: [entry('late-file')]})); vi.advanceTimersByTime(90_000);});
+    expect(screen.getByRole('alert')).toHaveTextContent('timed out');
+    expect(screen.queryByRole('button', {name: 'late-file'})).not.toBeInTheDocument();
+    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(1);
+    mockBackend(); fireEvent.click(screen.getByRole('button', {name: 'Retry folder'})); await act(async () => {});
+    expect(screen.getByRole('table', {name: 'Remote files'})).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('lets the user cancel folder loading and ignores its late response until a manual retry', async () => {
+    const pending = deferred<DirectoryListing>();
+    apiMock.mockImplementation(async path => path.endsWith('/paths') ? [] : pending.promise);
+    render(<FilesPage hosts={hosts} runtime={runtime}/>);
+    fireEvent.click(screen.getByRole('button', {name: 'Cancel loading'}));
+    expect(screen.getByRole('alert')).toHaveTextContent('Folder loading canceled');
+    const signal = apiMock.mock.calls.find(([path]) => path.includes('/files'))![1]!.signal!;
+    expect(signal.aborted).toBe(true);
+    expect(screen.queryByText('Loading folder…')).not.toBeInTheDocument();
+    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(1);
+    mockBackend(); fireEvent.click(screen.getByRole('button', {name: 'Retry folder'}));
+    expect(await screen.findByRole('table', {name: 'Remote files'})).toBeVisible();
+    await act(async () => {pending.resolve(listing({entries: [entry('canceled-file')]}));});
+    expect(screen.queryByRole('button', {name: 'canceled-file'})).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {name: 'readme.txt'})).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('gives a new host its own deadline and clears pending timers on success and unmount', async () => {
+    vi.useFakeTimers();
+    const alpha = deferred<DirectoryListing>(), beta = deferred<DirectoryListing>();
+    apiMock.mockImplementation(async path => path.endsWith('/paths') ? [] : path.startsWith('/hosts/b/') ? beta.promise : alpha.promise);
+    const view = render(<FilesPage hosts={hosts} runtime={runtime} initialHostId={hosts[0].id}/>);
+    await act(async () => {});
+    const alphaSignal = apiMock.mock.calls.find(([path]) => path.includes('/files'))![1]!.signal!;
+    await act(async () => {vi.advanceTimersByTime(20_000);});
+    view.rerender(<FilesPage hosts={hosts} runtime={runtime} initialHostId={hosts[1].id}/>); await act(async () => {});
+    const betaSignal = apiMock.mock.calls.find(([path]) => path.startsWith('/hosts/b/files'))![1]!.signal!;
+    expect(alphaSignal.aborted).toBe(true);
+    await act(async () => {vi.advanceTimersByTime(25_000); alpha.reject(new Error('Old host failed'));});
+    expect(betaSignal.aborted).toBe(false);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('Loading folder…')).toBeVisible();
+    await act(async () => {beta.resolve(listing({alias: 'beta', entries: [entry('beta-file')]}));});
+    expect(screen.getByRole('button', {name: 'beta-file'})).toBeVisible();
+    expect(vi.getTimerCount()).toBe(0);
+    const next = deferred<DirectoryListing>();
+    apiMock.mockImplementation(async path => path.endsWith('/paths') ? [] : next.promise);
+    fireEvent.click(screen.getByRole('button', {name: 'Refresh'})); await act(async () => {});
+    const refreshSignal = apiMock.mock.calls.filter(([path]) => path.includes('/files')).at(-1)![1]!.signal!;
+    view.unmount();
+    expect(refreshSignal.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => {next.resolve(listing()); vi.advanceTimersByTime(90_000);});
+    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(3);
+  });
+
+  it('does not apply the folder deadline to an upload or replay the write', async () => {
+    vi.useFakeTimers(); mockBackend(); render(<FilesPage hosts={hosts} runtime={runtime}/>); await act(async () => {});
+    const pending = deferred<unknown>();
+    apiMock.mockImplementation(async path => path.endsWith('/upload') ? pending.promise : path.endsWith('/paths') ? [] : listing());
+    fireEvent.change(screen.getByLabelText('Upload file'), {target: {files: [new File(['data'], 'slow.txt')]}});
+    await act(async () => {vi.advanceTimersByTime(90_000);});
+    expect(uploadCalls()).toHaveLength(1);
+    expect(uploadCalls()[0][1]?.signal).toBeUndefined();
+    expect(screen.getByRole('button', {name: 'Transferring…'})).toBeDisabled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await act(async () => {pending.resolve({bytes: 4});});
+    expect(uploadCalls()).toHaveLength(1);
+    expect(screen.getByRole('table', {name: 'Remote files'})).toBeVisible();
   });
 
   it('keeps conflict retries bound to the original file, host and path after switching hosts', async () => {

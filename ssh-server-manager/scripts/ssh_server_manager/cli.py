@@ -592,7 +592,15 @@ def handle(args: argparse.Namespace) -> int:
         elif args.server_command == "import":
             preview = services.imports.preview(config=args.config)
             result = services.imports.apply(preview, overwrite=args.overwrite) if args.apply else preview
-            emit(result, as_json=args.json)
+            if args.json:
+                emit(result, as_json=True)
+            else:
+                emit({key: value for key, value in result.items() if key != "warnings"})
+                for warning in result.get("warnings", []):
+                    print(f"Warning: {warning['alias']}: {warning['message']}")
+                    print(f"  Source config: {warning['source_config']}")
+                    if warning.get("fallback_config"):
+                        print(f"  Authentication fallback: {warning['fallback_config']}")
         elif args.server_command == "test":
             result = services.diagnostics.test(args.alias, timeout=args.timeout)
             emit(result, as_json=args.json)

@@ -19,8 +19,9 @@ from .db import ConflictError, Database, NotFoundError
 from .credential_lock import credential_lock
 from .credential_keys import read_snapshot, load_snapshot
 from .importer import apply_import, preview_import
+from .paths import managed_ssh_config_path
 from .service import CredentialService, SkillService
-from .ssh_config import render_config
+from .ssh_config import render_config, validate_include_source
 from .ssh_runner import SSHError, SSHRunner
 from .validation import ValidationError
 from .vault import ObservedVault, VaultError, VaultProtocol, get_vault
@@ -424,6 +425,7 @@ class ImportService:
         return preview_import(self.database, config=config)
 
     def apply(self, preview: dict[str, Any], *, overwrite: bool = False) -> dict[str, Any]:
+        validate_include_source(preview["config"], destination=managed_ssh_config_path())
         result = apply_import(self.database, preview, overwrite=overwrite)
         self.render()
         return result

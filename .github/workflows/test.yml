@@ -24,6 +24,23 @@ jobs:
           cache-dependency-path: ssh-server-manager/frontend/package-lock.json
       - run: python -m pip install -e "./ssh-server-manager[test]" -c ssh-server-manager/contracts/constraints.txt
       - run: python -m pytest ssh-server-manager/tests
+      - name: Verify Include inheritance with native and Git Windows SSH
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # Real ssh -G checks use temporary configs, with no connection or keys.
+          # Git/MSYS and native OpenSSH interpret Windows Include paths differently.
+          $ssmSshClients = @(
+            "$env:WINDIR\System32\OpenSSH\ssh.exe",
+            "$env:ProgramFiles\Git\usr\bin\ssh.exe"
+          )
+          foreach ($ssmSshClient in $ssmSshClients) {
+            if (-not (Test-Path $ssmSshClient)) { throw "Missing SSH client: $ssmSshClient" }
+            $env:SSM_TEST_SSH_CLIENT = $ssmSshClient
+            python -m pytest -q --tb=short ssh-server-manager/tests/test_ssh_config.py ssh-server-manager/tests/test_importer.py ssh-server-manager/tests/test_process_args.py
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          Remove-Item Env:SSM_TEST_SSH_CLIENT
       - name: Repeat independent Windows credential probes
         if: matrix.os == 'windows-latest'
         shell: pwsh

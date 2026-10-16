@@ -52,7 +52,10 @@ credential and notes in both displayed rows and search matches.
 
 Add, edit, duplicate and remove hosts explicitly. Import OpenSSH aliases by
 previewing the source config first; replacing a matching alias requires the
-explicit overwrite selection. The host editor supports ordered managed or
+explicit overwrite selection. The preview shows authentication warnings,
+configured IdentityFile paths and the source config retained as an OpenSSH
+fallback. Import does not create credentials or verify login; overwrite keeps
+existing credential bindings and notes. The host editor supports ordered managed or
 external ProxyJump aliases, reusable credentials, tags, notes and a manual
 country/city override. Location does not run an automatic GeoIP lookup.
 
@@ -125,6 +128,11 @@ CLI's existing transfer behavior is unchanged.
 Permission denied, missing paths, authentication failure, timeout, conflicts,
 size limits and unsupported publication have distinct errors. A failed or stale
 listing is not presented as a newly empty directory or a successful connection.
+Directory reads stop waiting in the browser after 45 seconds. **Cancel loading**
+also ends the wait; **Retry** starts another read only when clicked. These
+controls cancel the browser request and do not promise to immediately terminate
+server-side SFTP work. Late results cannot replace another host, path or tab.
+Uploads, overwrites and downloads are never automatically replayed.
 
 ## Tags
 

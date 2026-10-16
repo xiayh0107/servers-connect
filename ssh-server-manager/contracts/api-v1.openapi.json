@@ -2448,6 +2448,13 @@
             },
             "title": "Skipped Patterns",
             "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/ImportWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
@@ -2518,6 +2525,13 @@
             },
             "title": "Updated",
             "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/ImportWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
@@ -2528,6 +2542,55 @@
           "errors"
         ],
         "title": "ImportResult",
+        "type": "object"
+      },
+      "ImportWarning": {
+        "properties": {
+          "alias": {
+            "title": "Alias",
+            "type": "string"
+          },
+          "code": {
+            "const": "authentication-not-imported",
+            "title": "Code",
+            "type": "string"
+          },
+          "fallback_config": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fallback Config"
+          },
+          "identity_files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Identity Files",
+            "type": "array"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "source_config": {
+            "title": "Source Config",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alias",
+          "message",
+          "code",
+          "source_config",
+          "identity_files",
+          "fallback_config"
+        ],
+        "title": "ImportWarning",
         "type": "object"
       },
       "KeyBrowserEntry": {

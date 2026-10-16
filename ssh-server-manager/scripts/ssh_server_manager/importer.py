@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import glob
 import os
 import subprocess
 from pathlib import Path
@@ -8,7 +7,8 @@ from typing import Any
 
 from .db import ConflictError, Database, NotFoundError
 from .paths import original_ssh_config_path
-from .ssh_config import split_config_line
+from .process_args import literal_config_args
+from .ssh_config import _IncludePaths, _expand_include, _parse_include_tokens, split_config_line
 from .validation import ValidationError, validate_alias
 
 
@@ -16,7 +16,11 @@ class ImportError(RuntimeError):
     pass
 
 
-def _read_config_aliases(config: Path, seen: set[Path] | None = None) -> tuple[list[str], list[str]]:
+def _read_config_aliases(
+    config: Path, seen: set[Path] | None = None, *,
+    ssh_binary: str = "ssh", _paths: _IncludePaths | None = None,
+) -> tuple[list[str], list[str]]:
+    paths = _paths or _IncludePaths(ssh_binary)
     config = config.expanduser().resolve()
     seen = seen or set()
     if config in seen or not config.exists():
@@ -29,20 +33,21 @@ def _read_config_aliases(config: Path, seen: set[Path] | None = None) -> tuple[l
     except (OSError, UnicodeError) as exc:
         raise ImportError(f"cannot read SSH config {config}: {exc}") from exc
     for line in lines:
+        patterns = _parse_include_tokens(line)
+        if patterns:
+            for pattern in patterns:
+                for match in _expand_include(pattern, paths):
+                    if not match.is_file():
+                        continue
+                    child_aliases, child_skipped = _read_config_aliases(match, seen, _paths=paths)
+                    aliases.extend(child_aliases)
+                    skipped.extend(child_skipped)
+            continue
         tokens = split_config_line(line)
         if not tokens:
             continue
         directive = tokens[0].casefold()
-        if directive == "include":
-            for pattern in tokens[1:]:
-                expanded = Path(os.path.expanduser(pattern))
-                if not expanded.is_absolute():
-                    expanded = config.parent / expanded
-                for match in sorted(glob.glob(str(expanded))):
-                    child_aliases, child_skipped = _read_config_aliases(Path(match), seen)
-                    aliases.extend(child_aliases)
-                    skipped.extend(child_skipped)
-        elif directive == "host":
+        if directive == "host":
             for token in tokens[1:]:
                 if token.startswith("!") or any(mark in token for mark in "*?"):
                     skipped.append(token)
@@ -63,8 +68,10 @@ def _read_config_aliases(config: Path, seen: set[Path] | None = None) -> tuple[l
 
 def _resolve_alias(alias: str, config: Path, *, ssh_binary: str = "ssh") -> dict[str, Any]:
     result = subprocess.run(
-        [ssh_binary, "-G", "-F", str(config), alias],
+        literal_config_args([ssh_binary, "-G", "-F", str(config), alias]),
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=10,
         check=False,
@@ -94,6 +101,7 @@ def _resolve_alias(alias: str, config: Path, *, ssh_binary: str = "ssh") -> dict
         "proxy_jumps": proxy_jumps,
         "notes": f"Imported from {config}",
         "source": "ssh-config-import",
+        "_identity_files": [value for value in values.get("identityfile", []) if value.casefold() != "none"],
     }
 
 
@@ -105,12 +113,14 @@ def preview_import(
 ) -> dict[str, Any]:
     config_path = Path(config) if config else original_ssh_config_path()
     config_path = config_path.expanduser().resolve()
-    aliases, skipped = _read_config_aliases(config_path)
+    aliases, skipped = _read_config_aliases(config_path, ssh_binary=ssh_binary)
     items: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
+    warnings: list[dict[str, Any]] = []
     for alias in aliases:
         try:
             candidate = _resolve_alias(alias, config_path, ssh_binary=ssh_binary)
+            identity_files = candidate.pop("_identity_files", [])
             try:
                 existing = database.get_server(alias)
             except NotFoundError:
@@ -118,10 +128,27 @@ def preview_import(
             else:
                 comparable = ("hostname", "port", "username", "proxy_jumps")
                 action = "unchanged" if all(existing[key] == candidate[key] for key in comparable) else "conflict"
+                candidate["credential_id"] = existing["credential_id"]
+                candidate["notes"] = existing["notes"]
             items.append({"action": action, "server": candidate})
+            warnings.append({
+                "alias": alias,
+                "code": "authentication-not-imported",
+                "message": (
+                    "Imported authentication directives are not converted to managed credentials. "
+                    "If applied, the host will continue using the source SSH config or an explicit saved credential. "
+                    "Import does not verify authentication."
+                ),
+                "source_config": str(config_path),
+                "identity_files": identity_files,
+                "fallback_config": str(config_path),
+            })
         except (ImportError, ValidationError, ValueError) as exc:
             errors.append({"alias": alias, "message": str(exc)})
-    return {"config": str(config_path), "items": items, "skipped_patterns": skipped, "errors": errors}
+    return {
+        "config": str(config_path), "items": items, "skipped_patterns": skipped,
+        "errors": errors, "warnings": warnings,
+    }
 
 
 def apply_import(
@@ -130,20 +157,35 @@ def apply_import(
     *,
     overwrite: bool = False,
 ) -> dict[str, Any]:
-    result = {"added": [], "updated": [], "unchanged": [], "skipped": [], "errors": preview["errors"]}
+    result = {"added": [], "updated": [], "unchanged": [], "skipped": [], "errors": list(preview["errors"])}
+    affected: set[str] = set()
     for item in preview["items"]:
         action = item["action"]
         server = item["server"]
         try:
             if action == "add":
-                result["added"].append(database.create_server(**server)["alias"])
+                result["added"].append(database.create_server(ssh_config_source=preview["config"], **server)["alias"])
             elif action == "conflict" and overwrite:
-                result["updated"].append(database.update_server(server["alias"], **server)["alias"])
+                imported = {key: server[key] for key in ("hostname", "port", "username", "proxy_jumps", "source")}
+                result["updated"].append(database.update_server(
+                    server["alias"], ssh_config_source=preview["config"], **imported,
+                )["alias"])
             elif action == "unchanged":
+                database.set_server_ssh_config_source(server["alias"], preview["config"])
                 result["unchanged"].append(server["alias"])
             else:
                 result["skipped"].append(server["alias"])
-        except (ConflictError, ValidationError) as exc:
+                continue
+            affected.add(server["alias"].casefold())
+        except (ConflictError, NotFoundError, ValidationError) as exc:
             result["errors"].append({"alias": server["alias"], "message": str(exc)})
+    result["warnings"] = [
+        {**warning, "message": (
+            "Imported authentication directives were not converted to managed credentials. "
+            "The host uses the source SSH config or an explicit saved credential. "
+            "Import did not verify authentication."
+        )}
+        for warning in preview.get("warnings", []) if warning["alias"].casefold() in affected
+    ]
     return result
 
