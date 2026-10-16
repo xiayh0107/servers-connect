@@ -266,16 +266,28 @@ describe('Files page', () => {
     fireEvent.change(within(dialog).getByRole('textbox', {name: 'Label'}), {target: {value: 'Release'}});
     fireEvent.change(within(dialog).getByRole('textbox', {name: 'Remote path'}), {target: {value: '/srv/release'}});
     fireEvent.click(within(dialog).getByRole('button', {name: 'Save path'}));
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => {
+      expect(location.hash).not.toContain('files-path');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
     expect(apiMock).toHaveBeenCalledWith('/hosts/a%2F%23/paths', expect.objectContaining({method: 'POST', body: JSON.stringify({label: 'Release', path: '/srv/release', notes: ''})}));
     fireEvent.click(screen.getByRole('button', {name: 'Edit saved path App logs'})); dialog = screen.getByRole('dialog');
     fireEvent.change(within(dialog).getByRole('textbox', {name: 'Label'}), {target: {value: 'Renamed logs'}});
     fireEvent.click(within(dialog).getByRole('button', {name: 'Save path'}));
     await screen.findByRole('button', {name: 'Delete saved path Renamed logs'});
+    // The updated sidebar precedes the asynchronous dialog-history close.
+    await waitFor(() => {
+      expect(location.hash).not.toContain('files-path');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
     expect(apiMock).toHaveBeenCalledWith('/hosts/a%2F%23/paths/saved%2F%23', expect.objectContaining({method: 'PATCH'}));
     fireEvent.click(screen.getByRole('button', {name: 'Delete saved path Renamed logs'}));
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', {name: 'Delete saved path'}));
-    await waitFor(() => expect(screen.queryByRole('button', {name: 'Delete saved path Renamed logs'})).not.toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.queryByRole('button', {name: 'Delete saved path Renamed logs'})).not.toBeInTheDocument();
+      expect(location.hash).not.toContain('files-delete-path');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
     expect(apiMock).toHaveBeenCalledWith('/hosts/a%2F%23/paths/saved%2F%23', {method: 'DELETE'});
   });
 });

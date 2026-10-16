@@ -206,12 +206,22 @@ if os.name == 'nt':
     import ctypes
     from ctypes import wintypes
     kernel = askpass._windows_console_kernel()
+    # The GitHub runner can remain attached despite CREATE_NO_WINDOW. Establish
+    # this test's no-console premise explicitly, only in this isolated child.
+    kernel.FreeConsole.argtypes = []
+    kernel.FreeConsole.restype = wintypes.BOOL
+    phase('console-detach')
+    if not kernel.FreeConsole():
+        phase('detach-failed')
+        raise SystemExit(2)
     kernel.GetConsoleProcessList.argtypes = [ctypes.POINTER(wintypes.DWORD), wintypes.DWORD]
     kernel.GetConsoleProcessList.restype = wintypes.DWORD
     buffer = (wintypes.DWORD * 1)()
     phase('console-check')
     attached_console = bool(kernel.GetConsoleProcessList(buffer, len(buffer)))
     phase('console' if attached_console else 'no-console')
+    if attached_console:
+        raise SystemExit(2)
 phase('main')
 result = askpass.main()
 phase('done')
@@ -298,7 +308,7 @@ def test_askpass_without_controlling_terminal_never_reads_redirected_yes_or_vaul
             phase = {"stage": "unavailable"}
         pytest.fail("AskPass no-terminal timeout: " + json.dumps(phase, sort_keys=True), pytrace=False)
     phase = json.loads(phase_file.read_text(encoding="utf-8"))
-    assert phase["stage"] == "done"
+    assert phase["stage"] == "done", json.dumps(phase, sort_keys=True)
     assert phase["vault_attempted"] is False
     if os.name == "nt":
         assert phase["attached_console"] is False
