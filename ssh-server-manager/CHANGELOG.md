@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Fix SSH config Includes for native Windows and Git/MSYS OpenSSH, and make
+  SFTP use the same SSH client. Retain custom import sources per host without
+  mixing IdentityFile defaults across sources; reject invalid paths and
+  Include cycles before applying an import.
+- Preserve saved credentials, notes and local metadata on import overwrite.
+  Expose authentication warnings, IdentityFile paths and source-config fallback
+  in CLI, API v1 and the import dialog; importing does not verify login or read
+  private keys.
+- End Files loading on errors and independent aborted requests; add a 45-second
+  directory-read deadline, cancel and explicit retry. Ignore late responses
+  after cancellation or context changes without replaying transfers.
 - Fix first-use host-key confirmation for interactive `serverctl connect`
   when AskPass supplies a saved password or key passphrase. Show the OpenSSH
   confirmation in the human's controlling terminal and return only their

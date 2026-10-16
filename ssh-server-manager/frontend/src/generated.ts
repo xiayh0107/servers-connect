@@ -1601,6 +1601,8 @@ export interface components {
             items: components["schemas"]["ImportItem"][];
             /** Skipped Patterns */
             skipped_patterns: string[];
+            /** Warnings */
+            warnings?: components["schemas"]["ImportWarning"][];
         };
         /** ImportRequest */
         ImportRequest: {
@@ -1624,6 +1626,26 @@ export interface components {
             unchanged: string[];
             /** Updated */
             updated: string[];
+            /** Warnings */
+            warnings?: components["schemas"]["ImportWarning"][];
+        };
+        /** ImportWarning */
+        ImportWarning: {
+            /** Alias */
+            alias: string;
+            /**
+             * Code
+             * @constant
+             */
+            code: "authentication-not-imported";
+            /** Fallback Config */
+            fallback_config: string | null;
+            /** Identity Files */
+            identity_files: string[];
+            /** Message */
+            message: string;
+            /** Source Config */
+            source_config: string;
         };
         /** KeyBrowserEntry */
         KeyBrowserEntry: {

@@ -21,7 +21,8 @@ function newTab(hostId: string, path?: string): FileTab {
   return {id: `files-${++nextTab}`, hostId, path, filter: '', query: '', history: [], refresh: 0, loading: true};
 }
 const hostApi = (hostId: string) => `/hosts/${segment(hostId)}`;
-const isAbort = (error: unknown) => error instanceof Error && error.name === 'AbortError';
+const listingTimeoutMs = 45_000;
+const isAbort = (error: unknown) => (error instanceof Error || error instanceof DOMException) && error.name === 'AbortError';
 const filenameValid = (name: string) => !!name && name !== '.' && name !== '..' && !/[\\/\x00-\x1f\x7f]/.test(name);
 const joinRemote = (directory: string, name: string) => `${directory === '/' ? '' : directory.replace(/\/$/, '')}/${name}`;
 function bytes(size: number) {
@@ -73,6 +74,7 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
   const pathField = useRef<HTMLInputElement>(null);
   const mounted = useRef(true);
   const requestSequence = useRef(0);
+  const listingRequest = useRef<{key: string; cancel: () => void} | null>(null);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeTab = tabs.find(tab => tab.id === activeId);
@@ -118,19 +120,39 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
     if (!activeTab || !host || activeTab.filter !== activeTab.query) return;
     const controller = new AbortController();
     const sequence = ++requestSequence.current, key = contextRef.current, tabId = activeTab.id;
+    let settled = false;
+    let timer: number | undefined;
+    const isCurrent = () => mounted.current && sequence === requestSequence.current && key === contextRef.current;
+    const finish = () => {
+      settled = true;
+      window.clearTimeout(timer);
+      if (listingRequest.current === request) listingRequest.current = null;
+    };
+    const cancel = (error: Error) => {
+      if (settled || !isCurrent()) return;
+      finish();
+      updateTab(tabId, {error, loading: false});
+      controller.abort();
+    };
+    const request = {key, cancel: () => cancel(new Error('Folder loading canceled. Retry folder to try again.'))};
+    listingRequest.current = request;
+    // Bound directory browsing only; transfers keep their existing explicit lifecycle.
+    timer = window.setTimeout(() => cancel(new Error('Folder loading timed out after 45 seconds. Retry folder to try again.')), listingTimeoutMs);
     const params = new URLSearchParams();
     if (activeTab.path !== undefined) params.set('path', activeTab.path);
     if (activeTab.query) params.set('name_filter', activeTab.query);
     updateTab(tabId, {loading: true, error: undefined, selected: undefined});
     api<DirectoryListing>(`${hostApi(host.id)}/files${params.size ? `?${params}` : ''}`, {signal: controller.signal})
       .then(result => {
-        if (!mounted.current || sequence !== requestSequence.current || key !== contextRef.current || controller.signal.aborted) return;
+        if (settled || controller.signal.aborted || !isCurrent()) return;
+        finish();
         updateTab(tabId, {listing: result, loading: false}); setVisibleCount(250);
       }).catch(error => {
-        if (!mounted.current || controller.signal.aborted || isAbort(error) || sequence !== requestSequence.current || key !== contextRef.current) return;
-        updateTab(tabId, {error, loading: false});
+        if (settled || controller.signal.aborted || !isCurrent()) return;
+        finish();
+        updateTab(tabId, {error: isAbort(error) ? new Error('Folder loading was interrupted. Retry folder to try again.') : error, loading: false});
       });
-    return () => controller.abort();
+    return () => {finish(); controller.abort();};
   }, [activeId, activeTab?.hostId, activeTab?.path, activeTab?.query, activeTab?.filter, activeTab?.refresh, !!host]);
   useEffect(() => {
     if (!host) return;
@@ -256,7 +278,7 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
   }
 
   if (!hosts.length) return <EmptyState title="No hosts yet">Add a host to browse its remote files.</EmptyState>;
-  const staleListing = activeTab?.loading || activeTab?.filter !== activeTab?.query;
+  const staleListing = !activeTab?.error && (activeTab?.loading || activeTab?.filter !== activeTab?.query);
   const hiddenCount = listing?.entries.filter(entry => entry.hidden).length || 0;
   return <section className={`files-page${focus ? ' files-focus' : ''}`} aria-label="Files">
     <div className="files-tabs" role="tablist" aria-label="File sessions">
@@ -319,7 +341,7 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
         </aside>
         <div className="files-list">
           <ErrorNotice error={activeTab.error}/>{!!activeTab.error && <div className="files-retry"><Button onClick={() => updateTab(activeTab.id, {refresh: activeTab.refresh + 1})}>Retry folder</Button></div>}
-          {staleListing ? <div className="files-loading" role="status">{activeTab.filter !== activeTab.query ? 'Waiting for search…' : 'Loading folder…'}</div> : !activeTab.error && listing && <>
+          {staleListing ? <div className="files-loading" role="status">{activeTab.filter !== activeTab.query ? 'Waiting for search…' : <>Loading folder… <Button onClick={() => {if (listingRequest.current?.key === contextRef.current) listingRequest.current.cancel();}}>Cancel loading</Button></>}</div> : !activeTab.error && listing && <>
             <div className="files-table-wrap"><table className="files-table" aria-label="Remote files">
               <thead><tr><th className="files-name-column" aria-sort={sort.key === 'name' ? sort.descending ? 'descending' : 'ascending' : 'none'}><button onClick={() => toggleSort('name')}>Name{sort.key === 'name' ? sort.descending ? ' ↓' : ' ↑' : ''}</button></th>{(['size', 'modified', 'permissions', 'owner'] as SortKey[]).map(key => <th className={`files-${key}-column`} key={key} aria-sort={sort.key === key ? sort.descending ? 'descending' : 'ascending' : 'none'}><button onClick={() => toggleSort(key)}>{key === 'permissions' ? 'Mode' : key}{sort.key === key ? sort.descending ? ' ↓' : ' ↑' : ''}</button></th>)}<th className="files-action-column"><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>{listing.parent && <tr><td><button className="files-name" onClick={() => navigate(listing.parent || undefined)}><Icon name="up"/><span>..</span></button></td><td colSpan={5}/></tr>}{entries.slice(0, visibleCount).map(entry => {

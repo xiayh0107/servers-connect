@@ -318,7 +318,7 @@ class SSHRunner:
         return environment
 
     def _base_command(self, server: dict[str, Any], *, timeout: int, reuse: int = 0) -> list[str]:
-        config = render_config(self.database)
+        config = render_config(self.database, ssh_binary=self.ssh_binary)
         command = [
             self.ssh_binary,
             "-F",
@@ -353,9 +353,11 @@ class SSHRunner:
     def _sftp_command(
         self, server: dict[str, Any], *, timeout: int, reuse: int, quiet: bool = True
     ) -> list[str]:
-        config = render_config(self.database)
+        config = render_config(self.database, ssh_binary=self.ssh_binary)
         command = [
             self.sftp_binary,
+            "-S",
+            self.ssh_binary,
             # -q also suppresses the transfer progress meter, so transfers that
             # stream to a terminal turn it off. Parsed callers keep it: the
             # listing parser assumes stdout carries nothing but sftp output.

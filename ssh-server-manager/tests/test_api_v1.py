@@ -43,6 +43,38 @@ def login(client):
     return {"Origin": ORIGIN, "X-CSRF-Token": runtime.json()["csrf"]}
 
 
+def test_import_api_reports_authentication_fallback_and_preserves_saved_binding(backend, monkeypatch, tmp_path):
+    import ssh_server_manager.importer as importer
+
+    client, app, database, vault = backend
+    headers = login(client)
+    source = tmp_path / "selected config"
+    source.write_text("Host box\n  HostName changed.invalid\n  User alice\n", encoding="utf-8")
+    credential = database.create_credential(label="Selected agent", kind="agent")
+    database.update_server("box", credential_id=credential["id"], notes="Keep these notes")
+    monkeypatch.setattr(importer, "_resolve_alias", lambda *args, **kwargs: {
+        "alias": "box", "hostname": "changed.invalid", "port": 22, "username": "alice",
+        "credential_id": None, "proxy_jumps": [], "source": "ssh-config-import",
+        "notes": "Imported", "_identity_files": ["~/.ssh/id_selected"],
+    })
+    preview = client.post("/api/v1/import/preview", headers=headers, json={"config": str(source)})
+    assert preview.status_code == 200
+    assert preview.json()["warnings"][0] == {
+        "alias": "box", "code": "authentication-not-imported",
+        "message": preview.json()["warnings"][0]["message"],
+        "source_config": str(source.resolve()), "fallback_config": str(source.resolve()),
+        "identity_files": ["~/.ssh/id_selected"],
+    }
+    applied = client.post("/api/v1/import/apply", headers=headers, json={"config": str(source), "overwrite": True})
+    assert applied.status_code == 200
+    assert applied.json()["updated"] == ["box"]
+    assert applied.json()["warnings"][0]["fallback_config"] == str(source.resolve())
+    saved = database.get_server("box")
+    assert saved["credential_id"] == credential["id"] and saved["notes"] == "Keep these notes"
+    assert database.get_ssh_config_sources() == {saved["id"]: str(source.resolve())}
+    assert vault.values == {}
+
+
 def test_all_v1_routes_require_session_and_mutations_require_csrf(backend, monkeypatch):
     client, app, database, vault = backend
     def deny(*_args, **_kwargs):

@@ -64,6 +64,15 @@ that a successful `doctor` does not prove a host login has been tested.
 
 An import without `--apply` is always a preview. Literal aliases are resolved with `ssh -G`; wildcard-only patterns are reported but not imported.
 
+Import warnings identify authentication directives that are not converted into
+managed credentials, configured IdentityFile paths and the selected source
+config. Applied hosts retain that config as an OpenSSH fallback, including a
+custom `--config` path. Import reads no private-key contents and does not verify
+login. `--overwrite` updates imported connection fields while preserving the
+latest credential binding, notes, tags, directories and Skill bindings. An
+empty credential binding may still authenticate through the source config;
+confirm with an explicit `server test`.
+
 `server add --password-credential LABEL` creates a password credential and
 attaches it in one step, using the same hidden local prompt as
 `credential add-password`. It needs a real terminal; without a TTY it fails

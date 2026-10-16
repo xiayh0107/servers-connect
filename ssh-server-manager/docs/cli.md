@@ -90,7 +90,13 @@ Notes:
   terminal; without a TTY it fails fast and points to
   `serverctl ui --credential ALIAS`.
 - `import` without `--apply` is always a preview. Conflicting aliases are
-  skipped unless `--overwrite`.
+  skipped unless `--overwrite`. Overwrite preserves saved credential bindings,
+  notes, tags, directories and Skill bindings. Preview and apply return
+  authentication warnings with the selected source config and IdentityFile
+  paths; import does not create managed credentials, read private-key contents
+  or verify login. The source config remains an OpenSSH fallback, including
+  when selected with `--config`. Test explicitly before treating an imported
+  host as usable.
 - `test` runs a real `ssh` handshake (`NumberOfPasswordPrompts=1`,
   StrictHostKeyChecking) and reports `latency_ms` plus one of:
   `authentication-failed`, `host-key-untrusted`, `timeout`,
@@ -379,4 +385,8 @@ serverctl config render [--json]
 
 Re-renders the managed OpenSSH config (also done automatically after every
 mutation) and prints its path. The file is written atomically with
-user-only permissions and `Include`s your original config last.
+user-only permissions. Imported hosts retain their selected source config;
+unrelated aliases and defaults use the original config. Source paths are
+formatted for the selected SSH client, including native Windows and Git/MSYS
+OpenSSH. SFTP explicitly uses the same SSH client. Your source configs are
+never rewritten.

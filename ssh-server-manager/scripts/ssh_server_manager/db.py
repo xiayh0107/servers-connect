@@ -37,6 +37,7 @@ from .validation import (
 
 SCHEMA_VERSION = 7
 SERVER_CONTEXTS_SETTING = "server_contexts"
+SSH_CONFIG_SOURCES_SETTING = "ssh_config_import_sources"
 
 
 def utc_now() -> str:
@@ -1275,7 +1276,7 @@ class Database:
                         state[neighbor] = 1
                         stack.append((neighbor, iter(graph[neighbor])))
 
-    def create_server(self, **payload: Any) -> dict[str, Any]:
+    def create_server(self, *, ssh_config_source: str | None = None, **payload: Any) -> dict[str, Any]:
         identifier = str(payload.get("id") or uuid.uuid4())
         now = utc_now()
         try:
@@ -1304,11 +1305,13 @@ class Database:
                     ),
                 )
                 self._register_contexts(connection, normalized["tags"])
+                if ssh_config_source is not None:
+                    self._set_ssh_config_source(connection, identifier, ssh_config_source)
         except sqlite3.IntegrityError as exc:
             raise ConflictError(f"server alias already exists: {normalized['alias']}") from exc
         return self.get_server(identifier)
 
-    def update_server(self, identifier: str, **changes: Any) -> dict[str, Any]:
+    def update_server(self, identifier: str, *, ssh_config_source: str | None = None, **changes: Any) -> dict[str, Any]:
         try:
             with self.transaction() as connection:
                 current = self._get_server(connection, identifier)
@@ -1356,6 +1359,8 @@ class Database:
                                 (json.dumps(rewritten), utc_now(), row["id"]),
                             )
                 self._register_contexts(connection, normalized["tags"])
+                if ssh_config_source is not None:
+                    self._set_ssh_config_source(connection, current["id"], ssh_config_source)
         except sqlite3.IntegrityError as exc:
             raise ConflictError(f"server alias already exists: {normalized['alias']}") from exc
         return self.get_server(current["id"])
@@ -1383,6 +1388,9 @@ class Database:
             if dependents:
                 raise ConflictError(f"server is used as ProxyJump by: {', '.join(dependents)}")
             connection.execute("DELETE FROM servers WHERE id = ?", (current["id"],))
+            sources = self._ssh_config_sources(connection)
+            if sources.pop(current["id"], None) is not None:
+                self._save_ssh_config_sources(connection, sources)
         return current
 
     def record_test(
@@ -1436,6 +1444,46 @@ class Database:
                     (*changes.values(), observed, current["id"]),
                 )
         return self.get_server(current["id"])
+
+    @staticmethod
+    def _ssh_config_sources(connection: sqlite3.Connection) -> dict[str, str]:
+        row = connection.execute("SELECT value FROM settings WHERE key = ?", (SSH_CONFIG_SOURCES_SETTING,)).fetchone()
+        if row is None:
+            return {}
+        try:
+            sources = json.loads(row["value"])
+        except (TypeError, ValueError) as exc:
+            raise DatabaseError("invalid SSH config import sources") from exc
+        if not isinstance(sources, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str) for key, value in sources.items()
+        ):
+            raise DatabaseError("invalid SSH config import sources")
+        return sources
+
+    @staticmethod
+    def _save_ssh_config_sources(connection: sqlite3.Connection, sources: dict[str, str]) -> None:
+        connection.execute(
+            """INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at""",
+            (SSH_CONFIG_SOURCES_SETTING, json.dumps(sources, ensure_ascii=False, sort_keys=True), utc_now()),
+        )
+
+    def _set_ssh_config_source(self, connection: sqlite3.Connection, identifier: str, config: str) -> None:
+        if not config or any(ord(char) < 32 or ord(char) == 127 for char in config):
+            raise ValidationError("SSH config source must be a printable local path")
+        canonical = str(Path(config).expanduser().resolve())
+        sources = self._ssh_config_sources(connection)
+        sources[identifier] = canonical
+        self._save_ssh_config_sources(connection, sources)
+
+    def get_ssh_config_sources(self) -> dict[str, str]:
+        with closing(self.connect()) as connection:
+            return self._ssh_config_sources(connection)
+
+    def set_server_ssh_config_source(self, identifier: str, config: str) -> None:
+        with self.transaction() as connection:
+            server = self._get_server(connection, identifier)
+            self._set_ssh_config_source(connection, server["id"], config)
 
     def get_setting(self, key: str) -> str | None:
         with closing(self.connect()) as connection, connection:

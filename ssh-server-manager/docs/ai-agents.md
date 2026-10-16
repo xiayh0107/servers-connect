@@ -82,6 +82,10 @@ Adapt the handoff to the inventory:
   host instead of stopping at the offer. Run `serverctl server import`
   (without `--apply` it is always a preview) and show the user which aliases
   their own `~/.ssh/config` already provides; apply only after they confirm.
+  Explain the import's authentication warning: existing IdentityFile and other
+  directives remain in the source config, rather than becoming saved
+  credentials. Show the selected fallback path, preserve existing bindings on
+  overwrite, and explicitly test login before claiming success.
   With nothing to import, follow the skill's **When the user wants to add a
   server** playbook: collect the non-secret fields in chat, create the
   profile, route credential entry through `serverctl ui --credential ALIAS`

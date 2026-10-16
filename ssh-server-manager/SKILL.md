@@ -129,7 +129,7 @@ Saved metadata can omit an encrypted key's fingerprint until validation.
   `serverctl skill discover --json`, then use `serverctl skill add PATH
   --server <alias>`; `--server` may repeat. Discovery is local and read-only:
   it neither installs nor binds a skill.
-- To import OpenSSH aliases, preview with `serverctl server import`, then apply with `serverctl server import --apply`.
+- To import OpenSSH aliases, preview with `serverctl server import`, then apply with `serverctl server import --apply`. Report the authentication warning and selected source config: importing does not create managed credentials or verify login. The source remains available to OpenSSH as an authentication fallback; an empty credential binding alone is not evidence of failed authentication. Explicit overwrite preserves saved credential bindings and notes. Run an explicit `server test` before claiming an imported host works.
 - To add a server that is not managed yet, follow **When the user wants to add a server** below: collect the fields in chat, create the profile, then route secret entry through `serverctl ui --credential ALIAS`.
 - To add or update secrets, prefer the local UI — `serverctl ui --credential ALIAS` opens the browser directly on that server's credential form. When using the CLI, let `getpass` prompt locally; never pass a password as an argument or environment variable.
 - To diagnose access, run `serverctl server test <alias> --json` before connecting.
