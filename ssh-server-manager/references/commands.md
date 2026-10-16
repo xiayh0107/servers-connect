@@ -246,6 +246,14 @@ offering it, and report the missing component instead of retrying. Prefer
 for agent tool calls (see SKILL.md). Without a TTY it fails fast with exit
 code `2` and a pointer to `exec`.
 
+With the normal OpenSSH `ask` policy, an unknown host key is shown in the
+human's controlling terminal even when AskPass supplies a saved password or
+key passphrase. Compare its fingerprint with a trusted source before typing
+`yes` or the matching fingerprint; `no`, EOF, or an unavailable terminal
+rejects confirmation. Explicit stricter SSH policies remain in force. This
+does not authorize agent calls, checks, transfers, or credential tests to
+accept keys, and it does not replace a changed or revoked key.
+
 `exec` quotes command arguments for a POSIX remote shell. `--shell` accepts
 exactly one command string and runs it through remote `sh -lc`; use it for
 pipelines, redirects, command substitutions, or multiple commands. Without

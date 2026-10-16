@@ -16,9 +16,13 @@ alternatives.
 
 Here, the boundary is structural: the model calls a deterministic CLI;
 authentication happens out-of-band through AskPass and the OS vault. The
-secret value never enters the process output the model reads. Prompts that
-should go to a human (host-key confirmation, OTP/2FA) are refused by the
-AskPass helper rather than auto-answered.
+secret value never enters the process output the model reads. AskPass refuses
+host-key confirmation during agent calls and Web operations, and never
+answers OTP/2FA prompts. Only interactive `serverctl connect` can show a
+first-use host-key prompt in the human's controlling terminal and return
+their explicit answer; the human must check its fingerprint with a trusted
+source. It preserves the configured SSH trust policy and never automatically
+accepts or replaces a host key.
 
 ## As an Agent Skill (recommended)
 

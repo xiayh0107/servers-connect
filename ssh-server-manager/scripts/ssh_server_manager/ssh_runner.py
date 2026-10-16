@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
+from .askpass import HOST_KEY_CONFIRM_ENV
 from .db import Database, NotFoundError, utc_now
 from .host_metadata import sanitize_facts, sanitize_text
 from .paths import runtime_dir
@@ -302,14 +303,18 @@ class SSHRunner:
                 launcher.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
         return launcher
 
-    def _environment(self, server: dict[str, Any]) -> dict[str, str]:
+    def _environment(self, server: dict[str, Any], *, host_key_confirmation: bool = False) -> dict[str, str]:
         environment = os.environ.copy()
+        # An inherited flag must never make a web check/transfer interactive.
+        environment.pop(HOST_KEY_CONFIRM_ENV, None)
         descriptors = self._auth_descriptors(server)
         if descriptors:
             environment["SSH_ASKPASS"] = str(self._askpass_launcher())
             environment["SSH_ASKPASS_REQUIRE"] = "force"
             environment.setdefault("DISPLAY", "ssh-server-manager:0")
             environment["SSM_ASKPASS_MAP"] = json.dumps(descriptors, separators=(",", ":"))
+            if host_key_confirmation:
+                environment[HOST_KEY_CONFIRM_ENV] = "terminal"
         return environment
 
     def _base_command(self, server: dict[str, Any], *, timeout: int, reuse: int = 0) -> list[str]:
@@ -1191,7 +1196,8 @@ class SSHRunner:
     def connect(self, identifier: str, *, timeout: int = 12) -> int:
         server = self.database.get_server(identifier)
         command = self._base_command(server, timeout=timeout)
-        return subprocess.call(command, env=self._environment(server))
+        interactive = sys.stdin.isatty() and sys.stdout.isatty()
+        return subprocess.call(command, env=self._environment(server, host_key_confirmation=interactive))
 
     def execute(
         self,

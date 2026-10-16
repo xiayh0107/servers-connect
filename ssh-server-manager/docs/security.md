@@ -69,8 +69,9 @@ as a hard error — the tool refuses to run rather than degrade to plaintext.
 helper and passes it only *credential identifiers* plus prompt-matching
 metadata. When OpenSSH asks for a password or passphrase, the helper:
 
-1. Classifies the prompt (it refuses to answer host-key confirmation or
-   OTP prompts — those must go to a human);
+1. Classifies the prompt (it refuses non-interactive host-key confirmation
+   and OTP prompts; interactive first-use confirmation goes to the human's
+   controlling terminal);
 2. Matches it to the right credential by username/hostname/key path;
 3. Fetches the secret from the OS vault and writes it directly to the ssh
    process.
@@ -127,11 +128,15 @@ normal operation.
 
 ## Host keys
 
-`StrictHostKeyChecking` is never weakened. An unknown or changed host key
-fails the connection with the `host-key-untrusted` error code; you resolve
-it deliberately (e.g. verify the fingerprint out-of-band, connect once with
-plain `ssh` to accept it, or clean `~/.ssh/known_hosts`). There is no flag
-to bypass verification — by design.
+`StrictHostKeyChecking` is never weakened. Automated checks and transfers
+reject unknown or changed keys with `host-key-untrusted`. Under OpenSSH's
+normal `ask` policy, interactive `serverctl connect ALIAS` shows a first-use
+fingerprint in the human's controlling terminal even when AskPass supplies
+a saved password or passphrase. Verify it out-of-band before explicitly
+confirming; missing terminal input fails closed. Stricter configured policies
+still apply. Investigate changed or revoked keys with the server administrator
+before modifying trust records; the manager never automatically removes or
+replaces them. There is no flag to bypass verification.
 
 ## Reporting
 
