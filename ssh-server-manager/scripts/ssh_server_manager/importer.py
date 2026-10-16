@@ -7,6 +7,7 @@ from typing import Any
 
 from .db import ConflictError, Database, NotFoundError
 from .paths import original_ssh_config_path
+from .process_args import literal_config_args
 from .ssh_config import _IncludePaths, _expand_include, _parse_include_tokens, split_config_line
 from .validation import ValidationError, validate_alias
 
@@ -67,8 +68,10 @@ def _read_config_aliases(
 
 def _resolve_alias(alias: str, config: Path, *, ssh_binary: str = "ssh") -> dict[str, Any]:
     result = subprocess.run(
-        [ssh_binary, "-G", "-F", str(config), alias],
+        literal_config_args([ssh_binary, "-G", "-F", str(config), alias]),
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=10,
         check=False,

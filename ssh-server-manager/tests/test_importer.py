@@ -9,6 +9,7 @@ import pytest
 
 from ssh_server_manager import importer, ssh_config
 from ssh_server_manager.db import ConflictError, Database
+from ssh_server_manager.process_args import literal_config_args
 from ssh_server_manager.ssh_config import quote_value
 from ssh_fixture_permissions import private_ssh_fixture_file
 
@@ -159,13 +160,16 @@ def test_import_effective_identity_files_are_warning_metadata_only(tmp_path, mon
     assert result["warnings"][0]["identity_files"] == warning["identity_files"]
 
 
-def test_real_ssh_g_import_reads_config_without_loading_an_identity(tmp_path, monkeypatch):
+@pytest.mark.parametrize("config_name", [
+    "selected config.conf", "source${SSM_TEST_SOURCE}.conf", "O'Brien.conf", "[source].conf",
+])
+def test_real_ssh_g_import_reads_config_without_loading_an_identity(tmp_path, monkeypatch, config_name):
     ssh = _ssh_client()
-    config = tmp_path / "selected config.conf"
+    config = tmp_path / config_name
     included = tmp_path / "profile fragment.conf"
     # This deliberately is a directory, not a private key. Config resolution
     # still succeeds because ssh -G never attempts authentication or key loading.
-    identity = tmp_path / "not a private key"
+    identity = tmp_path / "not a private key 中文"
     identity.mkdir()
     included.write_text(
         "Host fixture\n  HostName 127.0.0.1\n  Port 22022\n  User fixture\n"
@@ -179,13 +183,19 @@ def test_real_ssh_g_import_reads_config_without_loading_an_identity(tmp_path, mo
     monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
     monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "unused-default.conf"))
+    monkeypatch.setenv("SSM_TEST_SOURCE", "must-not-expand")
     original_run = subprocess.run
+    expected_resolution = literal_config_args([ssh, "-G", "-F", str(config.resolve()), "fixture"])
 
     def config_only(command, **kwargs):
-        if Path(command[0]).name.casefold() == "cygpath.exe":
-            assert command[1] in {"-u", "-w"} and command[2] == "--"
+        if isinstance(command, list) and Path(command[0]).name.casefold() == "cygpath.exe":
+            assert command[1:] in (["-u", "-f", "-"], ["-w", "-C", "UTF8", "-f", "-"])
+            assert kwargs["encoding"] == "utf-8"
+            assert kwargs["input"].endswith("\n") and kwargs["input"].count("\n") == 1
+            assert not kwargs.get("shell", False)
         else:
-            assert command[:3] == [ssh, "-G", "-F"]
+            assert command == expected_resolution
+            assert not kwargs.get("shell", False)
         return original_run(command, **kwargs)
 
     monkeypatch.setattr(importer.subprocess, "run", config_only)

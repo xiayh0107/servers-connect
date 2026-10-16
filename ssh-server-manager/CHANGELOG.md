@@ -7,6 +7,8 @@
   OpenSSH clients before and after 9.9's token expansion. Retain custom import
   sources per host without mixing IdentityFile defaults across sources;
   reject invalid paths and Include cycles before applying an import.
+  Preserve literal braces, apostrophes and glob characters across Windows
+  MSYS process arguments and bounded UTF-8 path conversion.
 - Preserve saved credentials, notes and local metadata on import overwrite.
   Expose authentication warnings, IdentityFile paths and source-config fallback
   in CLI, API v1 and the import dialog; importing does not verify login or read

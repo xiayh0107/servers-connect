@@ -122,6 +122,15 @@ class _IncludePaths:
 
     def _convert(self, value: str, direction: str) -> str:
         assert self.cygpath is not None
+        # cygpath's -f reader has an 8193-byte buffer (2 * PATH_MAX + 1).
+        # Leave room for one newline and NUL, and never submit a second path.
+        invalid_input = not value or len(value) > 8191 or any(not char.isprintable() for char in value)
+        try:
+            invalid_input = invalid_input or len(value.encode("utf-8")) > 8191
+        except UnicodeError:
+            invalid_input = True
+        if invalid_input:
+            raise SSHConfigError("SSH Include conversion needs a printable single-line path of at most 8191 UTF-8 bytes")
         key = (direction, value)
         if key not in self._converted:
             # cygpath's Unix output and input use its locale; Windows output
@@ -133,8 +142,11 @@ class _IncludePaths:
             if direction == "-w":
                 command.extend(["-C", "UTF8"])
             try:
+                # The MSYS/Cygwin runtime expands unquoted native-parent argv,
+                # including braces and apostrophes. Its stdin file mode passes
+                # this one path directly to conversion without startup globbing.
                 result = subprocess.run(
-                    [*command, "--", value], stdin=subprocess.DEVNULL,
+                    [*command, "-f", "-"], input=value + "\n",
                     capture_output=True, encoding="utf-8", errors="strict", timeout=5,
                     env=environment,
                 )

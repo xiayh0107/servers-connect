@@ -126,7 +126,8 @@ def test_original_defaults_and_external_aliases_apply_before_last_host(tmp_path)
     "source100%.conf",
     "source${SSM_TEST_SOURCE}.conf",
     "source中文.conf",
-], ids=["combined", "plain", "brackets", "percent", "dollar", "unicode"])
+    "sourceO'Brien.conf",
+], ids=["combined", "plain", "brackets", "percent", "dollar", "unicode", "apostrophe"])
 def test_unbound_host_keeps_original_identity_and_literal_include_filename(tmp_path, source_name):
     ssh = fixture_ssh()
     database = Database(tmp_path / "manager.db")
@@ -264,7 +265,8 @@ def test_msys_cycle_check_converts_posix_include_with_selected_client(tmp_path, 
 
     def run(command, **kwargs):
         calls.append(command)
-        assert command[1:] == ["-w", "-C", "UTF8", "--", "/c/fixture/managed.conf"]
+        assert command[1:] == ["-w", "-C", "UTF8", "-f", "-"]
+        assert kwargs["input"] == "/c/fixture/managed.conf\n"
         return SimpleNamespace(returncode=0, stdout=managed_resolved + "\n")
 
     monkeypatch.setattr(ssh_config.subprocess, "run", run)
@@ -343,7 +345,7 @@ def test_msys_include_uses_selected_distribution_converter_and_caches(tmp_path, 
 
     def run(command, **kwargs):
         calls.append(command)
-        assert kwargs["stdin"] == subprocess.DEVNULL
+        assert kwargs["input"] == str(source) + "\n"
         assert kwargs["timeout"] == 5
         return SimpleNamespace(returncode=0, stdout="/d/custom profile/original.conf\n")
 
@@ -352,7 +354,7 @@ def test_msys_include_uses_selected_distribution_converter_and_caches(tmp_path, 
     source = PureWindowsPath(r"D:\custom profile\original.conf")
     assert paths.format(source) == '"/d/custom profile/original.conf"'
     assert paths.format(source) == '"/d/custom profile/original.conf"'
-    assert calls == [[str(converter), "-u", "--", str(source)]]
+    assert calls == [[str(converter), "-u", "-f", "-"]]
 
 
 def test_msys_conversion_uses_isolated_utf8_environment(tmp_path, monkeypatch):
@@ -377,6 +379,10 @@ def test_msys_conversion_uses_isolated_utf8_environment(tmp_path, monkeypatch):
         )
         assert kwargs["encoding"] == "utf-8"
         assert kwargs["errors"] == "strict"
+        expected_input = "D:\\中文\\source.conf" if command[1] == "-u" else "/d/中文/source.conf"
+        assert kwargs["input"] == expected_input + "\n"
+        assert "stdin" not in kwargs
+        assert not kwargs.get("shell", False)
         converted = "/d/中文/source.conf" if command[1] == "-u" else "D:\\中文\\source.conf"
         return SimpleNamespace(returncode=0, stdout=converted + "\n")
 
@@ -385,11 +391,45 @@ def test_msys_conversion_uses_isolated_utf8_environment(tmp_path, monkeypatch):
     assert paths.format(PureWindowsPath("D:/中文/source.conf")) == "/d/中文/source.conf"
     assert str(paths.local("/d/中文/source.conf")) == "D:\\中文\\source.conf"
     assert calls == [
-        [str(converter), "-u", "--", "D:\\中文\\source.conf"],
-        [str(converter), "-w", "-C", "UTF8", "--", "/d/中文/source.conf"],
+        [str(converter), "-u", "-f", "-"],
+        [str(converter), "-w", "-C", "UTF8", "-f", "-"],
     ]
     assert all(os.environ.get(key) == value for key, value in parent_environment.items())
     assert len(os.environ) == len(parent_environment)
+
+
+@pytest.mark.parametrize("operand", [
+    r"D:\source${literal}.conf", r"D:\sourceO'Brien.conf", r"D:\[source]*?.conf",
+])
+def test_msys_converter_passes_literal_path_only_through_utf8_stdin(tmp_path, monkeypatch, operand):
+    converter = tmp_path / "cygpath.exe"
+    monkeypatch.setattr(ssh_config, "_cygpath_for_client", lambda binary: converter)
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        assert command == [str(converter), "-u", "-f", "-"]
+        assert kwargs["input"] == operand + "\n"
+        assert kwargs["encoding"] == "utf-8"
+        assert "stdin" not in kwargs
+        assert not kwargs.get("shell", False)
+        return SimpleNamespace(returncode=0, stdout="/d/fixture.conf\n")
+
+    monkeypatch.setattr(ssh_config.subprocess, "run", run)
+    paths = ssh_config._IncludePaths("fixture-ssh", windows=True)
+    assert paths._convert(operand, "-u") == "/d/fixture.conf"
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("operand", [
+    "D:/first.conf\nD:/second.conf", "D:/source\r.conf", "D:/source\0.conf",
+    "D:/" + "a" * 8192, "D:/" + "中" * 2730, "D:/source\ud800.conf",
+], ids=["newline", "return", "nul", "ascii-size", "utf8-size", "invalid-utf8"])
+def test_msys_converter_rejects_multiple_or_unbounded_input_before_starting(tmp_path, monkeypatch, operand):
+    monkeypatch.setattr(ssh_config, "_cygpath_for_client", lambda binary: tmp_path / "cygpath.exe")
+    monkeypatch.setattr(ssh_config.subprocess, "run", lambda *args, **kwargs: pytest.fail("invalid converter input must not start a child"))
+    with pytest.raises(SSHConfigError, match="single-line"):
+        ssh_config._IncludePaths("fixture-ssh", windows=True)._convert(operand, "-u")
 
 
 @pytest.mark.parametrize("failure", ["missing", "error", "relative", "multiline", "timeout"])

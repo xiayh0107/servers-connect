@@ -37,7 +37,7 @@ jobs:
           foreach ($ssmSshClient in $ssmSshClients) {
             if (-not (Test-Path $ssmSshClient)) { throw "Missing SSH client: $ssmSshClient" }
             $env:SSM_TEST_SSH_CLIENT = $ssmSshClient
-            python -m pytest -q --tb=short ssh-server-manager/tests/test_ssh_config.py ssh-server-manager/tests/test_importer.py
+            python -m pytest -q --tb=short ssh-server-manager/tests/test_ssh_config.py ssh-server-manager/tests/test_importer.py ssh-server-manager/tests/test_process_args.py
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           Remove-Item Env:SSM_TEST_SSH_CLIENT

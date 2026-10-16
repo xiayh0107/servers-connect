@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from .host_metadata import observation_time
+from .process_args import literal_config_args
 from .ssh_config import split_config_line
 
 
@@ -42,7 +43,7 @@ def _run(command: list[str], deadline: float) -> subprocess.CompletedProcess[str
         return None
     try:
         return subprocess.run(
-            command, text=True, encoding="utf-8", errors="replace",
+            literal_config_args(command), text=True, encoding="utf-8", errors="replace",
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             timeout=remaining, check=False,
         )

@@ -13,6 +13,7 @@ from typing import Any
 
 from .validation import ValidationError, validate_remote_path
 from .host_metadata import sanitize_text
+from .process_args import literal_config_args
 
 
 METADATA_PREFIX = "__ssm_files__="
@@ -57,7 +58,7 @@ def run_metadata_command(command: list[str], *, request: str, env: dict[str, str
     Separate readers work on Windows pipes as well as POSIX. The main thread
     enforces the deadline even if SSH never consumes the bounded stdin request.
     """
-    process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    process = subprocess.Popen(literal_config_args(command), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
     output, diagnostics = bytearray(), bytearray()
     exceeded = threading.Event()
 
