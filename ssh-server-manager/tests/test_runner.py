@@ -171,7 +171,8 @@ def test_diagnose_runs_profile_ssh_sftp_and_remote_checks(tmp_path, monkeypatch)
     assert calls == ["ssh", "sftp", "ssh"]
 
 
-def test_diagnose_identifies_windows_hosts_without_posix_shell(tmp_path, monkeypatch):
+@pytest.mark.parametrize("operation", ["diagnose", "observe"])
+def test_identity_probe_identifies_windows_hosts_without_posix_shell(tmp_path, monkeypatch, operation):
     database = Database(tmp_path / "manager.db")
     database.create_server(alias="winbox", hostname="win.example", port=22, username="alice")
     monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
@@ -201,11 +202,14 @@ def test_diagnose_identifies_windows_hosts_without_posix_shell(tmp_path, monkeyp
         raise AssertionError(f"unexpected remote command: {remote_command}")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp").diagnose("winbox")
+    result = getattr(SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp"), operation)("winbox")
 
-    remote = next(check for check in result["checks"] if check["id"] == "remote")
+    remote = next(check for check in result["checks"] if check["id"] == "remote") if operation == "diagnose" else {
+        "status": "ok" if result["ok"] else "failed", "details": database.get_server("winbox")["facts"],
+    }
     assert remote["status"] == "ok"
     assert remote["details"]["os"] == "Microsoft Windows [Version 10.0.20348.2113]"
+    assert remote["details"]["os_pretty"] == remote["details"]["os"]
     assert remote["details"]["os_id"] == "windows"
     assert remote["details"]["os_family"] == "windows"
     assert remote["details"]["os_version"] == "10.0.20348.2113"

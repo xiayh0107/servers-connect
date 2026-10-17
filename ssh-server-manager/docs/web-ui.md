@@ -71,9 +71,23 @@ metadata and never starts DNS, SSH, SFTP or vault access. It displays:
 
 ![Host details with cached connection and system metadata](https://xiayh0107.github.io/servers-connect/assets/ui-host-details.png)
 
-**Run check** and **Full diagnosis** are explicit remote actions. Failed checks
-retain the last successful timestamp and prior system facts. Changing hostname
-or port clears observations for the previous endpoint. Saved facts and statuses
+**Run check** verifies connectivity and saves resolved-IP/host-key observations;
+it does not collect OS or hardware facts. **Collect host info** explicitly runs
+the same read-only system probe as **Full diagnosis**, without its SFTP check.
+Use it beside an unknown OS in a host row or in the System section of host
+details. To backfill hosts after an upgrade, select the desired rows and choose
+**Collect host info** in the selection toolbar. Batches accept 1-64 hosts with
+concurrency 1-4 and a timeout of 1-120 seconds per probe (plus bounded SSH
+transport grace); overlapping batches share the four-worker limit. Each host
+gets its own result and one failure does not stop the others. No observation
+is collected automatically on upgrade, hover, opening details, or history
+navigation. **Full diagnosis** remains available for profile/SSH/SFTP/system
+troubleshooting.
+
+Failed checks or system probes retain prior system facts. A successful SSH
+handshake still updates connection health even if the subsequent system probe
+fails. Changing hostname or port clears observations for the previous endpoint.
+Saved facts and statuses
 remain observations, not proof a host is currently online. The locally resolved
 IP through a jump chain need not be the remote peer address; saved host-key
 states never bypass OpenSSH verification.

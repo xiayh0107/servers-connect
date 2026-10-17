@@ -123,8 +123,9 @@ runtime reports the actual session expiry and server time; vault status stays
 unknown until an explicit vault operation observes a result.
 
 Host inventory and details read saved local metadata without DNS, SSH, or vault
-access. Successful diagnostics retain sanitized system `facts` with an
-`observed_at` timestamp and closed `os_logo` key; JSON also exposes
+access. Successful diagnostics and explicit host-info collection retain
+sanitized system `facts` with an `observed_at` timestamp and closed `os_logo`
+key; JSON also exposes
 `last_success_at`, the last locally resolved IP, host-key state, optional manual
 geography, and literal address scope. These are dated observations: a failed
 check keeps the previous successful facts, and cached metadata never proves
@@ -133,10 +134,20 @@ fresh information.
 
 For UI integrations, `/api/v1/runtime` advertises bulk-check, route, file-conflict,
 and transfer-limit capabilities. `GET /api/v1/hosts/{id}/route` reads the saved
-ProxyJump route without probing; `POST /api/v1/hosts/test` checks an explicitly
-selected batch of at most 64 hosts with concurrency from 1 to 4. Every selected
-host must exist before any check starts. The file API supports optional name
-filtering, nullable precise metadata, structured errors, and uploads that refuse
+ProxyJump route without probing; `POST /api/v1/hosts/test` checks connectivity
+only. `POST /api/v1/hosts/observe` explicitly backfills sanitized system facts
+using the diagnosis system probe, without an SFTP check. Both accept
+`{identifiers: [...], timeout: 8, concurrency: 4}` with 1-64 hosts, concurrency
+1-4 and timeout 1-120 seconds per probe, plus bounded SSH transport grace.
+Every selected host must exist before any remote work starts; aliases/IDs are
+deduplicated, results keep selection order, failures are isolated per host,
+and overlapping batches share a four-worker limit. A failed system probe
+retains prior facts and does not turn a successful handshake into a failed
+connectivity status. `POST /api/v1/hosts/{id}/observe` accepts `{timeout: 8}`
+for a single host. The UI exposes **Collect host info** in rows, host details
+and the selection toolbar; agents must not start a fleet backfill merely
+because upgraded hosts have empty observations. The file API supports optional
+name filtering, nullable precise metadata, structured errors, and uploads that refuse
 existing destinations unless `overwrite=true` is supplied for an authorized
 replacement. These are HTTP contracts; agents continue using the existing CLI
 commands and the same credential boundary.

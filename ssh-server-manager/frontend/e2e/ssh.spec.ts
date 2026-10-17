@@ -109,6 +109,31 @@ test('real direct, multi-hop and external SSH checks, diagnosis and failure', as
   expect(errors).toEqual([]);
 });
 
+test('real single and bulk host info collection backfills facts with partial failures', async ({page, loopback}) => {
+  const direct = page.getByRole('row').filter({has: page.getByRole('button', {name: 'direct', exact: true})});
+  await expect(direct).toContainText('OS unknown');
+  const collected = page.waitForResponse(response => response.url().endsWith(`/hosts/${loopback.hosts.direct}/observe`) && response.request().method() === 'POST');
+  await page.getByRole('button', {name: 'Collect host info direct', exact: true}).click();
+  expect((await (await collected).json()).ok).toBe(true);
+  await expect(direct).toContainText('Fixture Linux');
+  for (const alias of ['multi-hop', 'external-route', 'bad-auth']) {
+    await page.getByRole('checkbox', {name: `Select ${alias}`, exact: true}).check();
+  }
+  await page.getByRole('button', {name: 'Collect host info', exact: true}).click();
+  const results = page.getByRole('dialog', {name: 'Host info results', exact: true});
+  await expect(results).toContainText('multi-hop');
+  await expect(results).toContainText('external-route');
+  await expect(results).toContainText('bad-auth');
+  await expect(results).toContainText('Failed');
+  const hosts = await (await page.request.get(`${loopback.base_url}/api/v1/hosts`)).json();
+  for (const alias of ['direct', 'multi-hop', 'external-route']) {
+    const host = hosts.find((value: {alias: string}) => value.alias === alias);
+    expect(host.facts.os_pretty).toBe('Fixture Linux');
+    expect(host.facts.observed_at).toBeTruthy();
+  }
+  expect(hosts.find((value: {alias: string}) => value.alias === 'bad-auth').facts).toBeNull();
+});
+
 test('real routed SFTP browse, upload conflict, explicit overwrite and download', async ({page, loopback}) => {
   await files(page, loopback, 'multi-hop');
   const table = page.getByRole('table', {name: 'Remote files'});

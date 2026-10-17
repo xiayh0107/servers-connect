@@ -72,6 +72,12 @@ def build_router(
             payload.identifiers, timeout=payload.timeout, concurrency=payload.concurrency,
         )
 
+    @router.post("/hosts/observe", response_model=dto.BulkTestResult, tags=["diagnostics"])
+    def observe_hosts(payload: dto.BulkProbeRequest, _session=Depends(csrf_session)):
+        return services.diagnostics.observe_many(
+            payload.identifiers, timeout=payload.timeout, concurrency=payload.concurrency,
+        )
+
     @router.get("/hosts/{identifier}", response_model=dto.Host, tags=["hosts"])
     def host(identifier: str):
         return services.hosts.get(identifier)
@@ -105,6 +111,10 @@ def build_router(
     @router.post("/hosts/{identifier}/test", response_model=dto.TestResult, tags=["diagnostics"])
     def test(identifier: str, payload: dto.ProbeRequest | None = None, _session=Depends(csrf_session)):
         return services.diagnostics.test(identifier, timeout=payload.timeout if payload else 8)
+
+    @router.post("/hosts/{identifier}/observe", response_model=dto.TestResult, tags=["diagnostics"])
+    def observe(identifier: str, payload: dto.ProbeRequest | None = None, _session=Depends(csrf_session)):
+        return services.diagnostics.observe(identifier, timeout=payload.timeout if payload else 8)
 
     @router.post("/hosts/{identifier}/diagnose", response_model=dto.Diagnosis, tags=["diagnostics"])
     def diagnose(identifier: str, payload: dto.ProbeRequest | None = None, _session=Depends(csrf_session)):

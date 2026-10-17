@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fix #10: replace the misleading OS "run a check" hint with an explicit
+  **Collect host info** action; keep connectivity checks separate from system
+  observation, label saved system data by observation time, and include the
+  Windows OS display name in collected facts.
+- Fix #11: add single-host and bulk `/api/v1/hosts/.../observe` actions and a
+  selection-toolbar backfill for 1-64 hosts, concurrency 1-4 and bounded probe
+  timeouts. Reuse the diagnosis system probe without SFTP, isolate per-host
+  failures, share the bulk-check concurrency limit, and retain previous facts
+  on failure. Add runner, API, UI and browser regression coverage.
 - Fix Paper UI review regressions: suppress hover/focus previews while host
   details are hidden, preserve native keyboard activation and browser shortcuts,
   track the inventory cursor by host identity, and restore saved diagnosis/edit

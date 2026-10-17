@@ -45,8 +45,9 @@ const seedEntries = [
 ];
 type RequestRecord = {method: string; path: string; body: string | null};
 
-async function mockApi(page: Page, empty = false) {
+async function mockApi(page: Page, empty = false, unobserved = false) {
   const requests: RequestRecord[] = [], unexpected: string[] = [], errors: string[] = [];
+  const inventory = hosts.map(value => ({...value, facts: unobserved ? null : value.facts}));
   let paths = seedPaths.map(value => ({...value}));
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/api/v1/**', async route => {
@@ -60,7 +61,7 @@ async function mockApi(page: Page, empty = false) {
       return reply({error: 'csrf_failed', message: 'Fixture CSRF verification failed'}, 403);
     }
     if (method === 'GET' && parts[0] === 'runtime') return reply(runtime);
-    if (method === 'GET' && parts[0] === 'hosts' && parts.length === 1) return reply(empty ? [] : hosts);
+    if (method === 'GET' && parts[0] === 'hosts' && parts.length === 1) return reply(empty ? [] : inventory);
     if (method === 'GET' && parts[0] === 'credentials' && parts.length === 1) return reply(empty ? [] : [credential]);
     if (method === 'GET' && parts[0] === 'credentials' && parts[1] === credential.id && parts[2] === 'deletion-preview') {
       return reply({credential_id: credential.id, expected_updated_at: credential.updated_at,
@@ -79,13 +80,23 @@ async function mockApi(page: Page, empty = false) {
     if (method === 'GET' && parts[0] === 'contexts') return reply(empty ? [] : [{name: 'production', count: hosts.length}]);
     if (method === 'GET' && parts[0] === 'skills') return reply(empty ? [] : [skill]);
     if (parts[0] === 'hosts') {
-      const current = hosts.find(value => value.id === parts[1]);
+      const collect = (current: typeof inventory[number]) => {
+        if (current.id === hosts[1].id) return {alias: current.alias, ok: false, latency_ms: 24, error_code: 'timeout', message: 'Remote system probe timed out'};
+        current.facts = hosts.find(value => value.id === current.id)!.facts;
+        return {alias: current.alias, ok: true, latency_ms: 24, error_code: null, message: 'Host info collected'};
+      };
+      if (method === 'POST' && parts[1] === 'observe' && parts.length === 2) {
+        const identifiers = request.postDataJSON().identifiers as string[];
+        return reply({results: inventory.filter(value => identifiers.includes(value.id)).map(collect)});
+      }
+      const current = inventory.find(value => value.id === parts[1]);
       if (current && method === 'GET' && parts[2] === 'workspace') return reply({server: current, host: current, credential, paths, skills: [skill]});
       if (current && method === 'GET' && parts[2] === 'route') return reply({alias: current.alias, blocked_by: null,
         hops: [...current.proxy_jumps.map(alias => ({alias, external: true})), {alias: current.alias, external: false}]});
       if (current && method === 'POST' && parts[2] === 'test') return reply({alias: current.alias, ok: true,
         error_code: null, message: 'Connection checked', latency_ms: 24, checked_at: observed});
       if (current && method === 'POST' && parts[2] === 'diagnose') return reply({alias: current.alias, checks: []});
+      if (current && method === 'POST' && parts[2] === 'observe') return reply(collect(current));
       if (current && method === 'GET' && parts[2] === 'files') {
         const path = url.searchParams.get('path') || '/srv/app', filter = url.searchParams.get('name_filter') || '';
         const entries = seedEntries.filter(value => value.name.toLowerCase().includes(filter.toLowerCase())).map(value => ({
@@ -122,6 +133,38 @@ async function mockApi(page: Page, empty = false) {
 
 const nav = (page: Page, label: string) => page.getByRole('navigation', {name: 'Primary navigation'}).getByRole('link', {name: new RegExp(`^${label}(?:\\s*\\d+)?$`)});
 const assertClean = (state: Awaited<ReturnType<typeof mockApi>>) => {expect(state.unexpected).toEqual([]); expect(state.errors).toEqual([]);};
+
+for (const width of [1440, 390]) {
+test(`explicit host info backfill at ${width}px preserves cheap checks and history`, async ({page}, info) => {
+  const state = await mockApi(page, false, true);
+  await page.setViewportSize({width, height: 900});
+  await page.goto('/assets/');
+  const row = page.getByRole('row').filter({has: page.getByRole('button', {name: hosts[0].alias, exact: true})});
+  await expect(row).toContainText('OS unknown');
+  expect(state.requests.filter(request => request.method !== 'GET')).toEqual([]);
+  await page.getByRole('button', {name: `Run check ${hosts[0].alias}`, exact: true}).click();
+  await expect(page.getByRole('status').filter({hasText: 'Connection checked'})).toBeVisible();
+  await expect(row).toContainText('OS unknown');
+  await page.getByRole('checkbox', {name: `Select ${hosts[0].alias}`, exact: true}).check();
+  await page.getByRole('checkbox', {name: `Select ${hosts[1].alias}`, exact: true}).check();
+  await assertNoPageOverflow(page);
+  await page.screenshot({path: info.outputPath(`host-info-selection-${width}.png`), fullPage: true});
+  await page.getByRole('button', {name: 'Collect host info', exact: true}).click();
+  const results = page.getByRole('dialog', {name: 'Host info results', exact: true});
+  await expect(results).toContainText('Host info collected');
+  await expect(results).toContainText('Remote system probe timed out');
+  await results.getByRole('button', {name: 'Close', exact: true}).click();
+  await expect(results).toHaveCount(0);
+  await expect(row).toContainText('Ubuntu 24.04 LTS');
+  const writes = state.requests.filter(request => request.method === 'POST');
+  expect(writes.map(request => request.path)).toEqual([`/api/v1/hosts/${encodeURIComponent(hosts[0].id)}/test`, '/api/v1/hosts/observe']);
+  expect(JSON.parse(writes[1].body!)).toEqual({identifiers: [hosts[0].id, hosts[1].id], timeout: 8, concurrency: 4});
+  await page.goForward();
+  await expect(results).toBeVisible();
+  expect(state.requests.filter(request => request.method === 'POST')).toHaveLength(2);
+  assertClean(state);
+});
+}
 
 test('Hide details suppresses active, delayed and keyboard-focus previews', async ({page}) => {
   const state = await mockApi(page);
@@ -254,7 +297,7 @@ test(`all six views at ${width}px use the v1 contract and local host details sta
   await expect(detail.getByText('SHA256:browser-fixture')).toBeVisible();
   await expect(detail.getByText('Application root')).toBeVisible();
   expect(state.requests.filter(request => request.method !== 'GET')).toEqual([]);
-  expect(state.requests.some(request => /\/(?:test|diagnose|upload|download)(?:\?|$)/.test(request.path))).toBe(false);
+  expect(state.requests.some(request => /\/(?:test|observe|diagnose|upload|download)(?:\?|$)/.test(request.path))).toBe(false);
   await assertNoPageOverflow(page);
   await page.screenshot({path: info.outputPath(`02-host-details-${width}.png`), fullPage: true});
   await detail.locator('.drawer-body').evaluate(node => {node.scrollTop = node.scrollHeight;});

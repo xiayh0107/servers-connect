@@ -603,6 +603,7 @@
 .hosts-page .selection-bar{margin:0 40px var(--space-3)}
 @media(max-width:1180px){
   .lane{min-width:1080px}
+  .host-os-unknown{display:none}
   .hosts-card{margin-inline:24px}
   .hosts-footer{padding-inline:24px}
   .hosts-page .selection-bar{margin-inline:24px}

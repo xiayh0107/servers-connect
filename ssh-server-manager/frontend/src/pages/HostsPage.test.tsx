@@ -1,4 +1,4 @@
-import {act,fireEvent,render,screen,waitFor} from '@testing-library/react';
+import {act,fireEvent,render,screen,waitFor,within} from '@testing-library/react';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import userEvent from '@testing-library/user-event';
 import {api} from '../api';
@@ -38,6 +38,60 @@ it('shows a cached hover preview without contacting the host',async()=>{
   expect(screen.queryByRole('tooltip')).toBeNull();
   expect(mocked).not.toHaveBeenCalled();
   vi.useRealTimers();
+});
+
+it('points missing OS info at explicit collection instead of a connection check',async()=>{
+  const value=host({last_test_at:'2026-10-15T12:00:00Z',last_test_status:'ok'}),refresh=vi.fn().mockResolvedValue(undefined);
+  mocked.mockResolvedValue({alias:value.alias,ok:true,message:'Host info collected'});
+  const props={hosts:[value],credentials:[],runtime,hash:'#/hosts',onRefresh:refresh,onCreateCredential:vi.fn()};
+  const view=render(<HostsPage {...props}/>);
+  expect(screen.queryByText(/run a check|Check to detect OS/i)).toBeNull();
+  expect(mocked).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'Collect host info alpha'}));
+  await waitFor(()=>expect(refresh).toHaveBeenCalledOnce());
+  expect(mocked).toHaveBeenCalledExactlyOnceWith('/hosts/host-a/observe',expect.objectContaining({method:'POST',body:JSON.stringify({timeout:8})}));
+  view.rerender(<HostsPage {...props} hosts={[{...value,facts:{os_pretty:'Ubuntu 24.04 LTS',os_logo:'ubuntu',observed_at:'2026-10-17T12:00:00Z'}}]}/>);
+  expect(screen.getByText('Ubuntu 24.04 LTS')).toBeVisible();
+  expect(screen.queryByText('OS unknown')).toBeNull();
+  expect(screen.queryByRole('button',{name:'Collect host info alpha'})).toBeNull();
+});
+
+it('collects host info from details only after the explicit action',async()=>{
+  const refresh=vi.fn().mockResolvedValue(undefined);
+  mocked.mockImplementation(async(path,options)=>options?.method==='POST'?{alias:'alpha',ok:true,message:'Host info collected'}:path.endsWith('/workspace')?{paths:[],skills:[]}:{hops:[],blocked_by:null});
+  render(<HostsPage hosts={[host()]} credentials={[]} runtime={runtime} hash="#/hosts/alpha" onRefresh={refresh} onCreateCredential={vi.fn()}/>);
+  const dialog=screen.getByRole('dialog',{name:'Host details alpha'});
+  expect(dialog).toHaveTextContent('Connection checks do not collect system info.');
+  expect(mocked.mock.calls.every(([,options])=>!options?.method)).toBe(true);
+  fireEvent.click(within(dialog).getByRole('button',{name:'Collect host info'}));
+  await waitFor(()=>expect(refresh).toHaveBeenCalledOnce());
+  expect(mocked.mock.calls.filter(([,options])=>options?.method==='POST')).toEqual([['/hosts/host-a/observe',expect.objectContaining({method:'POST'})]]);
+});
+
+it('collects only selected hosts in a bounded batch and shows partial failures',async()=>{
+  let finish!:(value:unknown)=>void;mocked.mockImplementation(async()=>new Promise(done=>{finish=done;}));
+  const refresh=vi.fn().mockResolvedValue(undefined),values=[host(),host({id:'host-b',alias:'beta'}),host({id:'host-c',alias:'gamma'})];
+  render(<HostsPage hosts={values} credentials={[]} runtime={runtime} hash="#/hosts" onRefresh={refresh} onCreateCredential={vi.fn()}/>);
+  fireEvent.click(screen.getByRole('checkbox',{name:'Select alpha'}));
+  fireEvent.click(screen.getByRole('checkbox',{name:'Select beta'}));
+  expect(mocked).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'Collect host info'}));
+  expect(screen.getByRole('button',{name:'Collecting…'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:'Run checks'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:'Collect host info alpha'})).toBeDisabled();
+  expect(mocked).toHaveBeenCalledExactlyOnceWith('/hosts/observe',expect.objectContaining({method:'POST',body:JSON.stringify({identifiers:['host-a','host-b'],timeout:8,concurrency:4})}));
+  await act(async()=>finish({results:[{alias:'alpha',ok:true,message:'Host info collected'},{alias:'beta',ok:false,message:'Remote probe failed'}]}));
+  const dialog=await screen.findByRole('dialog',{name:'Host info results'});
+  expect(dialog).toHaveTextContent('alpha');expect(dialog).toHaveTextContent('beta');expect(dialog).toHaveTextContent('Remote probe failed');
+  expect(dialog).not.toHaveTextContent('gamma');expect(refresh).toHaveBeenCalledOnce();
+});
+
+it('disables bulk collection above the runtime selection limit',()=>{
+  render(<HostsPage hosts={[host(),host({id:'host-b',alias:'beta'})]} credentials={[]} runtime={{...runtime,capabilities:{...runtime.capabilities,max_bulk_hosts:1}}} hash="#/hosts" onRefresh={vi.fn()} onCreateCredential={vi.fn()}/>);
+  fireEvent.click(screen.getByRole('checkbox',{name:'Select alpha'}));fireEvent.click(screen.getByRole('checkbox',{name:'Select beta'}));
+  expect(screen.getByRole('button',{name:'Collect host info'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:'Run checks'})).toBeDisabled();
+  expect(mocked).not.toHaveBeenCalled();
 });
 
 it('does not reveal masked metadata through hover or keyboard focus',async()=>{
