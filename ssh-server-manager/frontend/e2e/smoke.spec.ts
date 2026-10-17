@@ -9,12 +9,18 @@ const host = (alias: string, id: string, jumps: string[] = []) => ({
   tags: ['production'], notes: 'Browser acceptance fixture', source: 'manual', created_at: observed, updated_at: observed,
   last_test_at: observed, last_test_status: 'ok', last_test_error_code: null, last_test_latency_ms: 24,
   last_test_message: 'Connection checked', last_success_at: observed, last_resolved_ip: '203.0.113.4', address_scope: 'public',
-  jump_for_count: 0, facts: {os_logo: 'ubuntu', os_pretty: 'Ubuntu 24.04 LTS', architecture: 'x86_64', observed_at: observed},
+  jump_for_count: 0, facts: {os_logo: 'ubuntu', os_pretty: 'Ubuntu 24.04 LTS', architecture: 'x86_64', observed_at: observed,
+    kernel: 'Linux 6.8.0-41-generic', arch: 'x86_64', cpu_cores: '8', cpu_model: 'AMD EPYC 7B13',
+    memory: 'Mem: 30.5Gi 11.2Gi 19.3Gi 0B 0B', disk: '/dev/nvme0n1p1 460G 120G 340G 27% /',
+    uptime: 'up 14 days, 3 hours', load: '0.42 0.38 0.35'},
   geo: {country_code: 'US', city: 'Ashburn', source: 'manual'}, host_key: {state: 'verified', fingerprint: 'SHA256:browser-fixture', observed_at: observed},
 });
 const hosts = [host('prod-web-01', 'host/#one'), host('stage-api-01', 'host-two', ['external-jump']), host('build-agent-01', 'host-three')];
 const credential = {id: 'credential-key', label: 'Deployment key', kind: 'key', key_path: '/fixture/keys/deploy_ed25519',
-  has_secret: false, has_passphrase: false, created_at: observed, updated_at: observed, last_test: null};
+  has_secret: false, has_passphrase: true, created_at: observed, updated_at: observed, last_test: null,
+  key_metadata: {path: '/fixture/keys/deploy_ed25519', status: 'valid', format: 'openssh', encrypted: true,
+    algorithm: 'Ed25519', fingerprint: 'SHA256:browser-fixture', bits: 256,
+    permissions: {method: 'posix_mode', assessment: 'secure', mode: '0600'}, observed_at: observed}};
 const runtime = {api_version: '1', version: '0.9.0', ui: 'modern', shell: 'web', csrf: 'browser-fixture-csrf', server_time: observed,
   auth: {master_password_enrolled: false, passkeys: 0, webauthn_available: false},
   session: {expires_at: new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString()}, vault: {name: 'Fixture vault', status: 'ready'},
@@ -62,6 +68,14 @@ async function mockApi(page: Page, empty = false) {
         has_secret: false, has_passphrase: false});
     }
     if (method === 'GET' && parts[0] === 'credential-deletions') return reply([]);
+    if (method === 'POST' && parts[0] === 'credentials' && parts[1] === credential.id && parts[2] === 'test') {
+      const result = {ok: false, error_code: 'authentication-failed', message: 'The selected credential was not accepted.',
+        latency_ms: 412, checked_at: observed, host_id: hosts[0].id, host_alias: hosts[0].alias,
+        credential_id: credential.id, method: 'publickey', stages: []};
+      const lines = [{type: 'stage', stage: 'authenticate', status: 'failed', message: result.message}, {type: 'result', result}]
+        .map(event => JSON.stringify(event)).join('\n') + '\n';
+      return route.fulfill({status: 200, contentType: 'application/x-ndjson', body: lines});
+    }
     if (method === 'GET' && parts[0] === 'contexts') return reply(empty ? [] : [{name: 'production', count: hosts.length}]);
     if (method === 'GET' && parts[0] === 'skills') return reply(empty ? [] : [skill]);
     if (parts[0] === 'hosts') {
@@ -69,6 +83,9 @@ async function mockApi(page: Page, empty = false) {
       if (current && method === 'GET' && parts[2] === 'workspace') return reply({server: current, host: current, credential, paths, skills: [skill]});
       if (current && method === 'GET' && parts[2] === 'route') return reply({alias: current.alias, blocked_by: null,
         hops: [...current.proxy_jumps.map(alias => ({alias, external: true})), {alias: current.alias, external: false}]});
+      if (current && method === 'POST' && parts[2] === 'test') return reply({alias: current.alias, ok: true,
+        error_code: null, message: 'Connection checked', latency_ms: 24, checked_at: observed});
+      if (current && method === 'POST' && parts[2] === 'diagnose') return reply({alias: current.alias, checks: []});
       if (current && method === 'GET' && parts[2] === 'files') {
         const path = url.searchParams.get('path') || '/srv/app', filter = url.searchParams.get('name_filter') || '';
         const entries = seedEntries.filter(value => value.name.toLowerCase().includes(filter.toLowerCase())).map(value => ({
@@ -106,6 +123,96 @@ async function mockApi(page: Page, empty = false) {
 const nav = (page: Page, label: string) => page.getByRole('navigation', {name: 'Primary navigation'}).getByRole('link', {name: new RegExp(`^${label}(?:\\s*\\d+)?$`)});
 const assertClean = (state: Awaited<ReturnType<typeof mockApi>>) => {expect(state.unexpected).toEqual([]); expect(state.errors).toEqual([]);};
 
+test('Hide details suppresses active, delayed and keyboard-focus previews', async ({page}) => {
+  const state = await mockApi(page);
+  await page.goto('/assets/');
+  const name = page.getByRole('button', {name: hosts[0].alias, exact: true});
+  await name.hover();
+  await expect(page.getByRole('tooltip')).toBeVisible();
+  await page.getByRole('button', {name: 'Hide details', exact: true}).click();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await name.hover();
+  await name.focus();
+  await expect(name).not.toHaveAttribute('aria-describedby');
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await expect(page.locator('main')).not.toContainText(hosts[0].hostname);
+  await expect(page.locator('main')).not.toContainText(credential.label);
+  await page.getByRole('button', {name: 'Show details', exact: true}).click();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  expect(state.requests.filter(request => request.method !== 'GET')).toEqual([]);
+  assertClean(state);
+});
+
+test('inventory shortcuts preserve button and navigation activation and survive filtering', async ({page}) => {
+  const state = await mockApi(page);
+  await page.goto('/assets/');
+  await expect(page.getByRole('heading', {name: 'Hosts', exact: true})).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  const check = page.getByRole('button', {name: `Run check ${hosts[0].alias}`, exact: true});
+  await check.focus();
+  await check.press('Enter');
+  await expect(page.getByRole('status')).toContainText('Connection checked');
+  expect(state.requests.filter(request => request.method !== 'GET')).toHaveLength(1);
+  await page.getByRole('heading', {name: 'Hosts', exact: true}).click();
+  await page.keyboard.press('ArrowDown');
+  await page.getByRole('textbox', {name: 'Search hosts', exact: true}).fill(hosts[0].alias);
+  await page.getByRole('heading', {name: 'Hosts', exact: true}).click();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await nav(page, 'Tags').focus();
+  await nav(page, 'Tags').press('Enter');
+  await expect(page.getByRole('heading', {name: 'Tags', exact: true})).toBeVisible();
+  assertClean(state);
+});
+
+test('saved diagnosis and edit row pins remain functional', async ({page}) => {
+  await page.addInitScript(() => localStorage.setItem('ssm.host-pins', JSON.stringify(['diagnose', 'edit'])));
+  const state = await mockApi(page);
+  await page.goto('/assets/');
+  await page.getByRole('button', {name: `Run full diagnosis ${hosts[0].alias}`, exact: true}).click();
+  const diagnosis = page.getByRole('dialog', {name: `Diagnosis · ${hosts[0].alias}`, exact: true});
+  await expect(diagnosis).toBeVisible();
+  await diagnosis.getByRole('button', {name: 'Close', exact: true}).click();
+  await page.getByRole('button', {name: `Edit host ${hosts[0].alias}`, exact: true}).click();
+  await expect(page.getByRole('dialog', {name: `Edit ${hosts[0].alias}`, exact: true})).toBeVisible();
+  expect(state.requests.filter(request => request.method !== 'GET').map(request => request.path))
+    .toEqual([`/api/v1/hosts/${encodeURIComponent(hosts[0].id)}/diagnose`]);
+  assertClean(state);
+});
+
+test('unbound credentials can be tested and timeout checkpoints stay unconfirmed', async ({page}, info) => {
+  const state = await mockApi(page);
+  const probes: unknown[] = [];
+  await page.route('**/api/v1/hosts', route => route.fulfill({contentType: 'application/json', body: JSON.stringify(
+    hosts.map(value => ({...value, credential_id: null, credential_kind: null, credential_label: null})),
+  )}));
+  await page.route(`**/api/v1/credentials/${credential.id}/test`, route => {
+    expect(route.request().method()).toBe('POST');
+    expect(route.request().headers()['x-csrf-token']).toBe(runtime.csrf);
+    probes.push(route.request().postDataJSON());
+    return route.fulfill({contentType: 'application/x-ndjson',
+      body: JSON.stringify({type: 'result', result: {ok: false, error_code: 'timeout', message: 'Credential authentication exceeded its deadline.',
+        latency_ms: 8000, checked_at: observed, host_id: hosts[0].id, host_alias: hosts[0].alias, credential_id: credential.id, method: null, stages: []}}) + '\n'});
+  });
+  await page.goto('/assets/#/credentials');
+  const open = page.getByRole('button', {name: 'Test on host…', exact: true});
+  await expect(open).toBeEnabled();
+  await open.click();
+  const dialog = page.getByRole('dialog', {name: `Test ${credential.label}`, exact: true});
+  await expect(dialog.getByText('Not run yet', {exact: true})).toBeVisible();
+  expect(probes).toEqual([]);
+  await dialog.getByRole('button', {name: 'Run test', exact: true}).click();
+  await expect(dialog.getByText('Credential authentication exceeded its deadline.', {exact: true})).toBeVisible();
+  await expect(dialog.locator('.test-step.ok')).toHaveCount(0);
+  await expect(dialog.getByText('Not confirmed', {exact: true})).toHaveCount(3);
+  await expect(dialog.getByText(/rejected for user|ssh-copy-id/)).toHaveCount(0);
+  await assertNoPageOverflow(page);
+  await page.screenshot({path: info.outputPath('credential-timeout.png'), fullPage: true});
+  expect(probes).toEqual([{host_id: hosts[0].id, timeout: 8}]);
+  expect(state.requests.filter(request => request.method !== 'GET')).toEqual([]);
+  assertClean(state);
+});
+
 async function assertNoPageOverflow(page: Page) {
   const bounds = await page.evaluate(() => ({width: innerWidth, scrollWidth: document.documentElement.scrollWidth,
     overflowing: [...document.querySelectorAll<HTMLElement>('main,header,section,aside,form,.modal')]
@@ -138,18 +245,24 @@ test(`all six views at ${width}px use the v1 contract and local host details sta
   await expect(page.getByRole('heading', {name: 'Hosts', exact: true})).toBeVisible();
   await assertNoPageOverflow(page);
   await page.screenshot({path: info.outputPath(`01-hosts-${width}.png`), fullPage: true});
+  await page.getByRole('button', {name: 'prod-web-01', exact: true}).hover();
+  await expect(page.getByRole('tooltip')).toBeVisible();
+  await page.screenshot({path: info.outputPath(`01b-host-preview-${width}.png`), fullPage: false});
   await page.getByRole('button', {name: 'prod-web-01', exact: true}).click();
   const detail = page.getByRole('dialog', {name: 'Host details prod-web-01'});
-  await expect(detail.getByRole('heading', {name: 'Connection route'})).toBeVisible();
+  await expect(detail.getByRole('heading', {name: 'Route'})).toBeVisible();
   await expect(detail.getByText('SHA256:browser-fixture')).toBeVisible();
   await expect(detail.getByText('Application root')).toBeVisible();
   expect(state.requests.filter(request => request.method !== 'GET')).toEqual([]);
   expect(state.requests.some(request => /\/(?:test|diagnose|upload|download)(?:\?|$)/.test(request.path))).toBe(false);
   await assertNoPageOverflow(page);
   await page.screenshot({path: info.outputPath(`02-host-details-${width}.png`), fullPage: true});
+  await detail.locator('.drawer-body').evaluate(node => {node.scrollTop = node.scrollHeight;});
+  await page.screenshot({path: info.outputPath(`02b-host-details-system-${width}.png`), fullPage: true});
+  await detail.locator('.drawer-body').evaluate(node => {node.scrollTop = 0;});
   await assertFocusTrap(page, detail);
   await closeWithEscape(page, detail, page.getByRole('button', {name: 'prod-web-01', exact: true}));
-  await nav(page, 'Files').click();
+  await page.goto('/assets/#/files');
   await expect(page.getByRole('table', {name: 'Remote files'})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Download backup.tar.gz'})).toBeDisabled();
   await expect(page.getByRole('button', {name: 'Download current'})).toBeDisabled();
@@ -194,11 +307,11 @@ test(`key dialogs at ${width}px contain keyboard focus and close with Escape`, a
   await page.getByRole('button', {name: 'prod-web-01', exact: true}).click();
   const detail = page.getByRole('dialog', {name: 'Host details prod-web-01', exact: true});
   await expect(detail.getByText('Application root', {exact: true})).toBeVisible();
-  await inspect('09-assign-skills', detail.getByRole('button', {name: 'Assign skills', exact: true}), 'Skills for prod-web-01',
+  await inspect('09-assign-skills', detail.getByRole('button', {name: 'Attach', exact: true}), 'Skills for prod-web-01',
     async () => {await expect(page.getByRole('dialog', {name: 'Skills for prod-web-01', exact: true}).getByRole('checkbox', {name: /^production-operations/})).toBeVisible();});
   await expect(detail).toBeVisible();
   await closeWithEscape(page, detail, page.getByRole('button', {name: 'prod-web-01', exact: true}));
-  await nav(page, 'Files').click();
+  await page.goto('/assets/#/files');
   await expect(page.getByRole('table', {name: 'Remote files'})).toBeVisible();
   await inspect('10-file-host-switcher', page.getByRole('button', {name: 'Switch file host', exact: true}), 'Switch file host');
   await inspect('11-save-directory', page.getByRole('button', {name: '☆ Save path', exact: true}), 'Save path');
@@ -218,12 +331,31 @@ test(`key dialogs at ${width}px contain keyboard focus and close with Escape`, a
   await inspect('14-register-skill', page.getByRole('button', {name: 'Register skill', exact: true}), 'Register local skill');
   await nav(page, 'Credentials').click();
   await expect(page.getByRole('heading', {name: 'Deployment key', exact: true})).toBeVisible();
-  await inspect('15-test-credential', page.getByRole('button', {name: 'Test on host', exact: true}), 'Test credential · Deployment key');
-  await inspect('16-delete-credential', page.getByRole('button', {name: 'Delete…', exact: true}), 'Delete Deployment key?',
-    async () => {await expect(page.getByRole('dialog', {name: 'Delete Deployment key?', exact: true}).getByText('prod-web-01', {exact: true})).toBeVisible();});
-  await inspect('17-new-credential', page.getByRole('button', {name: 'New credential', exact: true}), 'New credential');
-  expect(state.requests.filter(value => value.method !== 'GET')).toHaveLength(1);
+  await inspect('15-test-credential', page.getByRole('button', {name: 'Test on host…', exact: true}), 'Test Deployment key',
+    async () => {
+      const dialog = page.getByRole('dialog', {name: 'Test Deployment key', exact: true});
+      await expect(dialog.getByText('TCP connect 203.0.113.4:22')).toBeVisible();
+      await dialog.getByRole('button', {name: 'Run test', exact: true}).click();
+      await expect(dialog.getByText('Failed after 0.4 s')).toBeVisible();
+      await expect(dialog.getByText('Public key rejected for user “deploy”')).toBeVisible();
+      await expect(dialog.getByText('ssh-copy-id -i /fixture/keys/deploy_ed25519.pub deploy@203.0.113.4')).toBeVisible();
+    });
+  await inspect('16-delete-credential', page.getByRole('button', {name: 'Delete', exact: true}), 'Delete “Deployment key”?',
+    async () => {
+      const dialog = page.getByRole('dialog', {name: 'Delete “Deployment key”?', exact: true});
+      await expect(dialog.getByText(/3 hosts use this credential/)).toBeVisible();
+      await dialog.getByRole('textbox', {name: 'Type the label to confirm'}).fill('Deployment key');
+      await expect(dialog.getByRole('button', {name: 'Delete credential', exact: true})).toBeEnabled();
+    });
+  await inspect('17-new-credential', page.getByRole('button', {name: 'Add credential', exact: true}), 'Add credential',
+    async () => {
+      const dialog = page.getByRole('dialog', {name: 'Add credential', exact: true});
+      await expect(dialog.getByRole('radio', {name: /Private key file/})).toBeChecked();
+      await dialog.getByRole('textbox', {name: 'Label'}).fill('ci-runner');
+    });
+  expect(state.requests.filter(value => value.method !== 'GET')).toHaveLength(2);
   expect(state.requests.filter(value => value.method !== 'GET')[0].path).toMatch(/\/upload$/);
+  expect(state.requests.filter(value => value.method !== 'GET')[1].path).toMatch(/\/test$/);
   assertClean(state);
 });
 }
@@ -289,7 +421,7 @@ test('Files has collapsed and focus layouts without page overflow', async ({page
   await expect(page.getByRole('complementary', {name: 'Saved paths'})).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({path: info.outputPath('files-1024-collapsed.png'), fullPage: true});
-  await page.getByRole('button', {name: 'Saved paths', exact: true}).click();
+  await page.getByRole('button', {name: 'Toggle saved paths panel', exact: true}).click();
   await expect(page.getByRole('complementary', {name: 'Saved paths'})).toBeVisible();
   await page.getByRole('button', {name: 'Focus', exact: true}).click();
   await expect(page.getByRole('navigation', {name: 'Primary navigation'})).toBeHidden();
@@ -338,7 +470,9 @@ test('empty workspace shows useful states across every primary page', async ({pa
   const state = await mockApi(page, true);
   await page.goto('/assets/');
   await expect(page.getByRole('heading', {name: 'Your servers, in one place'})).toBeVisible();
-  for (const [label, heading] of [['Files', 'No hosts yet'], ['Tags', 'Create your first tag'],
+  await page.goto('/assets/#/files');
+  await expect(page.getByRole('heading', {name: 'No hosts yet', exact: true})).toBeVisible();
+  for (const [label, heading] of [['Tags', 'Create your first tag'],
     ['Skills', 'Bring your host instructions together'], ['Credentials', 'Add your first identity']]) {
     await nav(page, label).click(); await expect(page.getByRole('heading', {name: heading, exact: true})).toBeVisible();
   }

@@ -89,6 +89,20 @@ the tokenized URL to a local mode-600 file instead:
 ./scripts/serverctl ui --no-open --url-file /tmp/ssh-server-manager-url
 ```
 
+The bundled interface follows the repository's Paper redesign: page headers
+carry an uppercase eyebrow, Hosts rows expose pinned quick actions, tag-scope
+chips and a cached hover preview, host details open in a floating profile card,
+and Files is reached
+from a host or a `#/files/<id>` link rather than the primary navigation.
+Credentials uses Paper add, delete and test dialogs; testing a credential still
+requires the explicit Run test action, and a credential's type is fixed after
+creation.
+Hide details suppresses cached hover/focus previews as well as table metadata.
+An independent credential test can target any saved host before binding the
+credential. Failed or inconclusive tests do not prove that TCP or host-key
+checks passed, or that the target credential was rejected; jump-route failures
+may belong to an earlier hop.
+
 Do not redirect UI output to a shared log or copy the URL into chat. A fixed port
 can be requested with `--port PORT`; use `--port 0` to return to automatic port
 selection.

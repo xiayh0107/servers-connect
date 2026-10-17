@@ -151,6 +151,11 @@ any saved host without changing its binding or health observations. Agent tests
 use only the agent, with default-file/password fallback disabled; ordinary host
 connections retain their configured OpenSSH behavior. A connection accepted
 without authentication does not count as verification of the selected credential.
+No prior host binding is needed. Inconclusive results leave TCP/host-key
+checkpoints unconfirmed; a route-wide failure does not prove that the target
+credential was rejected. Hide details also suppresses cached host hover/focus
+previews. Inventory shortcuts leave focused controls, open dialogs and browser
+shortcuts to their native handlers.
 
 The CLI still refuses to remove a credential referenced by a host. The Web UI
 previews all affected hosts and explicitly confirms detaching and deleting.

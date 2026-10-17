@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- Fix Paper UI review regressions: suppress hover/focus previews while host
+  details are hidden, preserve native keyboard activation and browser shortcuts,
+  track the inventory cursor by host identity, and restore saved diagnosis/edit
+  row pins. Add unit and browser regression coverage.
+- Restore independent tests for unbound credentials. Show unconfirmed probe
+  checkpoints rather than inferring TCP/host-key success from timeouts or local
+  failures; distinguish route-wide failures from a rejected target credential.
+- Refine the Hosts inventory and host profile: a rounded list card with quieter
+  route groups and roomier rows, a hover/focus quick-preview card with cached
+  telemetry, and a floating profile card made of section cards, icon-led
+  connection rows, and segmented memory/disk meters.
+- Finish the Credentials Paper pass: a 420px list plus detail pane with cached
+  key-permission status, 12-dot masked secrets, usage/auth history, a Type
+  dropdown that reports the API's fixed-kind rule, and 560/440/520
+  add/delete/test dialogs (type cards, typed-label deletion, three-step auth
+  checklist with the `ssh-copy-id` remedy). Skills now shows `Registered` in
+  its list and uses the inline Discover control; Tags creation deliberately
+  stays a modal.
+- Align the six-page Web UI with the Paper redesign: shared frame primitives
+  (eyebrow page headers, 232px sidebar with status-dot recents, relative
+  timestamps, key hints, status dots), a rebuilt Hosts table (64px flex lanes,
+  tag-scope chips with live counts, pinned row actions with menu sections and
+  keyboard shortcuts, details-hidden masking), a floating host-profile card
+  (breadcrumb pager, route diagram, telemetry rows, terminal bar), and a Files
+  workspace with session tabs, panel toggles, a 240px saved-path rail and
+  relative modification dates. Sections use the existing design tokens only;
+  Files is reachable from a host instead of the primary navigation.
 - Fix SSH config Includes for native Windows and Git/MSYS OpenSSH, and make
   SFTP use the same SSH client. Keep literal Include paths compatible with
   OpenSSH clients before and after 9.9's token expansion. Retain custom import

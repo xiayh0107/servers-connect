@@ -164,6 +164,9 @@ Notes:
   command, and changes neither the host binding nor its health record. Agent
   tests use only agent keys without default-key fallback; ordinary connections
   retain managed OpenSSH behavior. See [the Web UI](web-ui.md).
+  A new credential need not be bound before testing. Inconclusive tests leave
+  TCP/host-key checkpoints unconfirmed rather than reporting success or blaming
+  the target credential; a rejected jump may prevent reaching the target.
 
 ## Host-bound skills
 
