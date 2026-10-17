@@ -25,15 +25,18 @@ it('shows a cached hover preview without contacting the host',async()=>{
   vi.useFakeTimers();
   const value=host({facts:{os_logo:'ubuntu',os_pretty:'Ubuntu 24.04 LTS',arch:'x86_64',cpu_cores:'8',cpu_model:'AMD EPYC 7B13',memory:'Mem: 30.5Gi 11.2Gi 19.3Gi 0B 0B',disk:'/dev/nvme0n1p1 460G 120G 340G 27% /',load:'0.42 0.38 0.35',uptime:'up 14 days, 3 hours',observed_at:'2026-10-15T12:00:00Z'}});
   render(<HostsPage hosts={[value]} credentials={[]} runtime={runtime} hash="#/hosts" onRefresh={vi.fn()} onCreateCredential={vi.fn()}/>);
-  const row=screen.getByRole('row',{name:/alpha/});
+  const row=screen.getByRole('row',{name:/alpha/}),name=screen.getByRole('button',{name:'alpha'});
   fireEvent.mouseEnter(row);
+  await act(async()=>{vi.advanceTimersByTime(300);});
+  expect(screen.queryByRole('tooltip')).toBeNull();
+  fireEvent.mouseEnter(name);
   await act(async()=>{vi.advanceTimersByTime(300);});
   const preview=screen.getByRole('tooltip');
   expect(preview).toHaveTextContent('Runtime');
   expect(preview).toHaveTextContent('30.5 GiB');
   expect(preview).toHaveTextContent('8 vCPU');
   expect(preview).toHaveTextContent('37% used');
-  fireEvent.mouseLeave(row);
+  fireEvent.mouseLeave(name);
   await act(async()=>{vi.advanceTimersByTime(200);});
   expect(screen.queryByRole('tooltip')).toBeNull();
   expect(mocked).not.toHaveBeenCalled();
@@ -56,6 +59,16 @@ it('points missing OS info at explicit collection instead of a connection check'
   expect(screen.queryByRole('button',{name:'Collect host info alpha'})).toBeNull();
 });
 
+it('offers one-click collection for every visible host without system info',async()=>{
+  const refresh=vi.fn().mockResolvedValue(undefined);
+  mocked.mockResolvedValue({results:[]});
+  render(<HostsPage hosts={[host(),host({id:'host-b',alias:'beta'})]} credentials={[]} runtime={runtime} hash="#/hosts" onRefresh={refresh} onCreateCredential={vi.fn()}/>);
+  expect(screen.getAllByText(/OS unknown/)).toHaveLength(2);
+  fireEvent.click(screen.getByRole('button',{name:'Collect host info · 2'}));
+  await waitFor(()=>expect(refresh).toHaveBeenCalledOnce());
+  expect(mocked).toHaveBeenCalledExactlyOnceWith('/hosts/observe',expect.objectContaining({method:'POST',body:JSON.stringify({identifiers:['host-a','host-b'],timeout:8,concurrency:4})}));
+});
+
 it('collects host info from details only after the explicit action',async()=>{
   const refresh=vi.fn().mockResolvedValue(undefined);
   mocked.mockImplementation(async(path,options)=>options?.method==='POST'?{alias:'alpha',ok:true,message:'Host info collected'}:path.endsWith('/workspace')?{paths:[],skills:[]}:{hops:[],blocked_by:null});
@@ -76,7 +89,8 @@ it('collects only selected hosts in a bounded batch and shows partial failures',
   fireEvent.click(screen.getByRole('checkbox',{name:'Select beta'}));
   expect(mocked).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button',{name:'Collect host info'}));
-  expect(screen.getByRole('button',{name:'Collecting…'})).toBeDisabled();
+  expect(screen.getAllByRole('button',{name:'Collecting…'})).toHaveLength(2);
+  screen.getAllByRole('button',{name:'Collecting…'}).forEach(button=>expect(button).toBeDisabled());
   expect(screen.getByRole('button',{name:'Run checks'})).toBeDisabled();
   expect(screen.getByRole('button',{name:'Collect host info alpha'})).toBeDisabled();
   expect(mocked).toHaveBeenCalledExactlyOnceWith('/hosts/observe',expect.objectContaining({method:'POST',body:JSON.stringify({identifiers:['host-a','host-b'],timeout:8,concurrency:4})}));
@@ -99,7 +113,7 @@ it('does not reveal masked metadata through hover or keyboard focus',async()=>{
   localStorage.setItem('ssm.host-details','false');
   const value=host({hostname:'private-endpoint.invalid',username:'private-user',credential_label:'private-credential'});
   render(<HostsPage hosts={[value]} credentials={[]} runtime={runtime} hash="#/hosts" onRefresh={vi.fn()} onCreateCredential={vi.fn()}/>);
-  fireEvent.mouseEnter(screen.getByRole('row',{name:/alpha/}));
+  fireEvent.mouseEnter(screen.getByRole('button',{name:'alpha'}));
   await act(async()=>{vi.advanceTimersByTime(300);});
   fireEvent.focus(screen.getByRole('button',{name:'alpha'}));
   expect(screen.queryByRole('tooltip')).toBeNull();
@@ -110,7 +124,7 @@ it('does not reveal masked metadata through hover or keyboard focus',async()=>{
 it.each(['visible','scheduled'])('clears a %s preview when details are hidden',async(state)=>{
   vi.useFakeTimers();
   render(<HostsPage hosts={[host()]} credentials={[]} runtime={runtime} hash="#/hosts" onRefresh={vi.fn()} onCreateCredential={vi.fn()}/>);
-  fireEvent.mouseEnter(screen.getByRole('row',{name:/alpha/}));
+  fireEvent.mouseEnter(screen.getByRole('button',{name:'alpha'}));
   if(state==='visible')await act(async()=>{vi.advanceTimersByTime(300);});
   fireEvent.click(screen.getByRole('button',{name:'Hide details'}));
   expect(screen.queryByRole('tooltip')).toBeNull();

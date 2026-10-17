@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Polish the Hosts quick preview: only the host name opens it (row-wide hover
+  no longer does), and place it from the measured card height so it stops
+  jumping to the top of the viewport on lower rows. Add a header
+  **Collect host info** action for every visible host without observations,
+  so an upgraded inventory backfills in one click instead of one host at a
+  time; the page still never contacts hosts on load.
 - Fix #10: replace the misleading OS "run a check" hint with an explicit
   **Collect host info** action; keep connectivity checks separate from system
   observation, label saved system data by observation time, and include the

@@ -1,4 +1,4 @@
-import {Fragment, useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
+import {Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {api, json, segment} from '../api';
 import {useDialogState, usePreference, useResource} from '../hooks';
 import type {Credential, Diagnosis, Host, HostRoute, ImportPreview, RuntimeInfo, SavedPath, Skill, TestResult, Workspace} from '../types';
@@ -18,7 +18,7 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
   const [observationResults, setObservationResults] = useDialogState<TestResult[] | null>('host-observation-results',null), [bulkAction, setBulkAction] = useState<'test' | 'observe' | null>(null);
   const [pins, setPins] = usePreference<string[]>('host-pins', ['files', 'check', 'copy']);
   const [cursorId, setCursorId] = useState<string | null>(null);
-  const [preview, setPreview] = useState<{host: Host; left: number; top: number}>();
+  const [preview, setPreview] = useState<{host: Host; anchor: DOMRect}>();
   const previewTimer = useRef<number | undefined>(undefined), hideTimer = useRef<number | undefined>(undefined);
   const clearPreviewTimers = () => {if (previewTimer.current !== undefined) {window.clearTimeout(previewTimer.current); previewTimer.current = undefined;} if (hideTimer.current !== undefined) {window.clearTimeout(hideTimer.current); hideTimer.current = undefined;}};
   const hidePreview = () => {clearPreviewTimers(); setPreview(undefined);};
@@ -28,10 +28,7 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
     if (typeof window.matchMedia === 'function' && !window.matchMedia('(hover: hover)').matches) return;
     clearPreviewTimers();
     const display = () => {
-      const rect = anchor.getBoundingClientRect(), width = Math.min(360, window.innerWidth - 32), height = 560;
-      const left = Math.max(16, Math.min(rect.left + 16, window.innerWidth - width - 16));
-      const below = rect.bottom + 8, above = rect.top - height - 8, maxTop = Math.max(16, window.innerHeight - height - 16);
-      setPreview({host, left, top: below + height <= window.innerHeight - 16 ? below : above >= 16 ? above : maxTop});
+      setPreview({host, anchor: anchor.getBoundingClientRect()});
       previewTimer.current = undefined;
     };
     if (immediate) display(); else previewTimer.current = window.setTimeout(display, 260);
@@ -58,13 +55,14 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
   }, [filtered, group]);
   const rows = useMemo(() => groups.flatMap(([label, members]) => members.map(host => ({host, label}))), [groups]);
   const cursor = rows.findIndex(row => row.host.id === cursorId);
+  const missing = filtered.filter(host => !host.facts);
   const action = async (task: () => Promise<void>) => {if (busy) return; setBusy(true); setError(undefined); setNotice(''); try {await task();} catch (reason) {setError(reason);} finally {setBusy(false);}};
   const check = (host: Host) => action(async () => {const result = await api<TestResult>(`/hosts/${segment(host.id)}/test`, json('POST', {timeout: 8})); await onRefresh(); setNotice(`${host.alias}: ${result.message}`);});
   const observe = (host: Host) => {hidePreview(); return action(async () => {const result = await api<TestResult>(`/hosts/${segment(host.id)}/observe`, json('POST', {timeout: 8})); await onRefresh(); setNotice(`${host.alias}: ${result.message}`);});};
-  const batch = (kind: 'test' | 'observe') => action(async () => {
+  const batch = (kind: 'test' | 'observe', identifiers: string[] = [...selection]) => action(async () => {
     setBulkAction(kind);
     try {
-      const response = await api<{results: TestResult[]}>(`/hosts/${kind}`, json('POST', {identifiers: [...selection], timeout: 8, concurrency: runtime.capabilities.max_check_concurrency}));
+      const response = await api<{results: TestResult[]}>(`/hosts/${kind}`, json('POST', {identifiers, timeout: 8, concurrency: runtime.capabilities.max_check_concurrency}));
       if (kind === 'observe') setObservationResults(response.results); else setResults(response.results);
       await onRefresh();
     } finally {setBulkAction(null);}
@@ -104,6 +102,7 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
   return <div className="page hosts-page">
     <PageHeader title="Hosts" description={summary}>
       <Button onClick={() => setDetails(!details)} className={details ? '' : 'pressed'}>{details ? 'Hide details' : 'Details hidden'}<KeyHint>⇧H</KeyHint></Button>
+      {!!missing.length && <Button disabled={busy || missing.length > runtime.capabilities.max_bulk_hosts} onClick={() => void batch('observe', missing.map(host => host.id))}>{bulkAction === 'observe' ? 'Collecting…' : `Collect host info · ${missing.length}`}</Button>}
       <Button onClick={() => setImporting(true)}>Import SSH config</Button>
       <Button variant="primary" onClick={() => {setDuplicate(false); setEditing('new');}}><Icon name="plus"/>Add host</Button>
     </PageHeader>
@@ -134,12 +133,12 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
         {rows.map(({host, label}, index) => {
           const down = blocked.get(host.id), isCursor = index === cursor;
           return <Fragment key={host.id}>{group !== 'none' && label && (index === 0 || rows[index - 1].label !== label) && <div className={`lane group-row${index === 0 ? ' first' : ''}`}><span>{label}</span><span className="muted">· {rows.filter(row => row.label === label).length}</span></div>}
-            <div className={`lane host-row${isCursor ? ' cursor' : ''}${down ? ' blocked' : ''}${routeFlags(rows, index)}`} role="row" data-host={host.alias} onMouseDown={() => focusRow(host.id)} onMouseEnter={event => showPreview(host, event.currentTarget)} onMouseLeave={scheduleHide}>
+            <div className={`lane host-row${isCursor ? ' cursor' : ''}${down ? ' blocked' : ''}${routeFlags(rows, index)}`} role="row" data-host={host.alias} onMouseDown={() => focusRow(host.id)}>
               <div className="cell-check"><input type="checkbox" aria-label={`Select ${host.alias}`} checked={selection.has(host.id)} onChange={() => toggle(host.id)}/></div>
               <div className="cell-host">
                 <OsTile logo={host.facts?.os_logo}/>
                 <div className="host-lines">
-                  <div className="host-name-line"><button className="host-name" aria-label={host.alias} aria-describedby={details && preview?.host.id === host.id ? 'host-preview' : undefined} onFocus={event => showPreview(host, event.currentTarget, true)} onBlur={hidePreview} onClick={() => {hidePreview(); location.hash = hostHash(host);}}>{host.alias}</button>{host.jump_for_count > 0 && <span className="jump-chip"><Icon name="arrow" size={10}/>Jump for {host.jump_for_count}</span>}</div>
+                  <div className="host-name-line"><button className="host-name" aria-label={host.alias} aria-describedby={details && preview?.host.id === host.id ? 'host-preview' : undefined} onMouseEnter={event => showPreview(host, event.currentTarget.closest<HTMLElement>('.host-row') ?? event.currentTarget)} onMouseLeave={scheduleHide} onFocus={event => showPreview(host, event.currentTarget.closest<HTMLElement>('.host-row') ?? event.currentTarget, true)} onClick={() => {hidePreview(); location.hash = hostHash(host);}}>{host.alias}</button>{host.jump_for_count > 0 && <span className="jump-chip"><Icon name="arrow" size={10}/>Jump for {host.jump_for_count}</span>}</div>
                   <small>{details ? host.facts?.os_pretty || <><span className="host-os-unknown">OS unknown · </span><button className="link-button" aria-label={`Collect host info ${host.alias}`} title="OS unknown. Collect host info" onClick={() => void observe(host)} disabled={busy}>Collect host info</button></> : `${host.facts?.os_pretty || 'OS unknown'} · ••••••••`}</small>
                 </div>
               </div>
@@ -154,7 +153,7 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
       </div>
     </div>}
     {!!filtered.length && <div className="hosts-footer"><span>Showing {filtered.length === hosts.length ? `all ${hosts.length}` : `${filtered.length} of ${hosts.length}`} hosts. Select rows to edit tags, run checks or collect host info in bulk.</span><span className="footer-hints"><span><KeyHint>↑↓</KeyHint>move</span><span><KeyHint>↵</KeyHint>open details</span></span></div>}
-    {details && preview && filtered.some(host => host.id === preview.host.id) && <HostPreview host={preview.host} left={preview.left} top={preview.top}/>}
+    {details && preview && filtered.some(host => host.id === preview.host.id) && <HostPreview host={preview.host} anchor={preview.anchor}/>}
     {selectedHost && !legacyCredential && <HostDetails key={selectedHost.id} host={selectedHost} hosts={hosts} credentials={credentials} onClose={() => {location.hash = '#/hosts';}} onRefresh={onRefresh} onEdit={() => edit(selectedHost)} onCheck={() => void check(selectedHost)} onObserve={() => void observe(selectedHost)} onDiagnose={() => void diagnose(selectedHost)} onFiles={() => files(selectedHost)} onCopy={() => void copy(selectedHost)} onTags={() => setTagging([selectedHost])} busy={busy}/>}
     {legacyCredential && selectedHost && <LegacyCredential key={selectedHost.id} host={selectedHost} credential={credentials.find(c=>c.id===selectedHost.credential_id)} runtime={runtime} onRefresh={onRefresh}/>}
     {editing && <HostEditor host={editing === 'new' ? undefined : editing} duplicate={duplicate} credentials={credentials} hosts={hosts} onCreateCredential={onCreateCredential} onClose={() => {setEditing(null); if (legacyCredential) location.hash = '#/hosts';}} onSaved={async () => {await onRefresh(); setEditing(null); if (legacyCredential) location.hash = '#/hosts';}}/>}
@@ -285,14 +284,25 @@ function HostEditor({host, duplicate, hosts, credentials, onClose, onSaved, onCr
   return <Modal title={host && !duplicate ? `Edit ${host.alias}` : duplicate ? 'Duplicate host' : 'Add host'} onClose={onClose}><form onSubmit={event => void save(event)}><ErrorNotice error={error}/><div className="form-grid"><Field label="Alias"><input required value={alias} onChange={e => setAlias(e.target.value)}/></Field><Field label="Hostname / IP"><input required value={hostname} onChange={e => setHostname(e.target.value)}/></Field><Field label="User"><input required value={username} onChange={e => setUsername(e.target.value)}/></Field><Field label="Port"><input required type="number" min={1} max={65535} value={port} onChange={e => setPort(Number(e.target.value))}/></Field><div className="wide"><Field label="Credential"><select value={credential} onChange={e => setCredential(e.target.value)}><option value="">Default SSH identity</option>{credentials.map(c => <option key={c.id} value={c.id}>{c.label} · {c.kind}</option>)}</select></Field><Button variant="ghost" onClick={() => onCreateCredential(c => setCredential(c.id))}><Icon name="plus"/>New credential</Button></div><div className="wide"><Field label="Jump hosts · comma separated"><input list="jump-aliases" value={jumps} onChange={e => setJumps(e.target.value)}/><datalist id="jump-aliases">{hosts.filter(h => h.id !== host?.id).map(h => <option key={h.id} value={h.alias}/>)}</datalist></Field><small>Managed hosts or aliases from your OpenSSH configuration.</small></div><div className="wide"><Field label="Tags · comma separated"><input value={tags} onChange={e => setTags(e.target.value)}/></Field></div><Field label="Country · two-letter code"><input maxLength={2} value={country} onChange={e => setCountry(e.target.value)}/></Field><Field label="City · optional"><input maxLength={120} value={city} onChange={e => setCity(e.target.value)} disabled={!country}/></Field><div className="wide"><Field label="Notes"><textarea value={notes} onChange={e => setNotes(e.target.value)}/></Field></div></div><div className="modal-footer"><Button onClick={onClose}>Cancel</Button><Button variant="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save host'}</Button></div></form></Modal>;
 }
 
-function HostPreview({host, left, top}: {host: Host; left: number; top: number}) {
+function HostPreview({host, anchor}: {host: Host; anchor: DOMRect}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const width = Math.min(360, window.innerWidth - 32);
+  const left = Math.max(16, Math.min(anchor.left + 16, window.innerWidth - width - 16));
+  // Measure the rendered card instead of guessing: a fixed estimate flips tall
+  // previews hundreds of pixels away from their row.
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const height = element.offsetHeight, below = anchor.bottom + 8, above = anchor.top - height - 8;
+    element.style.top = `${below + height <= window.innerHeight - 16 ? below : above >= 16 ? above : Math.max(16, window.innerHeight - height - 16)}px`;
+  }, [anchor]);
   const facts = host.facts, memory = parseMemory(facts?.memory), disk = parseDisk(facts?.disk);
   const load = Number((facts?.load || '').trim().split(/\s+/)[0]), cores = Number(facts?.cpu_cores);
   const loadPercent = Number.isFinite(load) && Number.isFinite(cores) && cores > 0 ? Math.min(100, Math.round(load / cores * 100)) : undefined;
   const tone = host.last_test_status === 'ok' ? 'ok' : host.last_test_status === 'failed' ? 'failed' : '';
   const status = host.last_test_status === 'ok' ? `OK${host.last_test_latency_ms == null ? '' : ` · ${host.last_test_latency_ms} ms`}` : host.last_test_status === 'failed' ? 'Failed' : 'Not checked';
   const route = host.proxy_jumps.length ? `${host.proxy_jumps.length + 1} hops` : 'Direct';
-  return <div className="host-preview" id="host-preview" role="tooltip" style={{left, top}}>
+  return <div ref={ref} className="host-preview" id="host-preview" role="tooltip" style={{left, top: anchor.bottom + 8}}>
     <header className="host-preview-head"><OsTile logo={facts?.os_logo} size={30}/><div className="host-preview-title"><strong>{host.alias}</strong><small className="mono">{host.username}@{host.hostname}:{host.port}</small></div><span className={`status-dot ${tone}`}/><span className="host-preview-state">{status}</span></header>
     <section className="preview-section"><h4 className="preview-section-title">Runtime</h4>
       <div className="preview-row"><span className="preview-label"><Icon name="clock" size={14}/>Last check</span><span className="preview-value">{relativeTime(host.last_test_at)}</span></div>
