@@ -908,6 +908,37 @@ class SSHRunner:
             "message": message,
         }
 
+    def observe(self, identifier: str, *, timeout: int = 8) -> dict[str, Any]:
+        """Explicitly collect system facts without running the SFTP diagnosis."""
+        server = self.database.get_server(identifier)
+        start = time.monotonic()
+        connection = self.test(server["id"], timeout=timeout)
+        if not connection["ok"]:
+            return connection
+        result = self._collect_host_facts(server, timeout=timeout)
+        return {
+            "alias": server["alias"],
+            "ok": result["ok"],
+            "latency_ms": round((time.monotonic() - start) * 1000),
+            "error_code": None if result["ok"] else result.get("error_code", "remote-probe-failed"),
+            "message": "Host info collected" if result["ok"] else result["message"],
+        }
+
+    def _collect_host_facts(self, server: dict[str, Any], *, timeout: int) -> dict[str, Any]:
+        result = self._probe_remote_identity(server, timeout=timeout)
+        result["message"] = sanitize_text(redact(result["message"]), limit=4000)
+        if result["ok"] and result.get("details"):
+            facts = sanitize_facts(result["details"])
+            result["details"] = facts
+            saved = self.database.record_observation(
+                server["id"], facts=facts, observed_at=facts["observed_at"],
+                expected_endpoint=(server["hostname"], server["port"]),
+            )
+            if (saved["hostname"], saved["port"]) != (server["hostname"], server["port"]):
+                return {"ok": False, "latency_ms": result["latency_ms"],
+                        "error_code": "host-changed", "message": "Host endpoint changed; collect host info again"}
+        return result
+
     def _probe_sftp(self, server: dict[str, Any], *, timeout: int) -> dict[str, Any]:
         """Verify the SFTP subsystem and the user's home directory without listing files."""
         command = self._sftp_command(server, timeout=timeout, reuse=0)
@@ -1069,7 +1100,7 @@ class SSHRunner:
         stdout = " ".join(str(probe.get("stdout", "")).split())
         if not probe["ok"] or "windows" not in stdout.casefold():
             return None
-        details = {"os": stdout, "os_id": "windows", "os_family": "windows"}
+        details = {"os": stdout, "os_pretty": stdout, "os_id": "windows", "os_family": "windows"}
         version = re.search(r"version\s+([\d.]+)", stdout, re.IGNORECASE)
         if version:
             details["os_version"] = version.group(1)
@@ -1143,14 +1174,7 @@ class SSHRunner:
                     **({"details": sftp_result["details"]} if sftp_result.get("details") else {}),
                 }
             )
-            remote_result = self._probe_remote_identity(server, timeout=timeout)
-            if remote_result["ok"] and remote_result.get("details"):
-                facts = sanitize_facts(remote_result["details"])
-                remote_result["details"] = facts
-                self.database.record_observation(
-                    server["id"], facts=facts, observed_at=facts["observed_at"],
-                    expected_endpoint=(server["hostname"], server["port"]),
-                )
+            remote_result = self._collect_host_facts(server, timeout=timeout)
             checks.append(
                 {
                     "id": "remote",

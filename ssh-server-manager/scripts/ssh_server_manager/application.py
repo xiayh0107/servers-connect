@@ -206,9 +206,19 @@ class DiagnosticsService:
     def diagnose(self, identifier: str, *, timeout: int = 8) -> dict[str, Any]:
         return self.runner().diagnose(identifier, timeout=timeout)
 
+    def observe(self, identifier: str, *, timeout: int = 8) -> dict[str, Any]:
+        return self.runner().observe(identifier, timeout=timeout)
+
     def test_many(self, identifiers: list[str], *, timeout: int = 8, concurrency: int = 4) -> dict[str, Any]:
+        return self._probe_many(identifiers, self.test, timeout=timeout, concurrency=concurrency)
+
+    def observe_many(self, identifiers: list[str], *, timeout: int = 8, concurrency: int = 4) -> dict[str, Any]:
+        return self._probe_many(identifiers, self.observe, timeout=timeout, concurrency=concurrency, observe=True)
+
+    def _probe_many(self, identifiers: list[str], probe: Callable[..., dict[str, Any]], *,
+                    timeout: int, concurrency: int, observe: bool = False) -> dict[str, Any]:
         if not 1 <= len(identifiers) <= 64 or not 1 <= concurrency <= 4 or not 1 <= timeout <= 120:
-            raise ValidationError("batch checks require 1-64 hosts, concurrency 1-4, and timeout 1-120 seconds")
+            raise ValidationError("batch probes require 1-64 hosts, concurrency 1-4, and timeout 1-120 seconds")
         # Resolve the whole selection before any remote work. Aliases and IDs
         # for the same host collapse to one check, in the caller's order.
         hosts = {}
@@ -218,11 +228,13 @@ class DiagnosticsService:
         def check(host: dict[str, Any]) -> dict[str, Any]:
             try:
                 with self._bulk_slots:
-                    return self.test(host["id"], timeout=timeout)
+                    return probe(host["id"], timeout=timeout)
             except (SSHError, VaultError, ValidationError, NotFoundError):
                 return {"alias": host["alias"], "ok": False, "latency_ms": 0,
-                        "error_code": "check-failed", "message": "Connection check failed; run diagnose for details"}
-        with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="ssm-check") as pool:
+                        "error_code": "observation-failed" if observe else "check-failed",
+                        "message": "Host info collection failed; run diagnose for details" if observe else
+                        "Connection check failed; run diagnose for details"}
+        with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="ssm-probe") as pool:
             return {"results": list(pool.map(check, hosts.values()))}
 
 

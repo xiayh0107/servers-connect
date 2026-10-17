@@ -15,6 +15,7 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
   const [query, setQuery] = useState(''), [status, setStatus] = useState('any'), [tag, setTag] = useState(''), [group, setGroup] = usePreference('host-group', 'route'), [details, setDetails] = usePreference('host-details', true);
   const [selection, setSelection] = useState<Set<string>>(new Set()), [editing, setEditing] = useDialogState<Host | 'new' | null>('host-edit',null), [duplicate, setDuplicate] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [notice, setNotice] = useState('');
   const [confirmDelete, setConfirmDelete] = useDialogState<Host | null>('host-delete',null), [diagnosis, setDiagnosis] = useDialogState<Diagnosis | null>('host-diagnosis',null), [results, setResults] = useDialogState<TestResult[] | null>('host-results',null), [importing, setImporting] = useDialogState('host-import',false), [tagging, setTagging] = useDialogState<Host[] | null>('host-tags',null);
+  const [observationResults, setObservationResults] = useDialogState<TestResult[] | null>('host-observation-results',null), [bulkAction, setBulkAction] = useState<'test' | 'observe' | null>(null);
   const [pins, setPins] = usePreference<string[]>('host-pins', ['files', 'check', 'copy']);
   const [cursorId, setCursorId] = useState<string | null>(null);
   const [preview, setPreview] = useState<{host: Host; left: number; top: number}>();
@@ -59,6 +60,15 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
   const cursor = rows.findIndex(row => row.host.id === cursorId);
   const action = async (task: () => Promise<void>) => {if (busy) return; setBusy(true); setError(undefined); setNotice(''); try {await task();} catch (reason) {setError(reason);} finally {setBusy(false);}};
   const check = (host: Host) => action(async () => {const result = await api<TestResult>(`/hosts/${segment(host.id)}/test`, json('POST', {timeout: 8})); await onRefresh(); setNotice(`${host.alias}: ${result.message}`);});
+  const observe = (host: Host) => {hidePreview(); return action(async () => {const result = await api<TestResult>(`/hosts/${segment(host.id)}/observe`, json('POST', {timeout: 8})); await onRefresh(); setNotice(`${host.alias}: ${result.message}`);});};
+  const batch = (kind: 'test' | 'observe') => action(async () => {
+    setBulkAction(kind);
+    try {
+      const response = await api<{results: TestResult[]}>(`/hosts/${kind}`, json('POST', {identifiers: [...selection], timeout: 8, concurrency: runtime.capabilities.max_check_concurrency}));
+      if (kind === 'observe') setObservationResults(response.results); else setResults(response.results);
+      await onRefresh();
+    } finally {setBulkAction(null);}
+  });
   const diagnose = (host: Host) => action(async () => {const result = await api<Diagnosis>(`/hosts/${segment(host.id)}/diagnose`, json('POST', {timeout: 8})); setDiagnosis(result); await onRefresh();});
   const copy = (host: Host) => action(async () => {await navigator.clipboard.writeText(`serverctl connect ${host.alias}`); setNotice(`Copied connection command for ${host.alias}`);});
   const files = (host: Host) => {location.hash = `#/files/${segment(host.id)}`;};
@@ -109,7 +119,7 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
       <label className="status-filter">Status<select aria-label="Filter by status" value={status} onChange={event => setStatus(event.target.value)}><option value="any">Any</option><option value="ok">Reachable</option><option value="failed">Failing</option><option value="never">Never checked</option></select></label>
       <div className="group-filter"><span className="muted">Group</span><div className="segmented" aria-label="Group hosts">{['none','route','tag'].map(value => <button key={value} aria-pressed={group === value} onClick={() => setGroup(value)}>{value === 'route' && <Icon name="arrow" size={12}/>}{value[0].toUpperCase() + value.slice(1)}</button>)}</div></div>
     </div>
-    {!!selection.size && <div className="toolbar selection-bar"><strong>{selection.size} selected</strong><Button disabled={busy || selection.size > runtime.capabilities.max_bulk_hosts} onClick={() => void action(async () => {const response = await api<{results: TestResult[]}>('/hosts/test', json('POST', {identifiers: [...selection], timeout: 8, concurrency: runtime.capabilities.max_check_concurrency})); setResults(response.results); await onRefresh();})}>{busy ? 'Checking…' : 'Run checks'}</Button><Button onClick={() => setTagging(hosts.filter(host => selection.has(host.id)))}>Edit tags</Button><Button variant="ghost" onClick={() => setSelection(new Set())}>Clear selection</Button>{selection.size > runtime.capabilities.max_bulk_hosts && <span>Select at most {runtime.capabilities.max_bulk_hosts} hosts.</span>}</div>}
+    {!!selection.size && <div className="toolbar selection-bar"><strong>{selection.size} selected</strong><Button disabled={busy || selection.size > runtime.capabilities.max_bulk_hosts} onClick={() => void batch('test')}>{bulkAction === 'test' ? 'Checking…' : 'Run checks'}</Button><Button disabled={busy || selection.size > runtime.capabilities.max_bulk_hosts} onClick={() => void batch('observe')}>{bulkAction === 'observe' ? 'Collecting…' : 'Collect host info'}</Button><Button onClick={() => setTagging(hosts.filter(host => selection.has(host.id)))}>Edit tags</Button><Button variant="ghost" onClick={() => setSelection(new Set())}>Clear selection</Button>{selection.size > runtime.capabilities.max_bulk_hosts && <span>Select at most {runtime.capabilities.max_bulk_hosts} hosts.</span>}</div>}
     {!filtered.length ? <EmptyState title={hosts.length ? 'No matching hosts' : 'Your servers, in one place'}><p>{hosts.length ? 'Try another search or filter.' : 'Add your first host or import your SSH configuration to get started.'}</p></EmptyState> : <div className="hosts-card">
       <div className="host-table-region">
         <div className="lane head" role="row">
@@ -130,7 +140,7 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
                 <OsTile logo={host.facts?.os_logo}/>
                 <div className="host-lines">
                   <div className="host-name-line"><button className="host-name" aria-label={host.alias} aria-describedby={details && preview?.host.id === host.id ? 'host-preview' : undefined} onFocus={event => showPreview(host, event.currentTarget, true)} onBlur={hidePreview} onClick={() => {hidePreview(); location.hash = hostHash(host);}}>{host.alias}</button>{host.jump_for_count > 0 && <span className="jump-chip"><Icon name="arrow" size={10}/>Jump for {host.jump_for_count}</span>}</div>
-                  <small>{details ? `${host.facts?.os_pretty || 'OS unknown'}${host.facts?.os_pretty ? '' : ' · run a check'}` : `${host.facts?.os_pretty || 'OS unknown'} · ••••••••`}</small>
+                  <small>{details ? host.facts?.os_pretty || <><span className="host-os-unknown">OS unknown · </span><button className="link-button" aria-label={`Collect host info ${host.alias}`} title="OS unknown. Collect host info" onClick={() => void observe(host)} disabled={busy}>Collect host info</button></> : `${host.facts?.os_pretty || 'OS unknown'} · ••••••••`}</small>
                 </div>
               </div>
               <div className="cell-status"><StatusCell host={host} reason={down}/></div>
@@ -143,17 +153,22 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
         })}
       </div>
     </div>}
-    {!!filtered.length && <div className="hosts-footer"><span>Showing {filtered.length === hosts.length ? `all ${hosts.length}` : `${filtered.length} of ${hosts.length}`} hosts. Select rows to edit tags or run checks in bulk.</span><span className="footer-hints"><span><KeyHint>↑↓</KeyHint>move</span><span><KeyHint>↵</KeyHint>open details</span></span></div>}
+    {!!filtered.length && <div className="hosts-footer"><span>Showing {filtered.length === hosts.length ? `all ${hosts.length}` : `${filtered.length} of ${hosts.length}`} hosts. Select rows to edit tags, run checks or collect host info in bulk.</span><span className="footer-hints"><span><KeyHint>↑↓</KeyHint>move</span><span><KeyHint>↵</KeyHint>open details</span></span></div>}
     {details && preview && filtered.some(host => host.id === preview.host.id) && <HostPreview host={preview.host} left={preview.left} top={preview.top}/>}
-    {selectedHost && !legacyCredential && <HostDetails key={selectedHost.id} host={selectedHost} hosts={hosts} credentials={credentials} onClose={() => {location.hash = '#/hosts';}} onRefresh={onRefresh} onEdit={() => edit(selectedHost)} onCheck={() => void check(selectedHost)} onDiagnose={() => void diagnose(selectedHost)} onFiles={() => files(selectedHost)} onCopy={() => void copy(selectedHost)} onTags={() => setTagging([selectedHost])} busy={busy}/>}
+    {selectedHost && !legacyCredential && <HostDetails key={selectedHost.id} host={selectedHost} hosts={hosts} credentials={credentials} onClose={() => {location.hash = '#/hosts';}} onRefresh={onRefresh} onEdit={() => edit(selectedHost)} onCheck={() => void check(selectedHost)} onObserve={() => void observe(selectedHost)} onDiagnose={() => void diagnose(selectedHost)} onFiles={() => files(selectedHost)} onCopy={() => void copy(selectedHost)} onTags={() => setTagging([selectedHost])} busy={busy}/>}
     {legacyCredential && selectedHost && <LegacyCredential key={selectedHost.id} host={selectedHost} credential={credentials.find(c=>c.id===selectedHost.credential_id)} runtime={runtime} onRefresh={onRefresh}/>}
     {editing && <HostEditor host={editing === 'new' ? undefined : editing} duplicate={duplicate} credentials={credentials} hosts={hosts} onCreateCredential={onCreateCredential} onClose={() => {setEditing(null); if (legacyCredential) location.hash = '#/hosts';}} onSaved={async () => {await onRefresh(); setEditing(null); if (legacyCredential) location.hash = '#/hosts';}}/>}
     {confirmDelete && <Modal title={`Remove ${confirmDelete.alias}?`} onClose={() => setConfirmDelete(null)}><p>This removes the saved host and its bindings. The remote server is unchanged.</p><div className="modal-footer"><Button onClick={() => setConfirmDelete(null)}>Cancel</Button><Button variant="danger" disabled={busy} onClick={() => void action(async () => {await api(`/hosts/${segment(confirmDelete.id)}`, json('DELETE')); setConfirmDelete(null); location.hash = '#/hosts'; await onRefresh();})}>Remove host</Button></div></Modal>}
     {diagnosis && <Modal title={`Diagnosis · ${diagnosis.alias}`} onClose={() => setDiagnosis(null)}><div className="stack">{diagnosis.checks.map(check => <div key={check.id}><Badge tone={check.status}>{check.status}</Badge> <strong>{check.label}</strong><p className="muted">{check.message}</p></div>)}</div></Modal>}
-    {results && <Modal title="Batch check results" onClose={() => setResults(null)}><div className="stack">{results.map(result => <div key={result.alias}><Badge tone={result.ok ? 'ok' : 'failed'}>{result.ok ? 'OK' : 'Failed'}</Badge> <strong>{result.alias}</strong><p className="muted">{result.message}</p></div>)}</div></Modal>}
+    {results && <BatchResults title="Batch check results" results={results} onClose={() => setResults(null)}/>}
+    {observationResults && <BatchResults title="Host info results" results={observationResults} onClose={() => setObservationResults(null)}/>}
     {importing && <ImportDialog onClose={() => setImporting(false)} onSaved={onRefresh}/>}
     {tagging && <BulkTags hosts={tagging} onClose={() => setTagging(null)} onSaved={onRefresh}/>}
   </div>;
+}
+
+function BatchResults({title, results, onClose}: {title: string; results: TestResult[]; onClose: () => void}) {
+  return <Modal title={title} onClose={onClose}><div className="stack">{results.map(result => <div key={result.alias}><Badge tone={result.ok ? 'ok' : 'failed'}>{result.ok ? 'OK' : 'Failed'}</Badge> <strong>{result.alias}</strong><p className="muted">{result.message}</p></div>)}</div></Modal>;
 }
 
 type RowAction = {id: string; label: string; key?: string; icon?: string};
@@ -183,7 +198,7 @@ function OsTile({logo, size = 28}: {logo?: string | null; size?: number}) {
 
 function StatusCell({host, reason}: {host: Host; reason?: string}) {
   if (reason) return <div className="status-cell"><span className="status-line"><span className="status-dot blocked-ring"/><span className="status-text muted">Blocked</span></span><small>{reason} is down</small></div>;
-  if (!host.last_test_at) return <div className="status-cell"><span className="status-line"><span className="status-dot idle-ring"/><span className="status-text muted">Not checked yet</span></span><small>Check to detect OS</small></div>;
+  if (!host.last_test_at) return <div className="status-cell"><span className="status-line"><span className="status-dot idle-ring"/><span className="status-text muted">Not checked yet</span></span><small>Check connectivity</small></div>;
   const ok = host.last_test_status === 'ok';
   return <div className="status-cell"><span className="status-line"><span className={`status-dot ${ok ? 'ok' : 'failed'}`}/><span className={`status-text ${ok ? 'ok' : 'failed'}`}>{ok ? `OK${host.last_test_latency_ms == null ? '' : ` · ${host.last_test_latency_ms} ms`}` : statusLabel(host)}</span></span><small>{relativeTime(host.last_test_at)}</small></div>;
 }
@@ -299,7 +314,7 @@ function HostPreview({host, left, top}: {host: Host; left: number; top: number})
   </div>;
 }
 
-function HostDetails({host, hosts, onClose, onRefresh, onEdit, onCheck, onDiagnose, onFiles, onCopy, onTags, busy}: {host: Host; hosts: Host[]; credentials: Credential[]; onClose: () => void; onRefresh: () => Promise<void>; onEdit: () => void; onCheck: () => void; onDiagnose: () => void; onFiles: () => void; onCopy: () => void; onTags: () => void; busy: boolean}) {
+function HostDetails({host, hosts, onClose, onRefresh, onEdit, onCheck, onObserve, onDiagnose, onFiles, onCopy, onTags, busy}: {host: Host; hosts: Host[]; credentials: Credential[]; onClose: () => void; onRefresh: () => Promise<void>; onEdit: () => void; onCheck: () => void; onObserve: () => void; onDiagnose: () => void; onFiles: () => void; onCopy: () => void; onTags: () => void; busy: boolean}) {
   const {data: workspace,error: workspaceError,reload} = useResource<Workspace>(`/hosts/${segment(host.id)}/workspace`), {data: route,error: routeError,reload:reloadRoute} = useResource<HostRoute>(`/hosts/${segment(host.id)}/route`);
   const [notes,setNotes] = useState(host.notes), [error,setError] = useState<unknown>(), [saving,setSaving] = useState(false), [binding,setBinding] = useDialogState('host-skills',false), [addingPath,setAddingPath] = useState(false), [pathLabel,setPathLabel] = useState(''), [pathValue,setPathValue] = useState('');
   const ref = useRef<HTMLElement>(null), close = useRef(onClose); close.current = onClose;
@@ -356,8 +371,8 @@ function HostDetails({host, hosts, onClose, onRefresh, onEdit, onCheck, onDiagno
         </dl>
         <div className="terminal-bar"><code>$ serverctl connect {host.alias}</code><Button variant="ghost" aria-label="Copy connect command" onClick={onCopy}><Icon name="copy" size={14}/></Button></div>
       </section>
-      <section className="drawer-card"><div className="section-head"><h3 className="section-heading"><Icon name="cpu" size={14}/>System</h3><span className="section-note">{host.facts?.observed_at ? `From last diagnosis · ${relativeTime(host.facts.observed_at)} · ` : 'No diagnosis yet · '}<button className="link-button" onClick={onDiagnose} disabled={busy}>Diagnose again</button></span></div>
-        {host.facts ? <div className="system-list">{systemRows.map(row => <div className={`system-row${row.meter ? ' has-meter' : ''}`} key={row.label}><div className="system-row-main"><span className="system-label"><Icon name={row.icon} size={14}/>{row.label}</span><span className={`system-value${row.mono ? ' mono' : ''}`}>{row.value}</span></div>{row.meter && <><span className="segmented-meter" aria-hidden="true"><span style={{width: `${row.meter.percent}%`}}/></span><span className="system-meter-note">{row.meter.note}</span></>}</div>)}</div> : <div className="system-empty"><p>Run a full diagnosis to collect kernel, CPU, memory, disk and uptime.</p><Button onClick={onDiagnose} disabled={busy}>Run full diagnosis</Button></div>}
+      <section className="drawer-card"><div className="section-head"><h3 className="section-heading"><Icon name="cpu" size={14}/>System</h3><span className="section-note">{host.facts?.observed_at ? `Last observed · ${relativeTime(host.facts.observed_at)} · ` : 'Not observed yet · '}{host.facts && <><button className="link-button" onClick={onObserve} disabled={busy}>Collect host info</button> · </>}<button className="link-button" onClick={onDiagnose} disabled={busy}>Diagnose again</button></span></div>
+        {host.facts ? <div className="system-list">{systemRows.map(row => <div className={`system-row${row.meter ? ' has-meter' : ''}`} key={row.label}><div className="system-row-main"><span className="system-label"><Icon name={row.icon} size={14}/>{row.label}</span><span className={`system-value${row.mono ? ' mono' : ''}`}>{row.value}</span></div>{row.meter && <><span className="segmented-meter" aria-hidden="true"><span style={{width: `${row.meter.percent}%`}}/></span><span className="system-meter-note">{row.meter.note}</span></>}</div>)}</div> : <div className="system-empty"><p>Collect host info to save OS, kernel, CPU, memory, disk and uptime. Connection checks do not collect system info.</p><Button onClick={onObserve} disabled={busy}>Collect host info</Button></div>}
       </section>
       <section className="drawer-card"><div className="section-head"><h3 className="section-heading"><Icon name="folder" size={14}/>Saved directories{workspace?.paths.length ? ` · ${workspace.paths.length}` : ''}</h3><Button variant="ghost" onClick={() => setAddingPath(!addingPath)}><Icon name="plus" size={13}/>Add</Button></div>
         <div className="dir-list">{workspace?.paths.map(path => <div className="dir-row" key={path.id}><div><strong>{path.label}</strong><small className="mono">{path.path}</small></div><div className="dir-actions"><a href={`#/files/${segment(host.id)}?path=${segment(path.path)}`}>Open</a><Button variant="ghost" aria-label={`Delete saved directory ${path.label}`} disabled={saving} onClick={() => void perform(() => api(`/hosts/${segment(host.id)}/paths/${segment(path.id)}`,json('DELETE')))}><Icon name="close" size={13}/></Button></div></div>)}{!workspace?.paths.length && <p className="muted">No saved directories yet.</p>}</div>

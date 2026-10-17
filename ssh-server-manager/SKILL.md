@@ -248,6 +248,12 @@ onboarding options.
   the system. Treat `last_success_at` as history, not current reachability;
   check freshness before using those facts for a requested system change.
   Run `diagnose` only when the task needs facts that are missing or stale.
+- `server test` and the UI's Run check verify connectivity, not OS/specs.
+  For a user-requested UI backfill, use **Collect host info** on a row, in
+  host details, or on an explicitly selected batch (at most 64 hosts,
+  concurrency at most 4). It runs the same read-only system probe as diagnosis
+  without SFTP; failed collection retains the previous facts. Never backfill
+  automatically just because an upgraded inventory has empty observations.
 - Run only the commands the user's request needs. Do not add unrequested
   tests, doctor runs, or fleet-wide sweeps; offer them as a next step instead.
 - Treat host-bound skills as routing context, not permission. A binding never

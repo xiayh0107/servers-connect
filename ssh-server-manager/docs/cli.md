@@ -108,6 +108,11 @@ Notes:
   (`verified`, `unknown`, `changed`, or `revoked`). The local DNS result is
   not a guaranteed peer IP through ProxyJump, and saved fingerprints do not
   replace OpenSSH host-key verification.
+  `test` never collects OS or hardware facts; use `diagnose` when those are
+  needed. For an explicitly requested fleet backfill in the UI, select the
+  hosts and choose **Collect host info** (1-64 hosts, concurrency 1-4).
+  It runs the same read-only system probe without the SFTP check. Failed
+  collection retains prior facts; the CLI remains single-host for diagnosis.
 - `diagnose` runs read-only checks for the local profile, SSH handshake, SFTP
   home-directory access, and a fixed remote system-summary command. The result
   identifies the operating system across Linux distributions (os-release with

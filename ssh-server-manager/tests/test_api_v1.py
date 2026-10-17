@@ -279,17 +279,24 @@ def test_explicit_diagnostics_directory_and_import_contracts(backend, monkeypatc
     def diagnose(_self, identifier, *, timeout=8):
         observed.append(("diagnose", identifier, timeout))
         return {"alias": "box", "checked_at": "2026-10-03T00:00:00+00:00", "overall": "ok", "summary": {"total": 0, "passed": 0, "failed": 0, "warnings": 0, "skipped": 0}, "checks": []}
+    def observe(_self, identifier, *, timeout=8):
+        observed.append(("observe", identifier, timeout))
+        return {"alias": "box", "ok": True, "latency_ms": 2, "error_code": None, "message": "Host info collected"}
     def directory(_self, identifier, path):
         observed.append(("files", identifier, path))
         return {"alias": "box", "path": "/srv", "parent": "/", "entries": [], "total": 0, "truncated": False, "unparsed": 0, "latency_ms": 1, "connection_checked_at": "2026-10-03T00:00:00+00:00"}
     monkeypatch.setattr(SSHRunner, "test", test)
     monkeypatch.setattr(SSHRunner, "diagnose", diagnose)
+    monkeypatch.setattr(SSHRunner, "observe", observe)
     monkeypatch.setattr(SSHRunner, "list_directory", directory)
     assert client.post("/api/v1/hosts/box/test", headers=headers, json={"timeout": 10}).json()["ok"]
     assert client.post("/api/v1/hosts/box/diagnose", headers=headers).json()["overall"] == "ok"
+    assert client.post("/api/v1/hosts/box/observe", headers=headers, json={"timeout": 12}).json()["ok"]
+    assert client.post("/api/v1/hosts/box/observe", headers=headers).json()["ok"]
     assert client.get("/api/v1/hosts/box/files", params={"path": "/srv"}).json()["entries"] == []
-    assert observed == [("test", "box", 10), ("diagnose", "box", 8), ("files", "box", "/srv")]
+    assert observed == [("test", "box", 10), ("diagnose", "box", 8), ("observe", "box", 12), ("observe", "box", 8), ("files", "box", "/srv")]
     assert client.post("/api/v1/hosts/box/test", headers=headers, json={"timeout": 0}).status_code == 422
+    assert client.post("/api/v1/hosts/box/observe", headers=headers, json={"timeout": 121}).status_code == 422
     preview = client.post("/api/v1/import/preview", headers=headers, json={"config": str(tmp_path / "missing.conf")})
     assert preview.status_code == 200 and preview.json()["items"] == []
     assert client.post("/api/v1/import/apply", headers=headers, json={"config": str(tmp_path / "missing.conf")}).json()["added"] == []
@@ -341,7 +348,8 @@ def test_cached_host_facts_geo_and_routes_are_offline(backend, monkeypatch):
     assert client.patch("/api/v1/hosts/box", headers=headers, json={"geo": {"country_code": "XX"}}).status_code == 400
 
 
-def test_bulk_checks_validate_whole_selection_and_deduplicate(backend, monkeypatch):
+@pytest.mark.parametrize("operation", ["test", "observe"])
+def test_bulk_probes_validate_whole_selection_and_deduplicate(backend, monkeypatch, operation):
     client, app, database, _vault = backend
     headers = login(client)
     host_id = database.get_server("box")["id"]
@@ -351,14 +359,15 @@ def test_bulk_checks_validate_whole_selection_and_deduplicate(backend, monkeypat
         calls.append((identifier, timeout))
         return {"alias": "box", "ok": True, "latency_ms": 1, "error_code": None, "message": "ok"}
 
-    monkeypatch.setattr(app.state.services.diagnostics, "test", check)
-    assert client.post("/api/v1/hosts/test", headers=headers, json={"identifiers": ["box", "missing"]}).status_code == 404
+    monkeypatch.setattr(app.state.services.diagnostics, operation, check)
+    endpoint = f"/api/v1/hosts/{operation}"
+    assert client.post(endpoint, headers=headers, json={"identifiers": ["box", "missing"]}).status_code == 404
     assert calls == []
-    result = client.post("/api/v1/hosts/test", headers=headers, json={"identifiers": ["BOX", host_id, "box"], "timeout": 12, "concurrency": 2})
+    result = client.post(endpoint, headers=headers, json={"identifiers": ["BOX", host_id, "box"], "timeout": 12, "concurrency": 2})
     assert result.status_code == 200 and len(result.json()["results"]) == 1
     assert calls == [(host_id, 12)]
-    for body in ({"identifiers": []}, {"identifiers": ["box"] * 65}, {"identifiers": ["box"], "concurrency": 5}, {"identifiers": ["box"], "timeout": 0}):
-        assert client.post("/api/v1/hosts/test", headers=headers, json=body).status_code == 422
+    for body in ({"identifiers": []}, {"identifiers": ["box"] * 65}, {"identifiers": ["box"], "concurrency": 0}, {"identifiers": ["box"], "concurrency": 5}, {"identifiers": ["box"], "timeout": 0}, {"identifiers": ["box"], "timeout": 121}):
+        assert client.post(endpoint, headers=headers, json=body).status_code == 422
 
 
 def test_route_matches_openssh_override_for_explicit_multi_hop(backend, monkeypatch):
@@ -379,7 +388,8 @@ def test_route_matches_openssh_override_for_explicit_multi_hop(backend, monkeypa
     assert client.get("/api/v1/hosts/box/route").json()["blocked_by"] == "exit"
 
 
-def test_host_deleted_after_batch_resolution_is_a_per_host_failure(backend, monkeypatch):
+@pytest.mark.parametrize("operation", ["test", "observe"])
+def test_host_deleted_after_batch_resolution_is_a_per_host_failure(backend, monkeypatch, operation):
     client, app, database, _vault = backend
     headers = login(client)
     database.create_server(alias="remaining", hostname="localhost", username="user")
@@ -391,13 +401,14 @@ def test_host_deleted_after_batch_resolution_is_a_per_host_failure(backend, monk
             database.get_server(identifier)
         return {"alias": host["alias"], "ok": True, "latency_ms": 1, "error_code": None, "message": "ok"}
 
-    monkeypatch.setattr(app.state.services.diagnostics, "test", check)
-    result = client.post("/api/v1/hosts/test", headers=headers, json={"identifiers": ["box", "remaining"], "concurrency": 1})
+    monkeypatch.setattr(app.state.services.diagnostics, operation, check)
+    result = client.post(f"/api/v1/hosts/{operation}", headers=headers, json={"identifiers": ["box", "remaining"], "concurrency": 1})
     assert result.status_code == 200
     assert [item["ok"] for item in result.json()["results"]] == [False, True]
 
 
-def test_bulk_checks_share_global_concurrency_bound_and_isolate_failures(backend, monkeypatch):
+@pytest.mark.parametrize("operations", [("test", "test"), ("observe", "observe"), ("test", "observe")])
+def test_bulk_probes_share_global_concurrency_bound_and_isolate_failures(backend, monkeypatch, operations):
     _client, app, database, _vault = backend
     service = app.state.services.diagnostics
     for index in range(8):
@@ -422,18 +433,46 @@ def test_bulk_checks_share_global_concurrency_bound_and_isolate_failures(backend
             with lock:
                 active -= 1
 
-    def batch():
+    def batch(operation):
         start.wait(timeout=5)
-        return service.test_many(identifiers, concurrency=4)
+        return getattr(service, f"{operation}_many")(identifiers, concurrency=4)
 
     monkeypatch.setattr(service, "test", check)
+    monkeypatch.setattr(service, "observe", check)
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _index: batch(), range(2)))
+        results = list(pool.map(batch, operations))
     assert peak <= 4 and active == 0
     for result in results:
         assert [item["alias"] for item in result["results"]] == identifiers
         assert result["results"][0]["ok"] is False
         assert all(item["ok"] for item in result["results"][1:])
+
+
+def test_bulk_observation_backfills_facts_and_retains_previous_on_probe_failure(backend, monkeypatch):
+    client, _app, database, _vault = backend
+    headers = login(client)
+    database.create_server(alias="other", hostname="other.invalid", username="alice")
+    database.record_observation("other", facts={"hostname": "other", "os_id": "debian"})
+    previous = client.get("/api/v1/hosts/other").json()["facts"]
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.collect_probe_metadata", lambda *args, **kwargs: {})
+    monkeypatch.setattr(SSHRunner, "_environment", lambda *args: {})
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.subprocess.run", lambda command, **kwargs:
+                        subprocess.CompletedProcess(command, 0, "", ""))
+
+    def probe(_self, host, *, timeout):
+        if host["alias"] == "other":
+            return {"ok": False, "error_code": "remote-probe-failed", "latency_ms": 1, "message": "Probe unavailable"}
+        return {"ok": True, "latency_ms": 1, "message": "ok", "details": {"hostname": "box", "os_id": "ubuntu", "os_pretty": "Ubuntu 24.04", "secret": "must-not-persist"}}
+
+    monkeypatch.setattr(SSHRunner, "_probe_remote_identity", probe)
+    response = client.post("/api/v1/hosts/observe", headers=headers, json={"identifiers": ["box", "other"]})
+    assert response.status_code == 200
+    assert [result["ok"] for result in response.json()["results"]] == [True, False]
+    hosts = {host["alias"]: host for host in client.get("/api/v1/hosts").json()}
+    assert hosts["box"]["facts"]["os_pretty"] == "Ubuntu 24.04"
+    assert hosts["other"]["facts"] == previous
+    assert hosts["other"]["last_test_status"] == "ok"
+    assert "must-not-persist" not in json.dumps(hosts)
 
 
 @pytest.mark.parametrize("code,status", [("permission_denied", 403), ("not_found", 404), ("exists", 409), ("too_large", 413), ("not_a_directory", 502), ("auth_failed", 502), ("timeout", 502), ("unreachable", 502), ("unsupported", 501)])

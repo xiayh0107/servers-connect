@@ -93,6 +93,14 @@ than `test`, so run it on demand, not as a routine sweep. A successful remote
 summary is saved as sanitized `facts`, including `observed_at`, `os_like`, and
 a closed `os_logo` key, for subsequent offline inventory reads.
 
+`test` only checks connectivity; it does not collect system facts. The UI's
+**Collect host info** action explicitly runs a handshake and the same system
+probe as `diagnose`, without SFTP. It supports one host or a selected batch
+of 1-64 hosts with concurrency 1-4 and timeout 1-120 seconds per probe (plus
+the SSH runner's bounded transport grace). Failed probes keep prior facts.
+This is also available via `POST /api/v1/hosts/{id}/observe` and
+`POST /api/v1/hosts/observe`; there is no new CLI batch command.
+
 `list --json` and `show --json` read local metadata without DNS, SSH, or vault
 access. They include nullable `facts`, `last_success_at`, `last_resolved_ip`,
 `host_key`, and `geo`, plus the literal `address_scope`. A failed test updates

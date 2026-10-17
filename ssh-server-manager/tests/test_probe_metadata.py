@@ -85,11 +85,74 @@ def test_explicit_check_records_negotiated_key_and_local_dns(database, monkeypat
     assert observed["host_key"]["fingerprint"] == fingerprint
     assert observed["host_key"]["state"] == "verified"
     assert observed["last_success_at"]
+    assert observed["facts"] is None
     assert len(calls) == 4
     before = len(calls)
     database.get_server("box")
     database.list_servers()
     assert len(calls) == before
+
+
+def test_observe_collects_sanitized_facts_without_sftp(database, monkeypatch, tmp_path):
+    local_commands(monkeypatch, tmp_path)
+    runner = SSHRunner(database, ssh_binary="ssh")
+    monkeypatch.setattr(runner, "_probe_sftp", lambda *args, **kwargs: pytest.fail("Observation must not probe SFTP"))
+    calls = []
+
+    def probe(host, *, timeout):
+        calls.append((host["id"], timeout))
+        return {"ok": True, "latency_ms": 1, "message": "ok", "details": {
+            "hostname": "box\x00\u202e", "os_id": "ubuntu", "os_pretty": "Ubuntu 24.04", "arch": "x86_64",
+            "cpu_model": "z" * 900, "secret": "never persist",
+        }}
+
+    monkeypatch.setattr(runner, "_probe_remote_identity", probe)
+    result = runner.observe("box", timeout=12)
+    host = database.get_server("box")
+    assert result["ok"] is True and result["error_code"] is None
+    assert result["message"] == "Host info collected"
+    assert calls == [(host["id"], 12)]
+    assert host["facts"]["os_pretty"] == "Ubuntu 24.04"
+    assert host["facts"]["hostname"] == "box" and len(host["facts"]["cpu_model"]) == 500
+    assert host["facts"]["observed_at"] and "secret" not in host["facts"]
+    assert host["last_test_status"] == "ok"
+
+
+@pytest.mark.parametrize("handshake_ok", [True, False])
+def test_failed_observation_preserves_previous_facts(database, monkeypatch, tmp_path, handshake_ok):
+    database.record_observation("box", facts={"hostname": "box", "os_id": "debian"})
+    previous = database.get_server("box")["facts"]
+    local_commands(monkeypatch, tmp_path, ssh_status=0 if handshake_ok else 255, debug="Permission denied (publickey).")
+    runner = SSHRunner(database, ssh_binary="ssh")
+    probes = []
+
+    def probe(*args, **kwargs):
+        probes.append(True)
+        return {"ok": False, "latency_ms": 1, "error_code": "timeout", "message": "token=hidden\x00\u202e"}
+
+    monkeypatch.setattr(runner, "_probe_remote_identity", probe)
+    result = runner.observe("box")
+    assert result["ok"] is False
+    assert result["error_code"] == ("timeout" if handshake_ok else "authentication-failed")
+    assert len(probes) == int(handshake_ok)
+    assert "hidden" not in result["message"] and "\x00" not in result["message"] and "\u202e" not in result["message"]
+    host = database.get_server("box")
+    assert host["facts"] == previous
+    assert host["last_test_status"] == ("ok" if handshake_ok else "failed")
+
+
+def test_observation_discards_facts_after_endpoint_change(database, monkeypatch, tmp_path):
+    local_commands(monkeypatch, tmp_path)
+    runner = SSHRunner(database, ssh_binary="ssh")
+
+    def probe(*args, **kwargs):
+        database.update_server("box", hostname="replacement.invalid")
+        return {"ok": True, "latency_ms": 1, "message": "ok", "details": {"hostname": "old-box", "os_id": "ubuntu"}}
+
+    monkeypatch.setattr(runner, "_probe_remote_identity", probe)
+    result = runner.observe("box")
+    assert result["ok"] is False and result["error_code"] == "host-changed"
+    assert database.get_server("box")["facts"] is None
 
 
 @pytest.mark.parametrize(("diagnostic", "state"), [
