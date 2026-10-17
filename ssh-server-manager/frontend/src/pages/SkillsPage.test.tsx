@@ -27,7 +27,8 @@ it('opens metadata without discovery or refresh and keeps assignments local unti
   render(<SkillsPage hosts={hosts}/>);
   await screen.findByRole('heading', {name: 'deploy-runbook'});
   expect(mocked.mock.calls.map(([path]) => path)).toEqual(['/skills']);
-  expect(screen.getAllByText('Readable')).toHaveLength(2);
+  expect(screen.getByText('Registered')).toBeTruthy();
+  expect(screen.getByText(/Readable/)).toBeTruthy();
   fireEvent.click(screen.getByRole('checkbox', {name: 'Assign beta'}));
   expect(screen.getByText('+ Adding')).toBeTruthy();
   expect(screen.getByRole('button', {name: 'Refresh'})).toBeDisabled();
@@ -60,7 +61,7 @@ it('discovers only on request, refusing invalid, conflicting, or already registe
   mocked.mockImplementation(async (path, options) => path === '/skills/discover' ? discovery : path === '/skills' && !options?.method ? skills : skill());
   render(<SkillsPage hosts={hosts}/>); await screen.findByRole('heading', {name: 'deploy-runbook'});
   expect(screen.queryByRole('dialog')).toBeNull();
-  fireEvent.click(screen.getByRole('button', {name: 'Discover local skills'}));
+  fireEvent.click(screen.getByRole('button', {name: 'Discover'}));
   const dialog = await screen.findByRole('dialog', {name: 'Discovered local skills'});
   expect(mutations()).toHaveLength(0);
   expect(within(dialog).getAllByRole('button', {name: 'Register'}).map(button => button.hasAttribute('disabled'))).toEqual([false, true, true]);

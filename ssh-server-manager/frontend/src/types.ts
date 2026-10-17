@@ -22,3 +22,4 @@ export type AgentMetadata = Schema['AgentMetadata'];
 export type CredentialDeletionPreview = Schema['CredentialDeletionPreview'];
 export type CredentialDeletion = Schema['CredentialDeletion'];
 export type CredentialProbeResult = Schema['CredentialProbeResult'];
+export type CredentialProbeStage = Schema['CredentialProbeStage'];

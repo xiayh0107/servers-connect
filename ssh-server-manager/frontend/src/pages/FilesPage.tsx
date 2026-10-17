@@ -2,7 +2,7 @@ import {useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent
 import {api, ApiError, download, json, segment} from '../api';
 import {useDialogState} from '../hooks';
 import type {DirectoryEntry, DirectoryListing, Host, RuntimeInfo, SavedPath} from '../types';
-import {Button, EmptyState, ErrorNotice, Icon, Modal} from '../ui';
+import {Button, EmptyState, ErrorNotice, Icon, Modal, relativeDate} from '../ui';
 import './files.css';
 
 type Props = {hosts: Host[]; runtime: RuntimeInfo; initialHostId?: string; initialPath?: string};
@@ -34,7 +34,7 @@ function bytes(size: number) {
 }
 function modified(entry: DirectoryEntry) {
   return entry.modified_at && Number.isFinite(Date.parse(entry.modified_at))
-    ? new Date(entry.modified_at).toLocaleString() : entry.modified || '—';
+    ? relativeDate(entry.modified_at) : entry.modified || '—';
 }
 function owner(entry: DirectoryEntry) {return entry.owner || (entry.uid != null ? String(entry.uid) : '—');}
 function breadcrumb(path: string) {
@@ -55,9 +55,10 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
   const [sort, setSort] = useState<{key: SortKey; descending: boolean}>({key: 'name', descending: false});
   const [showHidden, setShowHidden] = useState(false);
   const [visibleCount, setVisibleCount] = useState(250);
-  const [showSaved, setShowSaved] = useState<boolean | null>(null);
+  const [showSaved, setShowSaved] = useState<boolean | null>(() => window.matchMedia?.('(max-width: 1180px)').matches ? false : null);
   const [compact, setCompact] = useState(() => window.matchMedia?.('(max-width: 1180px)').matches || false);
   const [focus, setFocus] = useState(false);
+  const [panels, setPanels] = useState({sidebar: true, tabs: true});
   const [switcher, setSwitcher] = useDialogState<'switch' | 'new' | null>('files-switcher', null);
   const [hostSearch, setHostSearch] = useState('');
   const [pathEdit, setPathEdit] = useState(false);
@@ -277,11 +278,13 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
     finally {if (mounted.current) setPathBusy(false);}
   }
 
+  const railed = compact ||!panels.sidebar || focus;
+  useEffect(() => {document.documentElement.classList.toggle('ssm-rail', railed); return () => {document.documentElement.classList.remove('ssm-rail');};}, [railed]);
   if (!hosts.length) return <EmptyState title="No hosts yet">Add a host to browse its remote files.</EmptyState>;
   const staleListing = !activeTab?.error && (activeTab?.loading || activeTab?.filter !== activeTab?.query);
   const hiddenCount = listing?.entries.filter(entry => entry.hidden).length || 0;
-  return <section className={`files-page${focus ? ' files-focus' : ''}`} aria-label="Files">
-    <div className="files-tabs" role="tablist" aria-label="File sessions">
+  return <section className={`files-page${focus ? ' files-focus' : ''}${compact ? ' files-compact' : ''}`} aria-label="Files">
+    {panels.tabs && !focus && <div className="files-tabs" role="tablist" aria-label="File sessions">
       {tabs.map((tab, index) => {
         const value = hosts.find(item => item.id === tab.hostId);
         return <div className={`files-tab${tab.id === activeId ? ' active' : ''}`} key={tab.id} style={{'--tab-color': `var(--color-tag-${['rose', 'amber', 'blue', 'green'][index % 4]})`} as CSSProperties}>
@@ -290,25 +293,34 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
             if (target < 0) return;
             event.preventDefault(); setActiveId(tabs[target].id); setPathEdit(false); document.getElementById(`files-tab-${tabs[target].id}`)?.focus();
           }}><span className="files-status-dot"/><strong>{value?.alias || 'Unavailable host'}</strong><span className="mono muted">{tab.listing?.path.split('/').filter(Boolean).at(-1) || '~'}</span></button>
-          {tabs.length > 1 && <button className="files-icon-button" aria-label={`Close ${value?.alias || 'host'} tab`} onClick={() => closeTab(tab.id)}><Icon name="close" size={12}/></button>}
+          {tabs.length > 1 && <button className="files-tab-close" aria-label={`Close ${value?.alias || 'host'} tab`} onClick={() => closeTab(tab.id)}><Icon name="close" size={12}/></button>}
         </div>;
       })}
-      <button className="files-icon-button" aria-label="New file tab" onClick={() => {setHostSearch(''); setSwitcher('new');}}><Icon name="plus" size={14}/></button>
-      <span className="files-tabs-caption">Remote files</span>
-    </div>
+      <button className="files-tab-add" aria-label="New file tab" onClick={() => {setHostSearch(''); setSwitcher('new');}}><Icon name="plus" size={14}/></button>
+      {tabs.length < 2 && <span className="files-tabs-caption">Shown when 2+ sessions are open</span>}
+      {compact && <span className="files-tabs-caption files-compact-hint">Panels auto-collapsed below 1180 px · <button onClick={() => setPanels({sidebar: true, tabs: true})}>Restore</button></span>}
+    </div>}
     {host && activeTab ? <>
       <header className="files-header">
         <div className="files-identity">
-          <div className="files-connection">Files <span>·</span> <span className="mono">{host.username}@{host.hostname}</span>{host.proxy_jumps.length > 0 && <> <span>via</span> <span className="mono">{host.proxy_jumps.join(' → ')}</span></>}</div>
+          <div className="files-connection">Files <span aria-hidden="true">·</span> <span className="mono">{host.username}@{host.hostname}</span>{host.proxy_jumps.length > 0 && <> <span>via</span> <span className="mono">{host.proxy_jumps.join(' → ')}</span></>}</div>
           <button className="files-host-switch" aria-label="Switch file host" onClick={() => {setHostSearch(''); setSwitcher('switch');}}>
-            <span className="files-host-icon"><Icon name="hosts" size={18}/></span><h1>{host.alias}</h1>
-            {listing && !staleListing && !activeTab.error && <span className="badge success">Checked · {listing.latency_ms} ms</span>}
-            {host.tags[0] && <span className="badge">{host.tags[0]}</span>}<Icon name="arrow" size={14}/><kbd>⌘K</kbd>
+            <span className="files-host-icon"><Icon name="hosts" size={16}/></span>
+            <h1>{host.alias}</h1>
+            {listing && !staleListing && !activeTab.error && <span className="files-connected"><span className="status-dot ok"/>Connected · {listing.latency_ms} ms</span>}
+            {host.tags[0] && <span className="files-env"><span className={`tag-dot ${['rose','amber','blue','green'][host.tags[0].length % 4]}`}/>{host.tags[0]}</span>}
+            <Icon name="arrow" size={12}/><kbd className="key-hint">⌘K</kbd>
           </button>
         </div>
         <div className="actions files-header-actions">
-          <Button aria-pressed={savedVisible} onClick={() => {if (focus) setFocus(false); setShowSaved(!savedVisible);}}><Icon name="files"/>Saved paths</Button>
-          <Button aria-pressed={focus} onClick={() => setFocus(previous => !previous)}>{focus ? 'Exit focus' : 'Focus'}</Button>
+          <div className="panel-toggles" role="group" aria-label="Panel visibility">
+            <button aria-pressed={panels.sidebar && !compact} aria-label="Toggle navigation rail" onClick={() => setPanels({...panels, sidebar: !panels.sidebar})}><Icon name="hosts" size={15}/></button>
+            <button aria-pressed={savedVisible} aria-label="Toggle saved paths panel" onClick={() => {if (focus) setFocus(false); setShowSaved(!savedVisible);}}><Icon name="files" size={15}/></button>
+            <button aria-pressed={panels.tabs} aria-label="Toggle session tabs" onClick={() => setPanels({...panels, tabs: !panels.tabs})}><Icon name="folder" size={15}/></button>
+            <span className="toggle-divider" aria-hidden="true"/>
+            <button className="layout-button" onClick={() => {setPanels({sidebar: true, tabs: true}); setShowSaved(null);}}>Layout<Icon name="arrow" size={11}/></button>
+          </div>
+          <Button aria-pressed={focus} className={focus ? 'pressed' : ''} onClick={() => setFocus(previous => !previous)}><Icon name="folder" size={14}/>{focus ? 'Exit focus' : 'Focus'}</Button>
           <Button disabled={!!staleListing} onClick={() => updateTab(activeTab.id, {refresh: activeTab.refresh + 1})}><Icon name="refresh" size={14}/>Refresh</Button>
           <Button variant="primary" disabled={transferBusy || !!staleListing || !!activeTab.error || !listing || !transfersAvailable} onClick={() => {if (listing) uploadDestination.current = {tabId: activeTab.id, hostId: host.id, alias: host.alias, directory: listing.path}; fileInput.current?.click();}}><Icon name="upload" size={14}/>{transferBusy ? 'Transferring…' : 'Upload here'}</Button>
           <input ref={fileInput} type="file" aria-label="Upload file" className="files-file-input" onChange={event => selectUpload(event.target.files?.[0])}/>
@@ -320,23 +332,23 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
           <Button variant="ghost" aria-label="Parent folder" disabled={!listing?.parent || !!staleListing} onClick={() => navigate(listing?.parent || undefined)}><Icon name="up" size={14}/></Button>
         </div>
         {pathEdit ? <form className="files-path-entry" onSubmit={event => {event.preventDefault(); if (pathInput) navigate(pathInput);}}><input ref={pathField} aria-label="Remote directory path" value={pathInput} onChange={event => setPathInput(event.target.value)}/><Button type="submit">Go</Button></form> : <div className="files-breadcrumbs" aria-label="Remote directory">
-          {breadcrumb(currentPath).map((crumb, index) => <span key={`${crumb.path}-${index}`}>{index > 1 && <span className="muted">/</span>}<button disabled={!!staleListing} onClick={() => navigate(crumb.path)}>{crumb.label}</button></span>)}
-          <button className="files-edit-path" aria-label="Edit remote path" onClick={() => {setPathInput(currentPath || '~'); setPathEdit(true);}}><Icon name="edit" size={13}/></button>
+          {breadcrumb(currentPath).map((crumb, index, all) => <span key={`${crumb.path}-${index}`}>{index > 0 && <span className="crumb-separator" aria-hidden="true">/</span>}<button className={index === all.length - 1 ? 'current' : ''} disabled={!!staleListing} onClick={() => navigate(crumb.path)}>{crumb.label}</button></span>)}
+          <button className="sr-only" aria-label="Edit remote path" onClick={() => {setPathInput(currentPath || '~'); setPathEdit(true);}}>Edit remote path</button>
         </div>}
         <label className="files-filter"><Icon name="search" size={13}/><input aria-label="Filter this folder" placeholder="Filter this folder" value={activeTab.filter} onChange={event => updateTab(activeTab.id, {filter: event.target.value})}/></label>
-        <Button aria-pressed={showHidden} onClick={() => setShowHidden(previous => !previous)}>Hidden files{hiddenCount ? ` (${hiddenCount})` : ''}</Button>
+        <Button aria-pressed={showHidden} aria-label={`Hidden files${hiddenCount ? ` (${hiddenCount})` : ''}`} onClick={() => setShowHidden(previous => !previous)}><Icon name="globe" size={14}/>Hidden files</Button>
         <Button disabled={!listing || !!staleListing} onClick={() => setEditor({hostId: host.id, alias: host.alias, label: currentPath.split('/').filter(Boolean).at(-1) || 'Home', path: currentPath, notes: ''})}>☆ Save path</Button>
       </div>
       <div className="files-notices"><ErrorNotice error={transferError}/>{message && <div role="status" className="notice success">{message}</div>}</div>
       <div className="files-body" id="files-content" role="tabpanel" aria-labelledby={`files-tab-${activeId}`} tabIndex={0}>
         <aside className={`files-saved${showSaved === false || focus ? ' collapsed' : ''}${showSaved === true ? ' explicitly-open' : ''}`} aria-label="Saved paths">
-          <h2>Saved paths</h2><ErrorNotice error={pathsError}/>{!!pathsError && <Button onClick={() => setPathsRefresh(value => value + 1)}>Retry saved paths</Button>}
+          <h2 className="rail-label">Saved paths</h2><ErrorNotice error={pathsError}/>{!!pathsError && <Button onClick={() => setPathsRefresh(value => value + 1)}>Retry saved paths</Button>}
           {(paths[host.id] || []).map(saved => <div key={saved.id} className={`files-saved-row${saved.path === currentPath ? ' active' : ''}`}>
-            <button className="files-saved-open" onClick={() => void visitSaved(saved)} title={saved.notes || saved.path}><strong>{saved.label}</strong><span>{saved.path}</span></button>
+            <button className="files-saved-open" onClick={() => void visitSaved(saved)} title={saved.notes || saved.path}><strong>{saved.label}</strong><span className="mono">{saved.path}</span></button>
             <div className="files-saved-actions"><button aria-label={`Edit saved path ${saved.label}`} onClick={() => setEditor({hostId: host.id, alias: host.alias, saved, label: saved.label, path: saved.path, notes: saved.notes})}><Icon name="edit" size={12}/></button><button aria-label={`Delete saved path ${saved.label}`} onClick={() => setDeletePath({hostId: host.id, alias: host.alias, saved})}><Icon name="close" size={12}/></button></div>
           </div>)}
           {!paths[host.id]?.length && !pathsError && <p className="files-saved-empty">Save a folder to return to it quickly.</p>}
-          <h2 className="files-places-heading">Places</h2><button className="files-place" onClick={() => navigate()}>Home <span>~</span></button><button className="files-place" onClick={() => navigate('/')}>Root <span>/</span></button>
+          <h2 className="rail-label rail-places">Places</h2><button className="files-place" onClick={() => navigate()}>Home <span className="mono">~</span></button><button className="files-place" onClick={() => navigate('/')}>Root <span className="mono">/</span></button>
           <p className="files-transfer-hint">Web transfers up to {bytes(maxBytes)}.<br/>Larger files: <span className="mono">serverctl get / put</span>.</p>
         </aside>
         <div className="files-list">
@@ -344,14 +356,15 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
           {staleListing ? <div className="files-loading" role="status">{activeTab.filter !== activeTab.query ? 'Waiting for search…' : <>Loading folder… <Button onClick={() => {if (listingRequest.current?.key === contextRef.current) listingRequest.current.cancel();}}>Cancel loading</Button></>}</div> : !activeTab.error && listing && <>
             <div className="files-table-wrap"><table className="files-table" aria-label="Remote files">
               <thead><tr><th className="files-name-column" aria-sort={sort.key === 'name' ? sort.descending ? 'descending' : 'ascending' : 'none'}><button onClick={() => toggleSort('name')}>Name{sort.key === 'name' ? sort.descending ? ' ↓' : ' ↑' : ''}</button></th>{(['size', 'modified', 'permissions', 'owner'] as SortKey[]).map(key => <th className={`files-${key}-column`} key={key} aria-sort={sort.key === key ? sort.descending ? 'descending' : 'ascending' : 'none'}><button onClick={() => toggleSort(key)}>{key === 'permissions' ? 'Mode' : key}{sort.key === key ? sort.descending ? ' ↓' : ' ↑' : ''}</button></th>)}<th className="files-action-column"><span className="sr-only">Actions</span></th></tr></thead>
-              <tbody>{listing.parent && <tr><td><button className="files-name" onClick={() => navigate(listing.parent || undefined)}><Icon name="up"/><span>..</span></button></td><td colSpan={5}/></tr>}{entries.slice(0, visibleCount).map(entry => {
+              <tbody>{listing.parent && <tr className="files-parent-row"><td><button className="files-name" onClick={() => navigate(listing.parent || undefined)}><span className="files-entry-icon"><Icon name="up" size={16}/></span><span className="mono">..</span></button></td><td colSpan={5}/></tr>}{entries.slice(0, visibleCount).map(entry => {
                 const knownSize = Number.isFinite(entry.size) && entry.size >= 0;
                 const allowed = entry.type === 'file' && transfersAvailable && knownSize && entry.size <= maxBytes;
                 const restriction = entry.type === 'symlink' ? 'Symlink target size cannot be verified. Use serverctl get.' : entry.type === 'special' ? 'Special files cannot be downloaded in the browser.' : !knownSize ? 'File size unavailable · use CLI' : entry.size > maxBytes ? `Over ${bytes(maxBytes)} · use CLI` : !transfersAvailable ? 'Web transfer limit unavailable.' : '';
-                return <tr key={entry.path} className={selected?.path === entry.path ? 'selected' : ''} onClick={() => updateTab(activeTab.id, {selected: entry.path})}>
-                  <td><button className="files-name" onClick={() => entry.type === 'directory' ? navigate(entry.path) : updateTab(activeTab.id, {selected: entry.path})}><span className={`files-entry-icon ${entry.type}`}><Icon name={entry.type === 'directory' ? 'folder' : entry.type === 'symlink' ? 'link' : 'file'}/></span><strong>{entry.name}</strong>{entry.type === 'symlink' && <span className="files-link-target">→ {entry.link_target || 'target unavailable'}</span>}</button>{restriction && entry.type === 'file' && <span className="files-limit-badge">{restriction}</span>}</td>
+                const isSelected = selected?.path === entry.path;
+                return <tr key={entry.path} className={isSelected ? 'selected' : ''} onClick={() => updateTab(activeTab.id, {selected: entry.path})}>
+                  <td><button className="files-name" onClick={() => entry.type === 'directory' ? navigate(entry.path) : updateTab(activeTab.id, {selected: entry.path})}><span className={`files-entry-icon ${entry.type}`}><Icon name={entry.type === 'directory' ? 'folder' : entry.type === 'symlink' ? 'link' : 'file'} size={16}/></span><strong>{entry.name}</strong>{entry.type === 'symlink' && <span className="files-link-target">→ {entry.link_target || 'target unavailable'}</span>}</button>{restriction && entry.type === 'file' && <span className="files-limit-badge">{restriction}</span>}</td>
                   <td className="files-size-column">{entry.type === 'file' ? bytes(entry.size) : '—'}</td><td className="files-modified-column" title={entry.modified_at || 'Exact timestamp unavailable'}>{modified(entry)}</td><td className="files-permissions-column mono">{entry.permissions || '—'}</td><td className="files-owner-column" title={`Group: ${entry.group || (entry.gid != null ? String(entry.gid) : '—')}`}>{owner(entry)}</td>
-                  <td className="files-action-column">{entry.type !== 'directory' && <button className="files-icon-button" aria-label={`Download ${entry.name}`} disabled={!allowed || transferBusy} title={restriction || `Download ${entry.name}`} onClick={event => {event.stopPropagation(); void getFile(entry);}}><Icon name="download" size={16}/></button>}</td>
+                  <td className="files-action-column">{entry.type !== 'directory' && <button className="files-download" aria-label={`Download ${entry.name}`} disabled={!allowed || transferBusy} title={restriction || `Download ${entry.name}`} onClick={event => {event.stopPropagation(); void getFile(entry);}}><Icon name="download" size={16}/></button>}</td>
                 </tr>;
               })}</tbody>
             </table></div>

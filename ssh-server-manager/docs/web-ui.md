@@ -246,3 +246,58 @@ See [the backend/API contract](backend.md) for route details and
 [the frontend build guide](../frontend/README.md) for source, generated types,
 reproducible assets and isolated verification. Local GeoIP automation and a
 native desktop shell remain optional future enhancements.
+
+## Redesign alignment (Paper "UI 重新设计", 2026-10)
+
+The shipped React client now follows the Paper redesign's frame and page
+structure. Shared pieces:
+
+- **Page header**: optional uppercase eyebrow, 22px title (30px on Hosts and
+  host details), 13px subtitle, hairline divider. Gutters differ by page family
+  (Hosts/details 40px, other pages 32px) because the design file does.
+- **Sidebar**: 232px, 34px navigation rows, RECENT entries with status dots,
+  session footer with vault name. Files is not a navigation destination: open a
+  host and choose **Browse files**, or use a `#/files/<id>` link.
+- **Time and hints**: relative timestamps (`4 min ago`, `Yesterday 14:12`) via
+  `relativeTime`/`relativeDate`, `KeyHint` chips for shortcuts, `StatusDot` for
+  state that is also spelled out in text.
+
+Per page: Hosts uses flex lanes (64px rows) with tag-scope chips carrying live
+counts, pinned row actions with menu sections, and a details-hidden masking
+mode. Host details is a 680px floating profile card over a dimmed canvas, with
+a breadcrumb pager, route diagram, section cards, telemetry rows and a
+connect-command bar. Files has a session tab strip,
+three panel toggles (navigation rail, saved paths, tabs), a 240px saved-path
+rail and humanised modification dates. Tags, Skills and Credentials use a 420px
+list plus flexible detail pane.
+
+The Hosts inventory is now a rounded surface card with quieter route groups and
+roomier rows; hovering or focusing a host opens a quick-preview card with the
+same cached telemetry (status, last check, route, CPU load, memory/disk meters,
+OS, arch, hostname and credential) without making an API request. Opening a
+host shows a floating profile card with separate identity, route, connection,
+system, directory, notes and skills cards. System telemetry parses the cached
+`free -h`/`df` observations into compact rows and segmented memory/disk meters
+instead of a flat three-column grid.
+
+Credentials completes the Paper pass: the list filters with an All/Key/Password
+segmented control, inline kind chips and per-credential host counts; the detail
+shows cached key permissions (`● File found · 0600`), a 12-dot masked secret
+with Reveal/Replace, an editable Type dropdown (the API keeps a credential's
+kind immutable, so the control says so rather than silently changing it) and a
+**Used by N hosts** history. Its dialogs use the Paper 560/440/520 panels: three
+type cards for Add, typed-label confirmation for Delete, and a three-step
+auth-only checklist with the `ssh-copy-id` remedy for Test. Credential tests
+start only from **Run test**; opening or restoring a dialog never starts one.
+
+Skills shows `Registered` in the list while the detail keeps `● Readable`, and
+Discover is the inline 72px control. Tags creation deliberately stays a modal
+(a deviation from the Paper inline artboard) because the existing modal already
+carries the create contract and focus trap.
+
+Capabilities kept deliberately: theme and accent pickers stay in the sidebar
+footer, Files keeps an edit-path control (screen-reader reachable, not drawn),
+per-row download stays mounted and reveals on hover/selection, "Import SSH
+config" keeps its portable label, reveal protection stays reachable from the
+Credentials header lock, and local key browse/validation remains behind
+explicit controls.

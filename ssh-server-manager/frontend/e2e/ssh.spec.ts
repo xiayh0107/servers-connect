@@ -81,7 +81,7 @@ test('real direct, multi-hop and external SSH checks, diagnosis and failure', as
   page.on('pageerror', error => errors.push(error.message));
   for (const alias of ['direct', 'multi-hop', 'external-route', 'bad-auth']) {
     const checked = page.waitForResponse(response => response.url().endsWith(`/hosts/${loopback.hosts[alias]}/test`) && response.request().method() === 'POST');
-    await page.getByRole('button', {name: `check ${alias}`, exact: true}).click();
+    await page.getByRole('button', {name: `Run check ${alias}`, exact: true}).click();
     const result = await (await checked).json();
     expect(result.ok).toBe(alias !== 'bad-auth');
     if (alias === 'bad-auth') expect(result.error_code).toBe('authentication-failed');
@@ -92,7 +92,7 @@ test('real direct, multi-hop and external SSH checks, diagnosis and failure', as
   const details = page.getByRole('dialog', {name: 'Host details direct', exact: true});
   await expect(details).toContainText('loopback');
   await expect(details).toContainText('SHA256:');
-  await details.getByRole('button', {name: 'Full diagnosis', exact: true}).click();
+  await details.getByRole('button', {name: 'Diagnose again', exact: true}).click();
   const diagnosis = page.getByRole('dialog', {name: 'Diagnosis · direct', exact: true});
   await expect(diagnosis).toContainText('SFTP');
   await expect(diagnosis).toContainText('Remote system responded');
@@ -101,7 +101,7 @@ test('real direct, multi-hop and external SSH checks, diagnosis and failure', as
   await details.getByRole('button', {name: 'Close host details', exact: true}).click();
   await page.getByRole('checkbox', {name: 'Select direct', exact: true}).check();
   await page.getByRole('checkbox', {name: 'Select bad-auth', exact: true}).check();
-  await page.getByRole('button', {name: 'Test selected', exact: true}).click();
+  await page.getByRole('button', {name: 'Run checks', exact: true}).click();
   const batch = page.getByRole('dialog', {name: 'Batch check results', exact: true});
   await expect(batch).toContainText('direct');
   await expect(batch).toContainText('bad-auth');
@@ -146,22 +146,22 @@ test('real routed SFTP browse, upload conflict, explicit overwrite and download'
 
 test('independent credential authentication streams against a host with another saved key', async ({page, loopback}) => {
   const checked = page.waitForResponse(response => response.url().endsWith(`/hosts/${loopback.hosts['bad-auth']}/test`));
-  await page.getByRole('button', {name: 'check bad-auth', exact: true}).click();
+  await page.getByRole('button', {name: 'Run check bad-auth', exact: true}).click();
   expect((await (await checked).json()).ok).toBe(false);
   const before = await (await page.request.get(`${loopback.base_url}/api/v1/hosts/${loopback.hosts['bad-auth']}`)).json();
   expect(before.credential_id).toBe('fixture-wrong-key');
   await page.goto(`${loopback.base_url}/#/credentials/fixture-key`);
-  await page.getByRole('button', {name: 'Test on host', exact: true}).click();
-  const dialog = page.getByRole('dialog').filter({has: page.getByRole('heading', {name: 'Test credential · Loopback fixture key', exact: true})});
-  await expect(dialog).toHaveAccessibleName('Test credential · Loopback fixture key');
+  await page.getByRole('button', {name: 'Test on host…', exact: true}).click();
+  const dialog = page.getByRole('dialog').filter({has: page.getByRole('heading', {name: 'Test Loopback fixture key', exact: true})});
+  await expect(dialog).toHaveAccessibleName('Test Loopback fixture key');
   await dialog.getByRole('combobox', {name: 'Host', exact: true}).selectOption(loopback.hosts['bad-auth'], {timeout: 10_000});
   await dialog.getByRole('button', {name: 'Run test', exact: true}).click();
-  await expect(dialog.getByText('Credential verified', {exact: true})).toBeVisible();
+  await expect(dialog.getByText(/Credential verified\./)).toBeVisible();
   await expect(dialog).toContainText('The selected credential was accepted.');
   const after = await (await page.request.get(`${loopback.base_url}/api/v1/hosts/${loopback.hosts['bad-auth']}`)).json();
   expect(after).toEqual(before);
   await dialog.locator('header').getByRole('button', {name: 'Close', exact: true}).click();
-  const history = page.locator('.detail-panel .panel-section').filter({has: page.getByRole('heading', {name: 'Authentication history', exact: true})});
+  const history = page.locator('.usage-section');
   await expect(history).toContainText('Credential verified');
   await expect(history).toContainText('bad-auth');
 });

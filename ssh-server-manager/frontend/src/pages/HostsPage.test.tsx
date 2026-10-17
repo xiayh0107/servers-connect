@@ -1,15 +1,16 @@
 import {act,fireEvent,render,screen,waitFor} from '@testing-library/react';
-import {beforeEach,expect,it,vi} from 'vitest';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {api} from '../api';
 import {credential,host,runtime} from '../test-fixtures';
 import HostsPage,{visibleHostText} from './HostsPage';
 vi.mock('../api',async original=>({...await original<typeof import('../api')>(),api:vi.fn()}));
 const mocked=vi.mocked(api);
 beforeEach(()=>{mocked.mockReset();history.replaceState({},'','#/hosts');localStorage.clear();});
+afterEach(()=>{vi.useRealTimers();});
 it('opens local workspace and route without an implicit remote operation',async()=>{
   const value=host();mocked.mockImplementation(async path=>path.endsWith('/workspace')?{paths:[],skills:[]}:path.endsWith('/route')?{hops:[{alias:value.alias,external:false}],blocked_by:null}:Promise.reject(new Error('Unexpected remote action')));
   render(<HostsPage hosts={[value]} credentials={[]} runtime={runtime} hash="#/hosts/alpha" onRefresh={vi.fn()} onCreateCredential={vi.fn()}/>);
-  await screen.findAllByText('Not observed');await waitFor(()=>expect(mocked.mock.calls.some(([path])=>path.endsWith('/route'))).toBe(true));
+  await screen.findByRole('dialog',{name:'Host details alpha'});await waitFor(()=>expect(mocked.mock.calls.some(([path])=>path.endsWith('/route'))).toBe(true));
   expect(mocked.mock.calls.every(([path,options])=>!options?.method&&(/workspace$|route$/).test(path))).toBe(true);
 });
 it('does not render or search hidden endpoint, credential or note values',()=>{
@@ -19,6 +20,25 @@ it('does not render or search hidden endpoint, credential or note values',()=>{
   expect(screen.queryByText(/private-endpoint/)).toBeNull();expect(screen.queryByText('private-credential')).toBeNull();
   fireEvent.change(screen.getByRole('textbox',{name:/Search hosts/}),{target:{value:'private-note'}});expect(screen.queryByRole('button',{name:'alpha'})).toBeNull();
 });
+it('shows a cached hover preview without contacting the host',async()=>{
+  vi.useFakeTimers();
+  const value=host({facts:{os_logo:'ubuntu',os_pretty:'Ubuntu 24.04 LTS',arch:'x86_64',cpu_cores:'8',cpu_model:'AMD EPYC 7B13',memory:'Mem: 30.5Gi 11.2Gi 19.3Gi 0B 0B',disk:'/dev/nvme0n1p1 460G 120G 340G 27% /',load:'0.42 0.38 0.35',uptime:'up 14 days, 3 hours',observed_at:'2026-10-15T12:00:00Z'}});
+  render(<HostsPage hosts={[value]} credentials={[]} runtime={runtime} hash="#/hosts" onRefresh={vi.fn()} onCreateCredential={vi.fn()}/>);
+  const row=screen.getByRole('row',{name:/alpha/});
+  fireEvent.mouseEnter(row);
+  await act(async()=>{vi.advanceTimersByTime(300);});
+  const preview=screen.getByRole('tooltip');
+  expect(preview).toHaveTextContent('Runtime');
+  expect(preview).toHaveTextContent('30.5 GiB');
+  expect(preview).toHaveTextContent('8 vCPU');
+  expect(preview).toHaveTextContent('37% used');
+  fireEvent.mouseLeave(row);
+  await act(async()=>{vi.advanceTimersByTime(200);});
+  expect(screen.queryByRole('tooltip')).toBeNull();
+  expect(mocked).not.toHaveBeenCalled();
+  vi.useRealTimers();
+});
+
 it('ignores a late workspace response after switching hosts',async()=>{
   let resolve!:(value:unknown)=>void;const delayed=new Promise<unknown>(done=>resolve=done);
   mocked.mockImplementation(async path=>path.includes('host-a/workspace')?delayed:path.endsWith('/workspace')?{paths:[],skills:[]}: {hops:[{alias:path.includes('host-b')?'beta':'alpha',external:false}],blocked_by:null});
