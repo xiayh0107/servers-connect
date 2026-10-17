@@ -16,13 +16,14 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
   const [selection, setSelection] = useState<Set<string>>(new Set()), [editing, setEditing] = useDialogState<Host | 'new' | null>('host-edit',null), [duplicate, setDuplicate] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [notice, setNotice] = useState('');
   const [confirmDelete, setConfirmDelete] = useDialogState<Host | null>('host-delete',null), [diagnosis, setDiagnosis] = useDialogState<Diagnosis | null>('host-diagnosis',null), [results, setResults] = useDialogState<TestResult[] | null>('host-results',null), [importing, setImporting] = useDialogState('host-import',false), [tagging, setTagging] = useDialogState<Host[] | null>('host-tags',null);
   const [pins, setPins] = usePreference<string[]>('host-pins', ['files', 'check', 'copy']);
-  const [cursor, setCursor] = useState(-1);
+  const [cursorId, setCursorId] = useState<string | null>(null);
   const [preview, setPreview] = useState<{host: Host; left: number; top: number}>();
   const previewTimer = useRef<number | undefined>(undefined), hideTimer = useRef<number | undefined>(undefined);
   const clearPreviewTimers = () => {if (previewTimer.current !== undefined) {window.clearTimeout(previewTimer.current); previewTimer.current = undefined;} if (hideTimer.current !== undefined) {window.clearTimeout(hideTimer.current); hideTimer.current = undefined;}};
   const hidePreview = () => {clearPreviewTimers(); setPreview(undefined);};
   const scheduleHide = () => {clearPreviewTimers(); hideTimer.current = window.setTimeout(() => {hideTimer.current = undefined; setPreview(undefined);}, 140);};
   const showPreview = (host: Host, anchor: HTMLElement, immediate = false) => {
+    if (!details) return;
     if (typeof window.matchMedia === 'function' && !window.matchMedia('(hover: hover)').matches) return;
     clearPreviewTimers();
     const display = () => {
@@ -55,6 +56,7 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
     return [...map];
   }, [filtered, group]);
   const rows = useMemo(() => groups.flatMap(([label, members]) => members.map(host => ({host, label}))), [groups]);
+  const cursor = rows.findIndex(row => row.host.id === cursorId);
   const action = async (task: () => Promise<void>) => {if (busy) return; setBusy(true); setError(undefined); setNotice(''); try {await task();} catch (reason) {setError(reason);} finally {setBusy(false);}};
   const check = (host: Host) => action(async () => {const result = await api<TestResult>(`/hosts/${segment(host.id)}/test`, json('POST', {timeout: 8})); await onRefresh(); setNotice(`${host.alias}: ${result.message}`);});
   const diagnose = (host: Host) => action(async () => {const result = await api<Diagnosis>(`/hosts/${segment(host.id)}/diagnose`, json('POST', {timeout: 8})); setDiagnosis(result); await onRefresh();});
@@ -65,15 +67,16 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
   const pinned = (host: Host) => pins.filter(pin => ROW_ACTIONS.some(action => action.id === pin)).slice(0, 3);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
-      if (document.querySelector('.modal-backdrop')) return;
+      if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      if (event.key === 'Escape') {setCursorId(null); hidePreview(); return;}
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest('button,a[href],input,textarea,select,summary,[contenteditable]:not([contenteditable="false"]),[role="button"],[role="link"]')) return;
       if (event.key === '/') {event.preventDefault(); document.querySelector<HTMLInputElement>('input[aria-label="Search hosts"]')?.focus(); return;}
       if (!rows.length) return;
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {event.preventDefault(); setCursor(current => Math.min(rows.length - 1, Math.max(0, current < 0 ? (event.key === 'ArrowDown' ? 0 : rows.length - 1) : current + (event.key === 'ArrowDown' ? 1 : -1)))); return;}
-      if (event.key === 'Escape') {setCursor(-1); hidePreview(); return;}
-      if (cursor < 0) return;
-      const host = rows[cursor].host;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {event.preventDefault(); const next = Math.min(rows.length - 1, Math.max(0, cursor < 0 ? (event.key === 'ArrowDown' ? 0 : rows.length - 1) : cursor + (event.key === 'ArrowDown' ? 1 : -1))); setCursorId(rows[next].host.id); return;}
+      const host = rows[cursor]?.host;
+      if (!host) return;
       if (event.key === 'Enter') {event.preventDefault(); location.hash = hostHash(host);}
       else if (event.key.toLowerCase() === 'b') {event.preventDefault(); files(host);}
       else if (event.key.toLowerCase() === 't') {event.preventDefault(); void check(host);}
@@ -83,10 +86,11 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
     return () => document.removeEventListener('keydown', key);
   });
   useEffect(() => {if (selectedHost) hidePreview();}, [selectedHost]);
+  useEffect(() => {if (!details) hidePreview();}, [details]);
   useEffect(() => {const hide = () => hidePreview(); document.addEventListener('scroll', hide, true); window.addEventListener('resize', hide); return () => {document.removeEventListener('scroll', hide, true); window.removeEventListener('resize', hide);};}, []);
   useEffect(() => () => clearPreviewTimers(), []);
   const summary = `${hosts.length} hosts · ${hosts.filter(host => host.last_test_status === 'ok' && !blocked.has(host.id)).length} reachable · ${hosts.filter(host => host.last_test_status === 'failed' && !blocked.has(host.id)).length} failing${blocked.size ? ` · ${blocked.size} blocked by a jump host` : ''} · ${hosts.filter(host => !host.last_test_at && !blocked.has(host.id)).length} never checked`;
-  const focusRow = (id: string) => setCursor(rows.findIndex(row => row.host.id === id));
+  const focusRow = (id: string) => setCursorId(id);
   return <div className="page hosts-page">
     <PageHeader title="Hosts" description={summary}>
       <Button onClick={() => setDetails(!details)} className={details ? '' : 'pressed'}>{details ? 'Hide details' : 'Details hidden'}<KeyHint>⇧H</KeyHint></Button>
@@ -125,7 +129,7 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
               <div className="cell-host">
                 <OsTile logo={host.facts?.os_logo}/>
                 <div className="host-lines">
-                  <div className="host-name-line"><button className="host-name" aria-label={host.alias} aria-describedby={preview?.host.id === host.id ? 'host-preview' : undefined} onFocus={event => showPreview(host, event.currentTarget, true)} onBlur={hidePreview} onClick={() => {hidePreview(); location.hash = hostHash(host);}}>{host.alias}</button>{host.jump_for_count > 0 && <span className="jump-chip"><Icon name="arrow" size={10}/>Jump for {host.jump_for_count}</span>}</div>
+                  <div className="host-name-line"><button className="host-name" aria-label={host.alias} aria-describedby={details && preview?.host.id === host.id ? 'host-preview' : undefined} onFocus={event => showPreview(host, event.currentTarget, true)} onBlur={hidePreview} onClick={() => {hidePreview(); location.hash = hostHash(host);}}>{host.alias}</button>{host.jump_for_count > 0 && <span className="jump-chip"><Icon name="arrow" size={10}/>Jump for {host.jump_for_count}</span>}</div>
                   <small>{details ? `${host.facts?.os_pretty || 'OS unknown'}${host.facts?.os_pretty ? '' : ' · run a check'}` : `${host.facts?.os_pretty || 'OS unknown'} · ••••••••`}</small>
                 </div>
               </div>
@@ -140,7 +144,7 @@ export default function HostsPage({hosts, credentials, runtime, onRefresh, hash,
       </div>
     </div>}
     {!!filtered.length && <div className="hosts-footer"><span>Showing {filtered.length === hosts.length ? `all ${hosts.length}` : `${filtered.length} of ${hosts.length}`} hosts. Select rows to edit tags or run checks in bulk.</span><span className="footer-hints"><span><KeyHint>↑↓</KeyHint>move</span><span><KeyHint>↵</KeyHint>open details</span></span></div>}
-    {preview && filtered.some(host => host.id === preview.host.id) && <HostPreview host={preview.host} left={preview.left} top={preview.top}/>}
+    {details && preview && filtered.some(host => host.id === preview.host.id) && <HostPreview host={preview.host} left={preview.left} top={preview.top}/>}
     {selectedHost && !legacyCredential && <HostDetails key={selectedHost.id} host={selectedHost} hosts={hosts} credentials={credentials} onClose={() => {location.hash = '#/hosts';}} onRefresh={onRefresh} onEdit={() => edit(selectedHost)} onCheck={() => void check(selectedHost)} onDiagnose={() => void diagnose(selectedHost)} onFiles={() => files(selectedHost)} onCopy={() => void copy(selectedHost)} onTags={() => setTagging([selectedHost])} busy={busy}/>}
     {legacyCredential && selectedHost && <LegacyCredential key={selectedHost.id} host={selectedHost} credential={credentials.find(c=>c.id===selectedHost.credential_id)} runtime={runtime} onRefresh={onRefresh}/>}
     {editing && <HostEditor host={editing === 'new' ? undefined : editing} duplicate={duplicate} credentials={credentials} hosts={hosts} onCreateCredential={onCreateCredential} onClose={() => {setEditing(null); if (legacyCredential) location.hash = '#/hosts';}} onSaved={async () => {await onRefresh(); setEditing(null); if (legacyCredential) location.hash = '#/hosts';}}/>}
@@ -196,9 +200,9 @@ function TagCell({tags, onAdd}: {tags: string[]; onAdd: () => void}) {
 }
 
 function RowActions({host, pins, busy, onFiles, onCheck, onCopy, onDiagnose, onEdit, onDuplicate, onTags, onRemove, onPin}: {host: Host; pins: string[]; busy: boolean; onFiles: () => void; onCheck: () => void; onCopy: () => void; onDiagnose: () => void; onEdit: () => void; onDuplicate: () => void; onTags: () => void; onRemove: () => void; onPin: (pin: string) => void}) {
-  const handler: Record<string, () => void> = {files: onFiles, check: onCheck, copy: onCopy};
+  const handler: Record<string, () => void> = {files: onFiles, check: onCheck, copy: onCopy, diagnose: onDiagnose, edit: onEdit, tags: onTags, duplicate: onDuplicate};
   return <div className="cell-actions row-actions">
-    <div className="pinned-group">{pins.map(pin => <Button key={pin} variant="ghost" className="action-slot" disabled={busy} aria-label={`${ROW_ACTIONS.find(action => action.id === pin)?.label} ${host.alias}`} title={ROW_ACTIONS.find(action => action.id === pin)?.label} onClick={() => handler[pin]?.()}><Icon name={pin === 'files' ? 'folder' : pin === 'check' ? 'check' : 'terminal'} size={15}/></Button>)}
+    <div className="pinned-group">{pins.map(pin => <Button key={pin} variant="ghost" className="action-slot" disabled={busy} aria-label={`${ROW_ACTIONS.find(action => action.id === pin)?.label} ${host.alias}`} title={ROW_ACTIONS.find(action => action.id === pin)?.label} onClick={() => handler[pin]?.()}><Icon name={ROW_ACTIONS.find(action => action.id === pin)?.icon || 'file'} size={15}/></Button>)}
       <details className="row-menu"><summary aria-label={`More actions for ${host.alias}`}><Icon name="more" size={15}/></summary>
         <div className="row-menu-items">
           <div className="menu-section"><span className="menu-label">Pinned to row</span><span className="menu-count">{pins.length} of 3</span></div>

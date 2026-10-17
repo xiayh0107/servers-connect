@@ -279,6 +279,11 @@ host shows a floating profile card with separate identity, route, connection,
 system, directory, notes and skills cards. System telemetry parses the cached
 `free -h`/`df` observations into compact rows and segmented memory/disk meters
 instead of a flat three-column grid.
+Hide details suppresses these previews, including already-visible previews and
+pending hover timers. Inventory keyboard navigation tracks host IDs rather
+than row offsets across filtering or reordering, and never overrides focused
+buttons/links, open dialogs or browser shortcuts. Saved diagnosis/edit row pins
+remain functional across the redesign.
 
 Credentials completes the Paper pass: the list filters with an All/Key/Password
 segmented control, inline kind chips and per-credential host counts; the detail
@@ -289,6 +294,12 @@ kind immutable, so the control says so rather than silently changing it) and a
 type cards for Add, typed-label confirmation for Delete, and a three-step
 auth-only checklist with the `ssh-copy-id` remedy for Test. Credential tests
 start only from **Run test**; opening or restoring a dialog never starts one.
+Unbound credentials can be tested before any host binding changes. Probe
+checkpoints turn green only after confirmed authentication; timeout, local
+failure and other inconclusive outcomes show **Not confirmed** rather than
+invented TCP/host-key success. Explicit authentication failures may belong to
+a jump host, so routed tests do not attribute rejection to the target or offer
+a target-key installation command without that evidence.
 
 Skills shows `Registered` in the list while the detail keeps `● Readable`, and
 Discover is the inline 72px control. Tags creation deliberately stays a modal

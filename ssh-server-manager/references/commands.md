@@ -20,6 +20,12 @@ identical options. Both open the bundled modern React UI and share one managed r
 record. A second launch fails while a managed runtime is active; use `--status`
 and the existing window rather than stopping someone else's active session.
 
+In the Web UI, Hide details also disables cached hover/focus previews. Credential
+tests require Run test and can use an unbound credential against any saved host
+without changing its binding. An unconfirmed TCP/host-key checkpoint or a failed
+jump route is not evidence that the target credential was rejected. These are
+browser features; they add no CLI commands.
+
 The default `--port 0` selects an available loopback port and opens the browser.
 When `--no-open` is used, `--url-file` is required; the file is created with
 mode `600` and contains the one-time tokenized URL. The token is never printed.

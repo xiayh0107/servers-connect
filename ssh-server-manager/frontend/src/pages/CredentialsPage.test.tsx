@@ -113,12 +113,84 @@ it('runs the three-step credential test and shows the ssh-copy-id remedy after a
   fireEvent.click(screen.getByRole('button',{name:'Test on host…'}));
   const dialog=screen.getByRole('dialog',{name:'Test deploy-ed25519'});
   expect(within(dialog).getByText('TCP connect alpha.invalid:22')).toBeTruthy();
-  expect(within(dialog).getByText('Host key matches known_hosts')).toBeTruthy();
+  expect(within(dialog).getByText('Verify host key against known_hosts')).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button',{name:'Run test'}));
   await within(dialog).findByText('Failed after 0.4 s');
   expect(within(dialog).getByText('Public key rejected for user “deploy”')).toBeTruthy();
   expect(within(dialog).getByText(/~deploy\/\.ssh\/authorized_keys/)).toBeTruthy();
   expect(within(dialog).getByText('ssh-copy-id -i /key.pub deploy@alpha.invalid')).toBeTruthy();
+});
+
+it('allows testing an unbound credential without mutating its host binding',async()=>{
+  const value=credential({id:'unbound'});
+  mockedStream.mockResolvedValue(undefined);
+  render(<CredentialsPage hosts={[host({credential_id:null})]} credentials={[value]} runtime={runtime} onRefresh={vi.fn(async()=>{})} onRuntimeRefresh={vi.fn(async()=>{})}/>);
+  expect(screen.getByRole('button',{name:'Test on host…'})).toBeEnabled();
+  fireEvent.click(screen.getByRole('button',{name:'Test on host…'}));
+  expect(screen.getByRole('dialog',{name:'Test Deploy password'})).toBeVisible();
+  expect(mockedStream).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'Run test'}));
+  await waitFor(()=>expect(mockedStream).toHaveBeenCalledWith('/credentials/unbound/test',{host_id:'host-a',timeout:8},expect.any(Function),expect.any(AbortSignal)));
+  expect(mocked.mock.calls.every(([,options])=>!options?.method)).toBe(true);
+});
+
+it('disables credential testing only when no saved hosts exist',()=>{
+  render(<CredentialsPage {...props()} hosts={[]}/>);
+  expect(screen.getByRole('button',{name:'Test on host…'})).toBeDisabled();
+});
+
+it.each(['timeout','ssh-failed','vault-unavailable','credential-secret-missing','credential-not-used','authentication-unconfirmed'])('does not infer successful route stages from %s',async code=>{
+  const value=credential({id:`credential-${code}`});
+  mockedStream.mockImplementation(async(_path,_body,onEvent)=>onEvent({type:'result',result:{ok:false,error_code:code,message:`Failure: ${code}`,latency_ms:10,checked_at:observed,host_id:'host-a',host_alias:'alpha',credential_id:value.id,method:null,stages:[]}}));
+  render(<CredentialsPage {...props(value)}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Test on host…'}));
+  const dialog=screen.getByRole('dialog',{name:`Test ${value.label}`});
+  fireEvent.click(within(dialog).getByRole('button',{name:'Run test'}));
+  await within(dialog).findByText(`Failure: ${code}`);
+  expect(dialog.querySelectorAll('.test-step.ok')).toHaveLength(0);
+  expect(dialog.querySelectorAll('.test-step.unknown')).toHaveLength(3);
+  expect(within(dialog).queryByText(/rejected for user/)).toBeNull();
+  expect(within(dialog).queryByText(/ssh-copy-id/)).toBeNull();
+  expect(within(dialog).getByText(/did not confirm authentication|Resolve the reported error/)).toBeVisible();
+});
+
+it.each([
+  {code:'connection-refused',tones:['failed','pending','pending']},
+  {code:'host-key-untrusted',tones:['unknown','failed','pending']},
+  {code:'authentication-failed',tones:['unknown','unknown','failed']},
+])('marks only the established failure for $code',async({code,tones})=>{
+  mockedStream.mockImplementation(async(_path,_body,onEvent)=>onEvent({type:'result',result:{ok:false,error_code:code,message:`Failure: ${code}`,latency_ms:10,checked_at:observed,host_id:'host-a',host_alias:'alpha',credential_id:'credential-a',method:null,stages:[]}}));
+  render(<CredentialsPage {...props()}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Test on host…'}));
+  const dialog=screen.getByRole('dialog',{name:'Test Deploy password'});
+  fireEvent.click(within(dialog).getByRole('button',{name:'Run test'}));
+  await within(dialog).findByText(`Failure: ${code}`);
+  within(dialog).getAllByRole('listitem').forEach((step,index)=>expect(step).toHaveClass(tones[index]));
+  expect(dialog.querySelectorAll('.test-step.ok')).toHaveLength(0);
+});
+
+it('does not blame a target key for an unidentified jump-host authentication failure',async()=>{
+  const value=credential({kind:'key',key_path:'/key',has_secret:false});
+  mockedStream.mockImplementation(async(_path,_body,onEvent)=>onEvent({type:'result',result:{ok:false,error_code:'authentication-failed',message:'The selected credential was not accepted.',latency_ms:10,checked_at:observed,host_id:'host-a',host_alias:'alpha',credential_id:value.id,method:null,stages:[]}}));
+  render(<CredentialsPage {...props(value)} hosts={[host({credential_id:value.id,proxy_jumps:['jump']})]}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Test on host…'}));
+  fireEvent.click(screen.getByRole('button',{name:'Run test'}));
+  await screen.findByText('Authentication rejected on the SSH route');
+  expect(screen.getByText(/rejected hop was not identified/)).toBeVisible();
+  expect(screen.queryByText(/ssh-copy-id/)).toBeNull();
+});
+
+it('marks all checkpoints passed only after confirmed authentication',async()=>{
+  mockedStream.mockImplementation(async(_path,_body,onEvent)=>onEvent({type:'result',result:{ok:true,error_code:null,message:'The selected credential was accepted.',latency_ms:10,checked_at:observed,host_id:'host-a',host_alias:'alpha',credential_id:'credential-a',method:'password',stages:[]}}));
+  render(<CredentialsPage {...props()}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Test on host…'}));
+  const dialog=screen.getByRole('dialog',{name:'Test Deploy password'});
+  expect(dialog.querySelectorAll('.test-step.pending')).toHaveLength(3);
+  expect(mockedStream).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole('button',{name:'Run test'}));
+  await within(dialog).findByText('Verified after 10 ms');
+  expect(dialog.querySelectorAll('.test-step.ok')).toHaveLength(3);
+  expect(within(dialog).getByText('Host key matches known_hosts')).toBeVisible();
 });
 
 it('consumes one reveal grant, then clears the secret when the page is hidden',async()=>{

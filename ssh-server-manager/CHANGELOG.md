@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fix Paper UI review regressions: suppress hover/focus previews while host
+  details are hidden, preserve native keyboard activation and browser shortcuts,
+  track the inventory cursor by host identity, and restore saved diagnosis/edit
+  row pins. Add unit and browser regression coverage.
+- Restore independent tests for unbound credentials. Show unconfirmed probe
+  checkpoints rather than inferring TCP/host-key success from timeouts or local
+  failures; distinguish route-wide failures from a rejected target credential.
 - Refine the Hosts inventory and host profile: a rounded list card with quieter
   route groups and roomier rows, a hover/focus quick-preview card with cached
   telemetry, and a floating profile card made of section cards, icon-led

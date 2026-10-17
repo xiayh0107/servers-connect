@@ -83,6 +83,9 @@ async function mockApi(page: Page, empty = false) {
       if (current && method === 'GET' && parts[2] === 'workspace') return reply({server: current, host: current, credential, paths, skills: [skill]});
       if (current && method === 'GET' && parts[2] === 'route') return reply({alias: current.alias, blocked_by: null,
         hops: [...current.proxy_jumps.map(alias => ({alias, external: true})), {alias: current.alias, external: false}]});
+      if (current && method === 'POST' && parts[2] === 'test') return reply({alias: current.alias, ok: true,
+        error_code: null, message: 'Connection checked', latency_ms: 24, checked_at: observed});
+      if (current && method === 'POST' && parts[2] === 'diagnose') return reply({alias: current.alias, checks: []});
       if (current && method === 'GET' && parts[2] === 'files') {
         const path = url.searchParams.get('path') || '/srv/app', filter = url.searchParams.get('name_filter') || '';
         const entries = seedEntries.filter(value => value.name.toLowerCase().includes(filter.toLowerCase())).map(value => ({
@@ -119,6 +122,96 @@ async function mockApi(page: Page, empty = false) {
 
 const nav = (page: Page, label: string) => page.getByRole('navigation', {name: 'Primary navigation'}).getByRole('link', {name: new RegExp(`^${label}(?:\\s*\\d+)?$`)});
 const assertClean = (state: Awaited<ReturnType<typeof mockApi>>) => {expect(state.unexpected).toEqual([]); expect(state.errors).toEqual([]);};
+
+test('Hide details suppresses active, delayed and keyboard-focus previews', async ({page}) => {
+  const state = await mockApi(page);
+  await page.goto('/assets/');
+  const name = page.getByRole('button', {name: hosts[0].alias, exact: true});
+  await name.hover();
+  await expect(page.getByRole('tooltip')).toBeVisible();
+  await page.getByRole('button', {name: 'Hide details', exact: true}).click();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await name.hover();
+  await name.focus();
+  await expect(name).not.toHaveAttribute('aria-describedby');
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await expect(page.locator('main')).not.toContainText(hosts[0].hostname);
+  await expect(page.locator('main')).not.toContainText(credential.label);
+  await page.getByRole('button', {name: 'Show details', exact: true}).click();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  expect(state.requests.filter(request => request.method !== 'GET')).toEqual([]);
+  assertClean(state);
+});
+
+test('inventory shortcuts preserve button and navigation activation and survive filtering', async ({page}) => {
+  const state = await mockApi(page);
+  await page.goto('/assets/');
+  await expect(page.getByRole('heading', {name: 'Hosts', exact: true})).toBeVisible();
+  await page.keyboard.press('ArrowDown');
+  const check = page.getByRole('button', {name: `Run check ${hosts[0].alias}`, exact: true});
+  await check.focus();
+  await check.press('Enter');
+  await expect(page.getByRole('status')).toContainText('Connection checked');
+  expect(state.requests.filter(request => request.method !== 'GET')).toHaveLength(1);
+  await page.getByRole('heading', {name: 'Hosts', exact: true}).click();
+  await page.keyboard.press('ArrowDown');
+  await page.getByRole('textbox', {name: 'Search hosts', exact: true}).fill(hosts[0].alias);
+  await page.getByRole('heading', {name: 'Hosts', exact: true}).click();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await nav(page, 'Tags').focus();
+  await nav(page, 'Tags').press('Enter');
+  await expect(page.getByRole('heading', {name: 'Tags', exact: true})).toBeVisible();
+  assertClean(state);
+});
+
+test('saved diagnosis and edit row pins remain functional', async ({page}) => {
+  await page.addInitScript(() => localStorage.setItem('ssm.host-pins', JSON.stringify(['diagnose', 'edit'])));
+  const state = await mockApi(page);
+  await page.goto('/assets/');
+  await page.getByRole('button', {name: `Run full diagnosis ${hosts[0].alias}`, exact: true}).click();
+  const diagnosis = page.getByRole('dialog', {name: `Diagnosis · ${hosts[0].alias}`, exact: true});
+  await expect(diagnosis).toBeVisible();
+  await diagnosis.getByRole('button', {name: 'Close', exact: true}).click();
+  await page.getByRole('button', {name: `Edit host ${hosts[0].alias}`, exact: true}).click();
+  await expect(page.getByRole('dialog', {name: `Edit ${hosts[0].alias}`, exact: true})).toBeVisible();
+  expect(state.requests.filter(request => request.method !== 'GET').map(request => request.path))
+    .toEqual([`/api/v1/hosts/${encodeURIComponent(hosts[0].id)}/diagnose`]);
+  assertClean(state);
+});
+
+test('unbound credentials can be tested and timeout checkpoints stay unconfirmed', async ({page}, info) => {
+  const state = await mockApi(page);
+  const probes: unknown[] = [];
+  await page.route('**/api/v1/hosts', route => route.fulfill({contentType: 'application/json', body: JSON.stringify(
+    hosts.map(value => ({...value, credential_id: null, credential_kind: null, credential_label: null})),
+  )}));
+  await page.route(`**/api/v1/credentials/${credential.id}/test`, route => {
+    expect(route.request().method()).toBe('POST');
+    expect(route.request().headers()['x-csrf-token']).toBe(runtime.csrf);
+    probes.push(route.request().postDataJSON());
+    return route.fulfill({contentType: 'application/x-ndjson',
+      body: JSON.stringify({type: 'result', result: {ok: false, error_code: 'timeout', message: 'Credential authentication exceeded its deadline.',
+        latency_ms: 8000, checked_at: observed, host_id: hosts[0].id, host_alias: hosts[0].alias, credential_id: credential.id, method: null, stages: []}}) + '\n'});
+  });
+  await page.goto('/assets/#/credentials');
+  const open = page.getByRole('button', {name: 'Test on host…', exact: true});
+  await expect(open).toBeEnabled();
+  await open.click();
+  const dialog = page.getByRole('dialog', {name: `Test ${credential.label}`, exact: true});
+  await expect(dialog.getByText('Not run yet', {exact: true})).toBeVisible();
+  expect(probes).toEqual([]);
+  await dialog.getByRole('button', {name: 'Run test', exact: true}).click();
+  await expect(dialog.getByText('Credential authentication exceeded its deadline.', {exact: true})).toBeVisible();
+  await expect(dialog.locator('.test-step.ok')).toHaveCount(0);
+  await expect(dialog.getByText('Not confirmed', {exact: true})).toHaveCount(3);
+  await expect(dialog.getByText(/rejected for user|ssh-copy-id/)).toHaveCount(0);
+  await assertNoPageOverflow(page);
+  await page.screenshot({path: info.outputPath('credential-timeout.png'), fullPage: true});
+  expect(probes).toEqual([{host_id: hosts[0].id, timeout: 8}]);
+  expect(state.requests.filter(request => request.method !== 'GET')).toEqual([]);
+  assertClean(state);
+});
 
 async function assertNoPageOverflow(page: Page) {
   const bounds = await page.evaluate(() => ({width: innerWidth, scrollWidth: document.documentElement.scrollWidth,

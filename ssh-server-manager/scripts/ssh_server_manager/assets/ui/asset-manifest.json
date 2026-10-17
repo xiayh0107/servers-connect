@@ -1,6 +1,6 @@
 {
   "index.html": {
-    "file": "index-A_ufwYOK.js",
+    "file": "index-CN9tC2Rs.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -16,7 +16,7 @@
     ]
   },
   "src/pages/CredentialsPage.tsx": {
-    "file": "CredentialsPage-DL5fk3eD.js",
+    "file": "CredentialsPage-Dai8R13J.js",
     "name": "CredentialsPage",
     "src": "src/pages/CredentialsPage.tsx",
     "isDynamicEntry": true,
@@ -25,7 +25,7 @@
     ]
   },
   "src/pages/FilesPage.tsx": {
-    "file": "FilesPage-6OxWS6Uj.js",
+    "file": "FilesPage-BvfWy7oD.js",
     "name": "FilesPage",
     "src": "src/pages/FilesPage.tsx",
     "isDynamicEntry": true,
@@ -37,7 +37,7 @@
     ]
   },
   "src/pages/HostsPage.tsx": {
-    "file": "HostsPage-DH2VzftM.js",
+    "file": "HostsPage-yeUe-XHv.js",
     "name": "HostsPage",
     "src": "src/pages/HostsPage.tsx",
     "isDynamicEntry": true,
@@ -47,7 +47,7 @@
     ]
   },
   "src/pages/SkillsPage.tsx": {
-    "file": "SkillsPage-GAkUqPeE.js",
+    "file": "SkillsPage-BnPL8S4y.js",
     "name": "SkillsPage",
     "src": "src/pages/SkillsPage.tsx",
     "isDynamicEntry": true,
@@ -56,7 +56,7 @@
     ]
   },
   "src/pages/TagsPage.tsx": {
-    "file": "TagsPage-BqOTV6Ix.js",
+    "file": "TagsPage-CnGQPH1P.js",
     "name": "TagsPage",
     "src": "src/pages/TagsPage.tsx",
     "isDynamicEntry": true,
