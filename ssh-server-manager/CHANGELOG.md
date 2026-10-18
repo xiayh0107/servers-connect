@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Load missing/stale system facts automatically after dwelling on a host name,
+  replacing the inventory's collection buttons with inline field skeletons.
+  Preserve saved values during refresh, serialize hover probes, reuse successful
+  snapshots for 60 seconds and back off failures for 30 seconds. Page load,
+  restored keyboard focus and hidden details never trigger collection.
+- Restore Paper's Hosts route list and privacy mode: white flat lanes, 58px
+  rows, parent/child route order and connectors, stable endpoint/credential
+  columns with fixed masks, the compact privacy banner and eye toggle.
+  Disable copying in privacy mode and implement the advertised Shift+H shortcut.
 - Polish the Hosts quick preview: only the host name opens it (row-wide hover
   no longer does), and place it from the measured card height so it stops
   jumping to the top of the viewport on lower rows. Add a header

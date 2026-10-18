@@ -91,13 +91,19 @@ the tokenized URL to a local mode-600 file instead:
 
 The bundled interface follows the repository's Paper redesign: page headers
 carry an uppercase eyebrow, Hosts rows expose pinned quick actions, tag-scope
-chips and a cached hover preview, host details open in a floating profile card,
+chips and a lazy host-name hover preview, host details open in a floating profile card,
 and Files is reached
 from a host or a `#/files/<id>` link rather than the primary navigation.
 Credentials uses Paper add, delete and test dialogs; testing a credential still
 requires the explicit Run test action, and a credential's type is fixed after
 creation.
-Hide details suppresses cached hover/focus previews as well as table metadata.
+Hovering a host name for 260 ms collects missing/stale system info on demand;
+missing fields animate while loading and saved values remain during refresh.
+Probes are single-flight, with 60-second freshness and a 30-second failure
+cooldown. Keyboard focus shows only cached info, so history restoration cannot
+replay a probe. Hide details suppresses previews/collection and preserves the
+table lanes with fixed masks rather than removing endpoint/credential columns;
+copying is disabled. Shift+H toggles this mode outside focused controls.
 An independent credential test can target any saved host before binding the
 credential. Failed or inconclusive tests do not prove that TCP or host-key
 checks passed, or that the target credential was rejected; jump-route failures
@@ -249,8 +255,10 @@ onboarding options.
   check freshness before using those facts for a requested system change.
   Run `diagnose` only when the task needs facts that are missing or stale.
 - `server test` and the UI's Run check verify connectivity, not OS/specs.
-  For a user-requested UI backfill, use **Collect host info** on a row, in
-  host details, or on an explicitly selected batch (at most 64 hosts,
+  The UI lazily collects missing/stale facts after a deliberate host-name
+  hover; inventory load, keyboard focus and hidden details do not collect.
+  For a user-requested UI backfill, use **Collect host info** in host
+  details or on an explicitly selected batch (at most 64 hosts,
   concurrency at most 4). It runs the same read-only system probe as diagnosis
   without SFTP; failed collection retains the previous facts. Never backfill
   automatically just because an upgraded inventory has empty observations.

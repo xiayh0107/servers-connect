@@ -20,7 +20,11 @@ identical options. Both open the bundled modern React UI and share one managed r
 record. A second launch fails while a managed runtime is active; use `--status`
 and the existing window rather than stopping someone else's active session.
 
-In the Web UI, Hide details also disables cached hover/focus previews. Credential
+In the Web UI, a deliberate host-name hover lazily observes missing/stale facts
+with field skeletons, single-flight requests, 60-second freshness and a
+30-second failure cooldown. Page load and keyboard focus stay local. Hide
+details disables previews and collection, retains fixed masked columns and
+disables copying; Shift+H toggles it outside focused controls. Credential
 tests require Run test and can use an unbound credential against any saved host
 without changing its binding. An unconfirmed TCP/host-key checkpoint or a failed
 jump route is not evidence that the target credential was rejected. These are
@@ -99,7 +103,10 @@ probe as `diagnose`, without SFTP. It supports one host or a selected batch
 of 1-64 hosts with concurrency 1-4 and timeout 1-120 seconds per probe (plus
 the SSH runner's bounded transport grace). Failed probes keep prior facts.
 This is also available via `POST /api/v1/hosts/{id}/observe` and
-`POST /api/v1/hosts/observe`; there is no new CLI batch command.
+`POST /api/v1/hosts/observe`; the name-hover preview uses the single-host endpoint
+on demand, then reads the updated local Host DTO. The inventory no longer has
+per-row or page-wide collection buttons; explicit collection remains in host
+details and the selected-host toolbar. There is no new CLI batch command.
 
 `list --json` and `show --json` read local metadata without DNS, SSH, or vault
 access. They include nullable `facts`, `last_success_at`, `last_resolved_ip`,

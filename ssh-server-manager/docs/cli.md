@@ -113,6 +113,10 @@ Notes:
   hosts and choose **Collect host info** (1-64 hosts, concurrency 1-4).
   It runs the same read-only system probe without the SFTP check. Failed
   collection retains prior facts; the CLI remains single-host for diagnosis.
+  The browser UI also lazily observes a host after a deliberate name hover,
+  with field loading states, a 60-second cache and a 30-second failure cooldown.
+  Opening the inventory/details, restoring focus, and hidden details never
+  collect. Hide details keeps fixed masked columns and disables copying.
 - `diagnose` runs read-only checks for the local profile, SSH handshake, SFTP
   home-directory access, and a fixed remote system-summary command. The result
   identifies the operating system across Linux distributions (os-release with
