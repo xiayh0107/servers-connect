@@ -74,14 +74,21 @@ metadata and never starts DNS, SSH, SFTP or vault access. It displays:
 **Run check** verifies connectivity and saves resolved-IP/host-key observations;
 it does not collect OS or hardware facts. **Collect host info** explicitly runs
 the same read-only system probe as **Full diagnosis**, without its SFTP check.
-Use it beside an unknown OS in a host row or in the System section of host
-details. To backfill hosts after an upgrade, select the desired rows and choose
+The host-name preview automatically collects missing/stale facts after a
+260ms hover; no extra button is needed. Missing fields show animated skeletons,
+while saved values remain visible during refresh. Hover probes run one at a
+time; successful snapshots stay fresh for 60 seconds and failures cool down
+for 30 seconds. Failure keeps previous values and stops the animation.
+Explicit collection remains in the System section of host details.
+To backfill hosts after an upgrade, select the desired rows and choose
 **Collect host info** in the selection toolbar. Batches accept 1-64 hosts with
 concurrency 1-4 and a timeout of 1-120 seconds per probe (plus bounded SSH
 transport grace); overlapping batches share the four-worker limit. Each host
 gets its own result and one failure does not stop the others. No observation
-is collected automatically on upgrade, hover, opening details, or history
-navigation. **Full diagnosis** remains available for profile/SSH/SFTP/system
+is collected automatically on upgrade, page load, keyboard focus, opening
+details, history navigation or while details are hidden. Only a deliberate
+name hover or an explicit collection action initiates observation.
+**Full diagnosis** remains available for profile/SSH/SFTP/system
 troubleshooting.
 
 Failed checks or system probes retain prior system facts. A successful SSH
@@ -276,7 +283,7 @@ structure. Shared pieces:
   `relativeTime`/`relativeDate`, `KeyHint` chips for shortcuts, `StatusDot` for
   state that is also spelled out in text.
 
-Per page: Hosts uses flex lanes (64px rows) with tag-scope chips carrying live
+Per page: Hosts uses flex lanes (58px rows) with tag-scope chips carrying live
 counts, pinned row actions with menu sections, and a details-hidden masking
 mode. Host details is a 680px floating profile card over a dimmed canvas, with
 a breadcrumb pager, route diagram, section cards, telemetry rows and a
@@ -285,10 +292,15 @@ three panel toggles (navigation rail, saved paths, tabs), a 240px saved-path
 rail and humanised modification dates. Tags, Skills and Credentials use a 420px
 list plus flexible detail pane.
 
-The Hosts inventory is now a rounded surface card with quieter route groups and
-roomier rows; hovering or focusing a host opens a quick-preview card with the
+The Hosts inventory follows Paper's flat white list, with parent/child route
+order and connecting lines instead of route-group banners. Privacy mode keeps
+endpoint and credential lanes in place with fixed masks, removes locations and
+notes from rendered/searchable text, disables copying and uses the compact
+teal privacy banner and eye toggle. Shift+H toggles it outside focused controls.
+Hovering or focusing a host name opens a quick-preview card with the
 same cached telemetry (status, last check, route, CPU load, memory/disk meters,
-OS, arch, hostname and credential) without making an API request. Opening a
+OS, arch, hostname and credential). Keyboard focus reads only saved values;
+a deliberate hover refreshes missing/stale facts as described above. Opening a
 host shows a floating profile card with separate identity, route, connection,
 system, directory, notes and skills cards. System telemetry parses the cached
 `free -h`/`df` observations into compact rows and segmented memory/disk meters

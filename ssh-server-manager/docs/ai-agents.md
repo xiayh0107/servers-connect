@@ -144,8 +144,13 @@ deduplicated, results keep selection order, failures are isolated per host,
 and overlapping batches share a four-worker limit. A failed system probe
 retains prior facts and does not turn a successful handshake into a failed
 connectivity status. `POST /api/v1/hosts/{id}/observe` accepts `{timeout: 8}`
-for a single host. The UI exposes **Collect host info** in rows, host details
-and the selection toolbar; agents must not start a fleet backfill merely
+for a single host. A deliberate 260ms host-name hover automatically observes
+missing/stale facts, with inline skeletons and saved values during refresh.
+Hover probes are serialized; successes have 60-second freshness and failures
+have a 30-second cooldown. Keyboard focus, page load, history restoration and
+Hide details never initiate them. Explicit **Collect host info** remains in
+host details and the selection toolbar, not inventory rows or the page header.
+Agents must not start a fleet backfill merely
 because upgraded hosts have empty observations. The file API supports optional
 name filtering, nullable precise metadata, structured errors, and uploads that refuse
 existing destinations unless `overwrite=true` is supplied for an authorized
@@ -164,7 +169,8 @@ connections retain their configured OpenSSH behavior. A connection accepted
 without authentication does not count as verification of the selected credential.
 No prior host binding is needed. Inconclusive results leave TCP/host-key
 checkpoints unconfirmed; a route-wide failure does not prove that the target
-credential was rejected. Hide details also suppresses cached host hover/focus
+credential was rejected. Hide details preserves endpoint/credential lanes using
+fixed masks and disables copying. It also suppresses host hover/focus
 previews. Inventory shortcuts leave focused controls, open dialogs and browser
 shortcuts to their native handlers.
 

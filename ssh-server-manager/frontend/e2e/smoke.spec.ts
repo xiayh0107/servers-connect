@@ -47,7 +47,7 @@ type RequestRecord = {method: string; path: string; body: string | null};
 
 async function mockApi(page: Page, empty = false, unobserved = false) {
   const requests: RequestRecord[] = [], unexpected: string[] = [], errors: string[] = [];
-  const inventory = hosts.map(value => ({...value, facts: unobserved ? null : value.facts}));
+  const inventory = hosts.map(value => ({...value, facts: unobserved ? null : {...value.facts, observed_at: new Date().toISOString()}}));
   let paths = seedPaths.map(value => ({...value}));
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/api/v1/**', async route => {
@@ -82,7 +82,7 @@ async function mockApi(page: Page, empty = false, unobserved = false) {
     if (parts[0] === 'hosts') {
       const collect = (current: typeof inventory[number]) => {
         if (current.id === hosts[1].id) return {alias: current.alias, ok: false, latency_ms: 24, error_code: 'timeout', message: 'Remote system probe timed out'};
-        current.facts = hosts.find(value => value.id === current.id)!.facts;
+        current.facts = {...hosts.find(value => value.id === current.id)!.facts, observed_at: new Date().toISOString()};
         return {alias: current.alias, ok: true, latency_ms: 24, error_code: null, message: 'Host info collected'};
       };
       if (method === 'POST' && parts[1] === 'observe' && parts.length === 2) {
@@ -90,6 +90,7 @@ async function mockApi(page: Page, empty = false, unobserved = false) {
         return reply({results: inventory.filter(value => identifiers.includes(value.id)).map(collect)});
       }
       const current = inventory.find(value => value.id === parts[1]);
+      if (current && method === 'GET' && parts.length === 2) return reply(current);
       if (current && method === 'GET' && parts[2] === 'workspace') return reply({server: current, host: current, credential, paths, skills: [skill]});
       if (current && method === 'GET' && parts[2] === 'route') return reply({alias: current.alias, blocked_by: null,
         hops: [...current.proxy_jumps.map(alias => ({alias, external: true})), {alias: current.alias, external: false}]});
@@ -133,6 +134,92 @@ async function mockApi(page: Page, empty = false, unobserved = false) {
 
 const nav = (page: Page, label: string) => page.getByRole('navigation', {name: 'Primary navigation'}).getByRole('link', {name: new RegExp(`^${label}(?:\\s*\\d+)?$`)});
 const assertClean = (state: Awaited<ReturnType<typeof mockApi>>) => {expect(state.unexpected).toEqual([]); expect(state.errors).toEqual([]);};
+
+test('hover lazily collects missing fields with inline skeletons and deduplicates revisits', async ({page}, info) => {
+  const state = await mockApi(page, false, true);
+  let release!: () => void;
+  const responseGate = new Promise<void>(resolve => {release = resolve;});
+  await page.route(/\/hosts\/[^/]+\/observe$/, async route => {await responseGate; await route.fallback();});
+  await page.goto('/assets/');
+  const name = page.getByRole('button', {name: hosts[0].alias, exact: true});
+  await expect(name).toBeVisible();
+  expect(state.requests.filter(request => request.method !== 'GET')).toEqual([]);
+  await expect(page.getByRole('button', {name: /Collect host info/})).toHaveCount(0);
+  await name.hover();
+  await expect(page.getByLabel('Loading OS', {exact: true})).toBeVisible();
+  await expect(page.getByLabel('Loading CPU load', {exact: true})).toBeVisible();
+  await expect(page.getByRole('tooltip')).toContainText('Refreshing');
+  await page.screenshot({path: info.outputPath('host-preview-loading.png')});
+  release();
+  await expect(page.getByRole('tooltip')).toContainText('Ubuntu 24.04 LTS');
+  await expect(page.getByLabel('Loading OS', {exact: true})).toHaveCount(0);
+  await page.getByRole('heading', {name: 'Hosts', exact: true}).hover();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await name.hover();
+  await expect(page.getByRole('tooltip')).toContainText('Ubuntu 24.04 LTS');
+  expect(state.requests.filter(request => request.method === 'POST').map(request => request.path)).toEqual([`/api/v1/hosts/${encodeURIComponent(hosts[0].id)}/observe`]);
+  await page.screenshot({path: info.outputPath('host-preview-loaded.png')});
+  await page.getByRole('button', {name: hosts[1].alias, exact: true}).hover();
+  await expect(page.getByRole('tooltip')).toContainText('Refresh unavailable');
+  await expect(page.getByRole('tooltip').locator('.preview-skeleton')).toHaveCount(0);
+  assertClean(state);
+});
+
+test('Paper route fixture keeps children beside their jump hosts in privacy mode', async ({page}, info) => {
+  const state = await mockApi(page);
+  const demo = (alias: string, logo: string, os: string, jumps: string[] = [], tag = 'Production') => ({
+    ...host(alias, alias, jumps), address_scope: jumps.length ? 'private' : 'public', tags: [tag],
+    facts: {...host(alias, alias).facts, os_logo: logo, os_pretty: os, observed_at: new Date().toISOString()},
+  });
+  const inventory = [
+    demo('prod-web-01', 'ubuntu', 'Ubuntu 24.04', ['bastion']),
+    demo('prod-db-01', 'rocky', 'Rocky Linux 9', ['bastion']),
+    {...demo('bastion', 'debian', 'Debian 12'), jump_for_count: 4},
+    {...demo('staging-api', 'ubuntu', 'Ubuntu 22.04', ['bastion'], 'Staging'), last_test_status: 'failed', last_test_error_code: 'auth-failed'},
+    demo('staging-web', 'ubuntu', 'Ubuntu 22.04', ['bastion'], 'Staging'),
+    demo('lab-gpu-01', 'ubuntu', 'Ubuntu 22.04', ['lab-gateway'], 'Lab'),
+    {...demo('lab-gateway', 'alpine', 'Alpine 3.20', [], 'Lab'), jump_for_count: 2, last_test_status: 'failed', last_test_error_code: 'timed-out'},
+    demo('lab-build', 'debian', 'Debian 12', ['lab-gateway'], 'Lab'),
+    {...demo('nas-home', 'unknown', 'OS unknown'), facts: null, credential_id: null, credential_kind: null, credential_label: null, tags: [], last_test_at: null, last_test_status: null},
+  ];
+  await page.route('**/api/v1/hosts', route => route.fulfill({json: inventory}));
+  await page.goto('/assets/');
+  await page.getByRole('button', {name: 'Hide details', exact: true}).click();
+  expect(await page.locator('.host-row').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-host')))).toEqual([
+    'bastion', 'prod-web-01', 'prod-db-01', 'staging-api', 'staging-web', 'lab-gateway', 'lab-gpu-01', 'lab-build', 'nas-home',
+  ]);
+  await expect(page.locator('.route-child')).toHaveCount(6);
+  await expect(page.locator('.route-child.blocked')).toHaveCount(2);
+  await expect(page.locator('.route-child.route-last')).toHaveCount(2);
+  await page.getByRole('button', {name: 'prod-web-01', exact: true}).hover();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await assertNoPageOverflow(page);
+  await page.screenshot({path: info.outputPath('hosts-route-details-hidden-paper.png'), fullPage: true});
+  expect(state.requests.filter(request => request.method !== 'GET')).toEqual([]);
+  assertClean(state);
+});
+
+for (const width of [1440, 390]) {
+test(`details hidden at ${width}px preserves Paper lanes and masks rather than removing metadata`, async ({page}, info) => {
+  const state = await mockApi(page);
+  await page.setViewportSize({width, height: 900});
+  await page.goto('/assets/');
+  const headers = page.getByRole('columnheader');
+  await expect(headers).toHaveCount(5);
+  const before = await headers.evaluateAll(nodes => nodes.map(node => ({label: node.textContent, width: node.getBoundingClientRect().width})));
+  await page.getByRole('button', {name: 'Hide details', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Details hidden', exact: true})).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByLabel('Endpoint hidden')).toHaveCount(hosts.length);
+  await expect(page.getByLabel('Credential hidden')).toHaveCount(hosts.length);
+  expect(await headers.evaluateAll(nodes => nodes.map(node => ({label: node.textContent, width: node.getBoundingClientRect().width})))).toEqual(before);
+  for (const value of [hosts[0].hostname, hosts[0].username, hosts[0].notes, hosts[0].geo.city, credential.label]) await expect(page.locator('main')).not.toContainText(value);
+  await expect(page.getByRole('button', {name: `Copy SSH command ${hosts[0].alias}`, exact: true})).toBeDisabled();
+  await assertNoPageOverflow(page);
+  await page.screenshot({path: info.outputPath(`01-hosts-details-hidden-${width}.png`), fullPage: true});
+  expect(state.requests.filter(request => request.method !== 'GET')).toEqual([]);
+  assertClean(state);
+});
+}
 
 for (const width of [1440, 390]) {
 test(`explicit host info backfill at ${width}px preserves cheap checks and history`, async ({page}, info) => {

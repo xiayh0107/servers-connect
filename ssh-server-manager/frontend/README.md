@@ -43,7 +43,12 @@ Review both the contract and type diffs. `check-types` regenerates into a
 temporary location and checks drift. Pages should read runtime capabilities and
 handle nullable metadata explicitly. Opening inventories or details reads local
 saved metadata; SSH, DNS, filesystem inspection and vault work require explicit
-actions. Browser-history restoration may reopen a dialog, but must not repeat
+actions, except the deliberate 260ms host-name hover: its preview may observe
+missing/stale facts using one in-flight request, 60-second freshness and a
+30-second failure cooldown. Missing fields use skeletons; saved values remain
+during refresh. Keyboard focus and Hide details never initiate collection.
+Privacy mode masks values in the existing lanes, never removes those columns,
+and disables copying. Browser-history restoration may reopen a dialog, but must not repeat
 its mutation. Keep secrets out of URL fragments, history and persistent browser
 storage.
 

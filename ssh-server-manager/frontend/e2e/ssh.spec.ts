@@ -113,7 +113,7 @@ test('real single and bulk host info collection backfills facts with partial fai
   const direct = page.getByRole('row').filter({has: page.getByRole('button', {name: 'direct', exact: true})});
   await expect(direct).toContainText('OS unknown');
   const collected = page.waitForResponse(response => response.url().endsWith(`/hosts/${loopback.hosts.direct}/observe`) && response.request().method() === 'POST');
-  await page.getByRole('button', {name: 'Collect host info direct', exact: true}).click();
+  await page.getByRole('button', {name: 'direct', exact: true}).hover();
   expect((await (await collected).json()).ok).toBe(true);
   await expect(direct).toContainText('Fixture Linux');
   for (const alias of ['multi-hop', 'external-route', 'bad-auth']) {

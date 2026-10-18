@@ -82,7 +82,11 @@ lives in `docs/ui-ux-research.md` ("Design tokens").
 Keep opening host details free of DNS/SSH/SFTP/vault operations. Host routes,
 cached observations, workspace paths and credential summaries are local
 metadata. Remote checks, file browsing, credential tests, local key Browse,
-key validation and agent inspection require their explicit controls. Use the
+key validation and agent inspection require their explicit controls. The Hosts
+name-hover preview is a deliberate exception: after its dwell delay it may
+observe that host's missing/stale facts, with a single flight, freshness cache,
+failure cooldown and inline loading. Inventory load, focus/history restoration
+and Hide details must never initiate it. Use the
 shared `/api/v1` client for cookie/CSRF/error handling and generated DTOs.
 Browser history may restore a metadata dialog but must never replay a write,
 transfer or authentication action. Do not persist secret form values in URLs,
