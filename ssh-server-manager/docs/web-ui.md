@@ -104,6 +104,18 @@ states never bypass OpenSSH verification.
 changes and Skill assignments are explicit local writes. Host Skill bindings
 route instructions; they do not install or execute anything.
 
+A folder paints as soon as its listing arrives. Where the host's shell and its
+SFTP server see the same filesystem, that listing is a single remote round trip
+that already includes owner names, exact UTC timestamps and symlink targets.
+Otherwise the SFTP listing comes first and the precise metadata follows in a
+second request, updating the rows in place, so the table is never held back by
+it; a "Reading precise metadata…" chip marks that wait and disappears when it
+ends or fails. Revisiting a folder in the same browser session paints the last listing
+for that host and path immediately and revalidates behind it, so switching tabs
+or stepping back through history does not show a loading screen again. The
+cache is per host and holds only names, sizes and modes the server already sent;
+it never mixes one host's files into another's view.
+
 An unknown host-key error means the server's identity has not been trusted
 locally; it does not establish whether the account password is correct.
 Paste the copied `connect` command into your own terminal to review the

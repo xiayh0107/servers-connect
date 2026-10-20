@@ -11,7 +11,7 @@ from collections import Counter
 from contextlib import ExitStack
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import BoundedSemaphore, Event
+from threading import BoundedSemaphore, Event, Lock
 import uuid
 from typing import Any
 
@@ -161,10 +161,16 @@ class FileService:
         self.database = database
         self.runner = runner
 
-    def list_directory(self, identifier: str, path: str | None = None, *, name_filter: str | None = None) -> dict[str, Any]:
+    def list_directory(
+        self, identifier: str, path: str | None = None, *, name_filter: str | None = None, enrich: bool = True,
+    ) -> dict[str, Any]:
         if name_filter is None:
-            return self.runner().list_directory(identifier, path)
-        return self.runner().list_directory(identifier, path, name_filter=name_filter)
+            return self.runner().list_directory(identifier, path, enrich=enrich)
+        return self.runner().list_directory(identifier, path, name_filter=name_filter, enrich=enrich)
+
+    def enrich_directory(self, identifier: str, path: str, claims: list[dict[str, Any]]) -> dict[str, Any]:
+        """Optional precise metadata for a directory the caller already listed."""
+        return self.runner().enrich_listing(identifier, path, claims)
 
     def download(self, identifier: str, remote_path: str, local_path: str | Path, **options: Any) -> dict[str, Any]:
         return self.runner().download(identifier, remote_path, local_path, **options)
@@ -453,7 +459,21 @@ class ApplicationServices:
         config_renderer: Callable[[Database], Path] | None = None,
     ) -> None:
         self.database = database
-        self.runner = runner_factory or (lambda: SSHRunner(database))
+        # One runner per process: it holds the per-host listing route (namespace
+        # verdict, back-off, in-flight probe), and rebuilding it per request
+        # would re-pay that check on every folder. Built on first use rather
+        # than here, so creating the app still contacts nothing.
+        factory = runner_factory or (lambda: SSHRunner(database))
+        state: dict[str, SSHRunner] = {}
+        guard = Lock()
+
+        def shared_runner() -> SSHRunner:
+            with guard:
+                if "instance" not in state:
+                    state["instance"] = factory()
+                return state["instance"]
+
+        self.runner = shared_runner
         self.render_config = lambda: (config_renderer or render_config)(database)
         self.hosts = HostService(database, self.render_config)
         self.files = FileService(database, self.runner)

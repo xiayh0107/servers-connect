@@ -77,11 +77,32 @@ class Database:
             connection.execute("BEGIN IMMEDIATE")
             yield connection
             connection.commit()
+        except sqlite3.OperationalError as exc:
+            try:
+                connection.rollback()
+            except sqlite3.Error:
+                pass
+            raise self._write_error(exc) from exc
         except Exception:
             connection.rollback()
             raise
         finally:
             connection.close()
+
+    def _write_error(self, error: sqlite3.OperationalError) -> Exception:
+        """Name why a write failed instead of leaking sqlite3 internals.
+
+        A read-only database is almost always a privacy or permission boundary:
+        the app may read the file it is asked to write. Say where it lives and
+        what to do, so callers (HTTP included) can report it as expected.
+        """
+        message = str(error)
+        if "readonly" not in message and "unable to open" not in message:
+            return error
+        return DatabaseError(
+            f"the host database at {self.path} cannot be written by this app; "
+            f"run the command from an app with full disk access and try again: {message}"
+        )
 
     def _initialize(self) -> None:
         is_new = not self.path.exists()

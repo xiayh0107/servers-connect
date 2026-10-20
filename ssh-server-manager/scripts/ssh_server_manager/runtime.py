@@ -8,6 +8,7 @@ import secrets
 import signal
 import socket
 import stat
+import sys
 import threading
 import time
 import webbrowser
@@ -401,6 +402,10 @@ class LocalRuntime:
             print(f"SSH Server Manager launch URL written to {self._url_file}", flush=True)
         elif open_browser:
             print(f"SSH Server Manager opening in your browser on port {self.port}", flush=True)
+        web_state = getattr(getattr(self._server.config.app, "state", None), "web", None)
+        problem = getattr(web_state, "config_problem", None)
+        if problem:
+            print(f"Warning: {problem}", file=sys.stderr, flush=True)
         # Open only after Uvicorn's lifespan startup and socket registration.
         opener = None
         if open_browser:

@@ -54,6 +54,17 @@ when two launches start at the same moment.
   records are cleaned up automatically.
 - `--stop` terminates that process and deletes its `--url-file` if one was
   written. It is idempotent: exit code `0` whenever no UI is left running.
+- Host actions need to write two private locations: the host database
+  directory (`~/Library/Application Support/ssh-server-manager` on macOS) and
+  the managed OpenSSH config directory (`~/.ssh` by default). macOS attaches
+  Full Disk Access to the application that starts the command — a terminal
+  window you typed into, or the agent app (ChatGPT/Codex, Claude, an IDE) when
+  a tool launch ran `serverctl web`. Grant that app under **System Settings ›
+  Privacy & Security › Full Disk Access**, quit and reopen it, then relaunch
+  the UI. When the managed config directory alone is unavailable, remote
+  commands render the config in the private cache and keep working; when the
+  database is unavailable nothing can record results, so the launch prints a
+  warning and the Files view reports it instead of failing each request.
 
 ## Servers
 

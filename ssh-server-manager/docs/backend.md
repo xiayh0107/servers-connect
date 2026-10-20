@@ -76,7 +76,7 @@ describe implemented operations; native-window/dialog capabilities are false.
 | Notes | `PUT /api/v1/hosts/{identifier}/notes`, with `mode: append, set, clear` |
 | Diagnostics | `POST /api/v1/hosts/{identifier}/test` or `/diagnose`; optional bounded `timeout` |
 | Batch checks | `POST /api/v1/hosts/test` with `identifiers`, optional `timeout` and `concurrency` |
-| Files | `GET /api/v1/hosts/{identifier}/files?path=...&name_filter=...`; explicit `POST /download`, `POST /upload` |
+| Files | `GET /api/v1/hosts/{identifier}/files?path=...&name_filter=...`; explicit `POST /download`, `POST /upload`; `POST /files/metadata` for the optional precise-metadata probe |
 | Saved paths | `GET, POST, PUT /api/v1/hosts/{identifier}/paths`; `PATCH, DELETE /paths/{path_id}`; `POST /paths/{path_id}/used` |
 | Credentials | `GET, POST /api/v1/credentials`; `GET, PATCH, DELETE /credentials/{identifier}` |
 | Credential tests | `POST /api/v1/credentials/{identifier}/test` returns NDJSON stages/result; `GET /credentials/{identifier}/tests` |
@@ -148,6 +148,43 @@ the display date is never used to guess UTC time. Metadata stdout/stderr are
 limited while reading to 8 MiB/64 KiB. Filtering and directory-first/name
 sorting precede the 5,000-entry response cap; `total` counts parsed entries,
 `matching_total` counts matches, and `truncated` describes the filtered result.
+
+Directory browsing prefers a one-exec listing: `python3` over the managed SSH
+connection runs `os.scandir` and returns every display field plus the precise
+metadata in a single round trip. The OpenSSH SFTP subsystem costs a handshake
+and then one `lstat` round trip per entry, which dominates browsing on a
+high-latency link; on a host with 387 entries the one-exec listing answered in
+84 ms against 335 ms over SFTP. It is only used after the shell has been shown
+to share SFTP's filesystem namespace — SFTP resolves `~`, the shell resolves
+`~`, and the two must agree. A jail or any failed check keeps the SFTP listing
+in charge, and transfers are always authorized from `stat_file`, which still
+asks SFTP directly. `enriched: true` marks a response that already carries
+precise metadata, so the UI skips the optional probe for it.
+
+That route decision, and every fact it is based on, lives in
+`ssh_server_manager/remote_listing.py`; the runner only performs the remote
+calls. None of it is permanent: a namespace verdict expires after ten minutes
+and is tied to the host identity it was proven for (hostname, port, user), so a
+repointed host, a changed account or a jail that was lifted is noticed while the
+app runs. A host that cannot answer at all is retried after a two-minute
+back-off rather than being pinned to SFTP until the process restarts, and a host
+whose shell is definitively jailed is not attempted at all — previously every
+folder paid for an exec that was then discarded. Concurrent requests share one
+in-flight check per host, so two folders opened together pay for one namespace
+handshake instead of two.
+
+The probe is a second remote round trip, so the web UI does not wait for it:
+`GET /hosts/{identifier}/files` returns the SFTP listing alone (`enrichment_ms`
+is `null`), and the page then sends the names it is showing to
+`POST /hosts/{identifier}/files/metadata`. That request repeats each entry's
+SFTP type, size, `uid` and `gid` as a claim, so the server still applies the
+same type/size/ID agreement check before returning anything: a shell in a
+different namespace contributes nothing, and an answer for a folder that has
+since been replaced is dropped by the page. The probe is optional throughout —
+a failure leaves the listing exactly as SFTP reported it and never replaces the
+folder with an error. `latency_ms` remains the SFTP phase because it is also
+the connection health sample; `total_ms` reports what a one-request caller (the
+CLI path) actually waited.
 
 All API responses are `no-store`. Output DTOs whitelist fields, and ordinary
 credential/workspace responses contain no secret value. Reveal grants remain

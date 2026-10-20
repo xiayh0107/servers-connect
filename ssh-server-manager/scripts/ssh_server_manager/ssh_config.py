@@ -8,6 +8,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -17,6 +18,14 @@ from .paths import managed_ssh_config_path, original_ssh_config_path
 
 class SSHConfigError(RuntimeError):
     pass
+
+
+def _location_error(_exc: OSError) -> SSHConfigError:
+    # Deferred import: config_errors reports locations and already imports this
+    # module for the error type.
+    from .config_errors import config_location_error
+
+    return config_location_error(_exc)
 
 
 def quote_value(value: str) -> str:
@@ -319,12 +328,32 @@ def render_config(
     destination: str | Path | None = None,
     original: str | Path | None = None,
     ssh_binary: str | None = None,
+    fallback: bool = False,
 ) -> Path:
     # Serialize the snapshot and replacement with mutations and other renders,
     # including CLI processes. Atomic replace alone cannot stop an older
     # snapshot from overwriting a newer configuration after a concurrent edit.
     with database.transaction():
-        return _render_config(database, destination=destination, original=original, ssh_binary=ssh_binary)
+        try:
+            return _render_config(database, destination=destination, original=original, ssh_binary=ssh_binary)
+        except (SSHConfigError, PermissionError) as exc:
+            # Permission can surface as OSError (caught here directly) or as the
+            # location error _render_config raises for it; both mean the same.
+            if not fallback or (isinstance(exc, SSHConfigError) and "not allowed to write" not in str(exc)):
+                raise
+            from .config_errors import fallback_managed_config
+
+            canonical = Path(destination).expanduser().resolve() if destination else managed_ssh_config_path()
+            # Remote operations need some usable config. The user's own Include
+            # keeps pointing at the canonical file, so nothing silently diverges.
+            elsewhere = fallback_managed_config(canonical, exc)
+            written = _render_config(database, destination=elsewhere, original=original, ssh_binary=ssh_binary)
+            print(
+                f"Warning: cannot write the managed SSH config in {canonical.parent}; "
+                f"this command used {written}",
+                file=sys.stderr, flush=True,
+            )
+            return written
 
 
 def _render_config(
@@ -374,10 +403,21 @@ def _render_config(
         # authentication to any managed host belonging to another source.
         lines.extend([condition, f"  Include {formatted_sources[source]}", ""])
     content = "\n".join(lines)
-    destination_path.parent.mkdir(parents=True, exist_ok=True)
-    if os.name != "nt":
-        destination_path.parent.chmod(stat.S_IRWXU)
-    file_descriptor, temporary = tempfile.mkstemp(prefix=".ssh-server-manager-", dir=destination_path.parent)
+    # A render the current process cannot complete is a local, permanent
+    # condition (a privacy control or an unwritable parent), so report it as a
+    # configuration error with the destination instead of an OSError that a
+    # per-request caller would surface as an opaque 500. Chmod is best effort:
+    # it only tightens a directory this process is already allowed to use.
+    try:
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        if os.name != "nt" and stat.S_IMODE(destination_path.parent.stat().st_mode) != stat.S_IRWXU:
+            try:
+                destination_path.parent.chmod(stat.S_IRWXU)
+            except OSError:
+                pass
+        file_descriptor, temporary = tempfile.mkstemp(prefix=".ssh-server-manager-", dir=destination_path.parent)
+    except OSError as exc:
+        raise _location_error(exc) from exc
     temporary_path = Path(temporary)
     try:
         with os.fdopen(file_descriptor, "w", encoding="utf-8", newline="\n") as handle:
@@ -387,6 +427,8 @@ def _render_config(
         if os.name != "nt":
             temporary_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         os.replace(temporary_path, destination_path)
+    except OSError as exc:
+        raise _location_error(exc) from exc
     finally:
         temporary_path.unlink(missing_ok=True)
     return destination_path

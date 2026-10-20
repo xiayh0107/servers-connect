@@ -16,6 +16,7 @@ from . import api_models as dto
 from .application import ApplicationServices
 from .credential_keys import read_snapshot
 from .local_metadata import LocalKeyBrowser, agent_metadata
+from .ssh_config import SSHConfigError
 from .validation import ValidationError
 
 
@@ -60,6 +61,9 @@ def build_router(
             "session": {"expires_at": datetime.fromtimestamp(session_data[1].created_at + 12 * 60 * 60, timezone.utc).isoformat()},
             "server_time": datetime.now(timezone.utc).isoformat(),
             "vault": services.credentials.vault_metadata,
+            # An unusable managed config disables every OpenSSH action below;
+            # naming it once lets the UI explain that instead of failing.
+            "config_problem": getattr(state, "config_problem", None),
         }
 
     @router.get("/hosts", response_model=list[dto.Host], tags=["hosts"])
@@ -122,7 +126,23 @@ def build_router(
 
     @router.get("/hosts/{identifier}/files", response_model=dto.DirectoryListing, tags=["files"])
     def files(identifier: str, path: str | None = None, name_filter: str | None = None):
-        return services.files.list_directory(identifier, path, name_filter=name_filter)
+        if getattr(state, "config_problem", None):
+            raise SSHConfigError(state.config_problem)
+        # The UI paints this listing and then asks for metadata, so it must not
+        # pay for the probe twice; a caller without a second request (the CLI)
+        # keeps the one-request behaviour through services.files directly.
+        return services.files.list_directory(identifier, path, name_filter=name_filter, enrich=False)
+
+    # Split out of the listing so a folder paints from SFTP before paying for a
+    # second remote round trip. Each claim repeats the SFTP facts the caller is
+    # enriching, so the probe still refuses a shell namespace that disagrees.
+    @router.post("/hosts/{identifier}/files/metadata", response_model=dto.DirectoryEnrichment, tags=["files"])
+    def files_metadata(identifier: str, payload: dto.DirectoryEnrichmentRequest, _session=Depends(csrf_session)):
+        if getattr(state, "config_problem", None):
+            raise SSHConfigError(state.config_problem)
+        claims = [entry.model_dump() for entry in payload.entries]
+        result = services.files.enrich_directory(identifier, payload.path, claims)
+        return {"path": payload.path, "entries": result.get("entries", {})}
 
     @router.post(
         "/hosts/{identifier}/download", response_class=Response, tags=["files"],

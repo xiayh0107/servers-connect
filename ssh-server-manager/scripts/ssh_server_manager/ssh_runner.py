@@ -24,9 +24,11 @@ from .probe_metadata import collect_probe_metadata, connection_diagnostics
 from .ssh_config import render_config
 from .validation import ValidationError, validate_remote_path
 from .remote_files import (
-    MAX_METADATA_BYTES, METADATA_PREFIX, METADATA_SCRIPT, clean_remote_text,
-    file_error_code, normalize_metadata, run_metadata_command, validate_web_file_path,
+    LIST_SCRIPT, MAX_LIST_BYTES, MAX_METADATA_BYTES, METADATA_PREFIX, METADATA_SCRIPT,
+    clean_remote_text, file_error_code, normalize_metadata, parse_listing_document,
+    run_metadata_command, validate_web_file_path,
 )
+from .remote_listing import ListingRoute
 
 
 class SSHError(RuntimeError):
@@ -63,6 +65,33 @@ MAX_DIRECTORY_ENTRIES = 5000
 # Transfers get a wider wall-clock margin than the connect timeout: a large
 # file is slow for reasons that have nothing to do with reachability.
 TRANSFER_TIMEOUT_GRACE = 30
+# Fields a metadata probe may contribute to an SFTP-listed entry. Size and type
+# stay SFTP's because transfers are authorized from the listing, not the probe.
+ENRICHABLE_FIELDS = ("uid", "gid", "modified_at", "link_target", "owner", "group")
+
+
+def apply_file_metadata(entries: Sequence[dict[str, Any]], metadata: dict[str, Any] | None) -> set[str]:
+    """Merge an optional metadata probe into SFTP-listed entries, in place.
+
+    Shared by list_directory and the separate enrichment request so both apply
+    the same rule: never combine metadata from a replaced file or a shell
+    namespace that differs from the SFTP directory. Returns the names that
+    actually matched, which is not the same as "has a non-null field": a caller
+    that sent its own uid/gid already has those before any merge happens.
+    """
+    extras = metadata.get("entries", {}) if metadata else {}
+    if not isinstance(extras, dict):
+        return set()
+    merged: set[str] = set()
+    for entry in entries:
+        extra = normalize_metadata(extras.get(entry["name"]))
+        if (extra and extra["type"] == entry["type"] and extra["size"] == entry["size"]
+                and all(entry.get(key) is None or entry.get(key) == extra[key] for key in ("uid", "gid"))):
+            for key in ENRICHABLE_FIELDS:
+                if extra[key] is not None:
+                    entry[key] = extra[key]
+            merged.add(entry["name"])
+    return merged
 
 
 def redact(text: str) -> str:
@@ -209,6 +238,12 @@ class SSHRunner:
         self.database = database
         self.ssh_binary = ssh_binary or shutil.which("ssh") or "ssh"
         self.sftp_binary = sftp_binary or shutil.which("sftp") or "sftp"
+        # Which route lists a directory, and the per-host facts that decide it:
+        # both are policy and both expire, so they live beside each other rather
+        # than as ad-hoc dictionaries here. See remote_listing.
+        self.listing = ListingRoute()
+        # Set to False by callers that must exercise the SFTP compatibility path.
+        self.fast_listing = True
 
     def _credential_descriptor(self, server: dict[str, Any]) -> dict[str, Any] | None:
         if not server.get("credential_id"):
@@ -319,7 +354,10 @@ class SSHRunner:
         return environment
 
     def _base_command(self, server: dict[str, Any], *, timeout: int, reuse: int = 0) -> list[str]:
-        config = render_config(self.database, ssh_binary=self.ssh_binary)
+        # A remote operation still needs a usable config when the usual location
+        # is not writable for this app; fall back to a private cache instead of
+        # failing a command that never reaches the host.
+        config = render_config(self.database, ssh_binary=self.ssh_binary, fallback=True)
         command = [
             self.ssh_binary,
             "-F",
@@ -354,7 +392,7 @@ class SSHRunner:
     def _sftp_command(
         self, server: dict[str, Any], *, timeout: int, reuse: int, quiet: bool = True
     ) -> list[str]:
-        config = render_config(self.database, ssh_binary=self.ssh_binary)
+        config = render_config(self.database, ssh_binary=self.ssh_binary, fallback=True)
         command = [
             self.sftp_binary,
             "-S",
@@ -492,9 +530,84 @@ class SSHRunner:
         name_filter: str | None = None,
         enrich: bool = True,
     ) -> dict[str, Any]:
-        """List one remote directory through the OpenSSH SFTP subsystem."""
+        """List one remote directory.
+
+        Prefers the one-exec listing, which returns the display fields and their
+        precise metadata in a single round trip. That route is only taken when
+        the shell provably shares SFTP's filesystem namespace for this path; a
+        chrooted or otherwise divergent shell falls back to the SFTP listing, so
+        a transfer is never authorized from a view the SFTP server disagrees
+        with. See remote_listing.
+        """
         remote_path = validate_remote_path(path)
         server = self.database.get_server(identifier)
+        if not self.fast_listing:
+            return self._sftp_directory(
+                server, remote_path, timeout=timeout, reuse=reuse,
+                name_filter=name_filter, enrich=enrich,
+            )
+        # The listing runs first and the namespace verdict is only consulted
+        # once there is something to authorize. A host that cannot answer (or
+        # has no Python) therefore pays for exactly one failed attempt before
+        # falling back, instead of stacking a second timeout on top of it. A
+        # host already known not to answer does not pay even that.
+        fast = None
+        fast_latency = 0
+        if self.listing.may_try(server):
+            fast_start = time.monotonic()
+            try:
+                fast = self._fast_directory_listing(server, remote_path, timeout=timeout, reuse=reuse)
+                fast_latency = round((time.monotonic() - fast_start) * 1000)
+            except subprocess.TimeoutExpired:
+                # A timeout says nothing about whether the host has Python; it is
+                # a property of this attempt, so it is not remembered.
+                fast = None
+                timed_out = True
+            else:
+                timed_out = False
+            # A refusal or a transport failure does say the route is unavailable
+            # for this host, so later folders skip straight to SFTP — for the
+            # back-off window, not for the life of the process.
+            if fast is None and not timed_out:
+                self.listing.defer(server)
+        matches = False
+        if fast is not None:
+            try:
+                matches = self._shell_matches_sftp(server, timeout=timeout, reuse=reuse)
+            except Exception:  # noqa: BLE001 - a failed check only means "use SFTP"
+                matches = False
+        if fast is not None and matches:
+            self.listing.answered(server)
+            current_directory, entries, unparsed, capped = fast
+            connection = self.database.record_test(
+                server["id"],
+                status="ok",
+                latency_ms=fast_latency,
+                error_code=None,
+                message="SFTP connection succeeded",
+                expected_endpoint=(server["hostname"], server["port"]),
+            )
+            if (connection["hostname"], connection["port"]) != (server["hostname"], server["port"]):
+                raise FileOperationError("host address changed during the file operation; retry", "unreachable")
+            # The fast path already carries precise metadata, so there is
+            # nothing left to enrich and no second round trip to pay for.
+            return self._listing_payload(
+                server, current_directory, entries, unparsed, name_filter=name_filter,
+                latency=fast_latency, connection=connection, enrichment_ms=None,
+                capped=capped, precise=True,
+            )
+        # No Python, a refused request, or a shell that disagrees with SFTP:
+        # answer with the listing that is also the transfer authority.
+        return self._sftp_directory(
+            server, remote_path, timeout=timeout, reuse=reuse,
+            name_filter=name_filter, enrich=enrich,
+        )
+
+    def _sftp_directory(
+        self, server: dict[str, Any], remote_path: str, *, timeout: int, reuse: int,
+        name_filter: str | None, enrich: bool,
+    ) -> dict[str, Any]:
+        """The SFTP listing: the compatibility path and the transfer authority."""
         command = self._sftp_command(server, timeout=timeout, reuse=reuse)
         start = time.monotonic()
         try:
@@ -564,27 +677,55 @@ class SSHRunner:
             needle = name_filter.casefold()
             entries = [entry for entry in entries if needle in entry["name"].casefold()]
         matching_total = len(entries)
-        visible_entries = entries[:MAX_DIRECTORY_ENTRIES]
-        if enrich and visible_entries:
+        # The optional Python probe is a second remote round trip. Callers that
+        # paint the SFTP listing first (the web UI) run it separately through
+        # enrich_listing so the folder never waits on it. Only the entries that
+        # will actually be returned are worth probing.
+        enrichment_ms: int | None = None
+        if enrich and entries:
+            visible = entries[:MAX_DIRECTORY_ENTRIES]
+            probe_start = time.monotonic()
             try:
                 metadata = self._file_metadata(
                     server, {"mode": "entries", "path": current_directory,
-                             "names": [entry["name"] for entry in visible_entries]},
+                             "names": [entry["name"] for entry in visible]},
                     timeout=timeout, reuse=reuse,
                 )
             except FileOperationError:
                 metadata = None
-            extras = metadata.get("entries", {}) if metadata else {}
-            if isinstance(extras, dict):
-                for entry in visible_entries:
-                    extra = normalize_metadata(extras.get(entry["name"]))
-                    # Do not combine metadata from a replaced file or a shell
-                    # namespace that differs from the SFTP directory.
-                    if (extra and extra["type"] == entry["type"] and extra["size"] == entry["size"]
-                            and all(entry[key] is None or entry[key] == extra[key] for key in ("uid", "gid"))):
-                        for key in ("uid", "gid", "modified_at", "link_target", "owner", "group"):
-                            if extra[key] is not None:
-                                entry[key] = extra[key]
+            enrichment_ms = round((time.monotonic() - probe_start) * 1000)
+            apply_file_metadata(visible, metadata)
+        return self._listing_payload(
+            server, current_directory, entries, unparsed, name_filter=None,
+            latency=latency, connection=connection, enrichment_ms=enrichment_ms,
+            total=total, matching_total=matching_total,
+        )
+
+    def _listing_payload(
+        self,
+        server: dict[str, Any],
+        current_directory: str,
+        entries: list[dict[str, Any]],
+        unparsed: int,
+        *,
+        name_filter: str | None,
+        latency: int,
+        connection: dict[str, Any],
+        enrichment_ms: int | None,
+        capped: bool = False,
+        total: int | None = None,
+        matching_total: int | None = None,
+        precise: bool = False,
+    ) -> dict[str, Any]:
+        """Shape one directory response; both listing routes end here."""
+        if total is None:
+            total = len(entries)
+        if name_filter:
+            needle = name_filter.casefold()
+            entries = [entry for entry in entries if needle in entry["name"].casefold()]
+        if matching_total is None:
+            matching_total = len(entries)
+        visible_entries = entries[:MAX_DIRECTORY_ENTRIES]
         normalized = current_directory.rstrip("/") or "/"
         parent = None if normalized == "/" else posixpath.dirname(normalized) or "/"
         return {
@@ -594,11 +735,153 @@ class SSHRunner:
             "entries": visible_entries,
             "total": total,
             "matching_total": matching_total,
-            "truncated": matching_total > len(visible_entries),
+            # A fast listing that stopped at the entry or byte cap says so even
+            # when the filter matched everything it did return.
+            "truncated": matching_total > len(visible_entries) or capped,
             "unparsed": unparsed,
+            # latency_ms stays the phase that answered the listing because it is
+            # also the connection health sample; total_ms is what the caller waited.
             "latency_ms": latency,
+            "enrichment_ms": enrichment_ms,
+            "total_ms": latency + (enrichment_ms or 0),
+            # True when this response already carries precise metadata, so a
+            # caller must not pay for a second probe to fetch what it has.
+            "enriched": precise,
             "connection_checked_at": connection["last_test_at"],
         }
+
+    def _shell_matches_sftp(self, server: dict[str, Any], *, timeout: int, reuse: int) -> bool:
+        """May directories be listed through the shell instead of SFTP?
+
+        SFTP and an SSH shell can resolve the same string to different files (a
+        chroot or a jailing ForceCommand is the usual cause), so the verdict is
+        only trusted once SFTP has confirmed that both views agree. The verdict
+        and its lifetime are owned by the route; this method only performs the
+        comparison when asked. Any doubt — no answer, a timeout, a
+        non-comparable path — keeps SFTP in charge.
+        """
+        return self.listing.namespace_matches(
+            server, lambda: self._probe_namespace(server, timeout=timeout, reuse=reuse),
+        )
+
+    def _probe_namespace(self, server: dict[str, Any], *, timeout: int, reuse: int) -> bool | None:
+        """Compare the home directory as SFTP sees it with the shell's view.
+
+        Returns None when no comparison was possible, which the caller must not
+        remember: it says something about this attempt, not about the host.
+        """
+        home = self._sftp_resolved_path(server, "~", timeout=timeout, reuse=reuse)
+        if not home:
+            return None
+        probe = "import os,sys;print(os.path.realpath(os.path.expanduser('~')))"
+        command = self._base_command(server, timeout=timeout, reuse=reuse)
+        command[-1:-1] = ["-T", "-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1"]
+        command.append("python3 -c " + shlex.quote(probe))
+        try:
+            result = subprocess.run(
+                literal_config_args(command), text=True, encoding="utf-8", errors="replace",
+                capture_output=True, env=self._environment(server), timeout=timeout + 5, check=False,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+        shell_view = result.stdout.strip()
+        return result.returncode == 0 and bool(shell_view) and shell_view == home
+
+    def _sftp_resolved_path(
+        self, server: dict[str, Any], remote_path: str, *, timeout: int, reuse: int,
+    ) -> str | None:
+        """Ask SFTP to resolve one path, without reading the directory."""
+        command = self._sftp_command(server, timeout=timeout, reuse=reuse)
+        if remote_path == "~":
+            changes = ["@cd"]
+        elif remote_path.startswith("~/"):
+            changes = ["@cd", f"@cd {self._sftp_path(remote_path[2:])}"]
+        else:
+            changes = [f"@cd {self._sftp_path(remote_path)}"]
+        batch = "\n".join([*changes, "@pwd", "@quit", ""])
+        try:
+            result = subprocess.run(
+                literal_config_args(command), input=batch, text=True, encoding="utf-8",
+                errors="replace", capture_output=True, env=self._environment(server),
+                timeout=timeout + 5, check=False,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+        if result.returncode != 0:
+            return None
+        for line in result.stdout.splitlines():
+            if line.startswith(SFTP_WORKING_DIRECTORY_PREFIX):
+                return line.removeprefix(SFTP_WORKING_DIRECTORY_PREFIX).rstrip("/") or "/"
+        return None
+
+    def _fast_directory_listing(
+        self, server: dict[str, Any], remote_path: str, *, timeout: int, reuse: int,
+    ) -> tuple[str, list[dict[str, Any]], int, bool] | None:
+        """List a directory in one exec, with everything the UI displays.
+
+        The SFTP subsystem costs a handshake and then one lstat round trip per
+        entry; on a high-latency link that is the whole browsing delay. This runs
+        os.scandir over the managed connection instead and returns the same
+        fields, so browsing needs neither SFTP nor a second metadata probe.
+
+        Returns None when this route cannot answer — no Python3, a refused
+        request, or a path the shell cannot read — so the caller falls back to
+        the SFTP listing that remains the compatibility path.
+        """
+        command = self._base_command(server, timeout=timeout, reuse=reuse)
+        command[-1:-1] = ["-T", "-o", "StrictHostKeyChecking=yes", "-o", "NumberOfPasswordPrompts=1"]
+        command.append("python3 -c " + shlex.quote(LIST_SCRIPT))
+        request = json.dumps({"path": remote_path}, ensure_ascii=True)
+        try:
+            result, exceeded = run_metadata_command(
+                command, request=request, env=self._environment(server), timeout=timeout + 5,
+            )
+        except subprocess.TimeoutExpired:
+            raise
+        except OSError:
+            return None
+        if exceeded or result.returncode == 255:
+            # 255 is a transport failure, not a listing answer: let the SFTP path
+            # classify and record it exactly as before.
+            return None
+        if result.returncode != 0 or len(result.stdout) > MAX_LIST_BYTES:
+            return None
+        return parse_listing_document(result.stdout)
+
+    def enrich_listing(
+        self, identifier: str, path: str, claims: Sequence[dict[str, Any]], *, timeout: int = 12, reuse: int = 300,
+    ) -> dict[str, Any]:
+        """Fetch the optional precise metadata for an already-listed directory.
+
+        Split out from list_directory so a caller can display the SFTP listing
+        before paying for this second remote round trip. Each claim carries the
+        SFTP facts the caller holds for one name, so the probe's type/size/uid/gid
+        agreement is still checked here by apply_file_metadata — a shell that
+        disagrees with SFTP contributes nothing, exactly as in the one-request path.
+        """
+        remote = validate_remote_path(path)
+        wanted = [
+            claim for claim in claims
+            if isinstance(claim, dict) and isinstance(claim.get("name"), str)
+            and claim["name"] not in {".", "..", "/"}
+        ][:MAX_DIRECTORY_ENTRIES]
+        if not wanted:
+            return {"entries": {}}
+        server = self.database.get_server(identifier)
+        metadata = self._file_metadata(
+            server, {"mode": "entries", "path": remote, "names": [claim["name"] for claim in wanted]},
+            timeout=timeout, reuse=reuse,
+        )
+        candidates = [dict(claim) for claim in wanted]
+        merged = apply_file_metadata(candidates, metadata)
+        entries: dict[str, Any] = {}
+        for claim, candidate in zip(wanted, candidates):
+            # Only a claim the probe actually matched is returned; a name whose
+            # shell facts disagreed stays absent rather than partly applied.
+            if claim["name"] not in merged:
+                continue
+            entries[claim["name"]] = {key: candidate.get(key) for key in ENRICHABLE_FIELDS}
+        return {"entries": entries}
 
     def _file_metadata(
         self, server: dict[str, Any], request: dict[str, Any], *, timeout: int, reuse: int,

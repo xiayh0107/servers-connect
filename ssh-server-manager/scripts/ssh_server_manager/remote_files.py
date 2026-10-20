@@ -6,6 +6,8 @@ the ordinary SFTP listing with nullable enrichment fields.
 """
 from __future__ import annotations
 
+import json
+import posixpath
 import subprocess
 import threading
 from datetime import datetime, timezone
@@ -204,3 +206,159 @@ except (KeyError, ValueError, TypeError, OverflowError):
     result = {'ok': False, 'error_code': 'unreachable'}
 print('__ssm_files__=' + json.dumps(result, ensure_ascii=True, separators=(',', ':')))
 '''
+
+
+LIST_PREFIX = "__ssm_list__="
+MAX_LIST_BYTES = 8 * 1024 * 1024
+
+# One exec returns the whole directory: the SFTP subsystem costs a handshake and
+# then one lstat round trip per entry, which dominates browsing on a high-latency
+# link. This reads the same facts through os.scandir, so the listing and its
+# precise metadata arrive together instead of in two round trips.
+#
+# The request is JSON over stdin so a path never reaches shell syntax.
+LIST_SCRIPT = r'''
+import datetime, errno, json, os, stat, sys, unicodedata
+try:
+    import pwd, grp
+except ImportError:
+    pwd = grp = None
+def text(value, limit=512):
+    return ''.join(c for c in str(value) if not unicodedata.category(c).startswith('C')).strip()[:limit]
+def error(exc):
+    return {errno.ENOENT: 'not_found', errno.ENOTDIR: 'not_a_directory',
+            errno.EACCES: 'permission_denied', errno.EPERM: 'permission_denied'}.get(exc.errno, 'unreachable')
+def name_of(entry):
+    # A name that cannot round-trip as UTF-8 or carries control characters is
+    # counted, never returned: the caller renders these names in a browser.
+    try: entry.name.encode('utf-8')
+    except UnicodeEncodeError: return None
+    if entry.name in ('.', '..') or '/' in entry.name: return None
+    if any(ord(c) < 32 or ord(c) == 127 for c in entry.name): return None
+    return entry.name
+try:
+    owners, groups = {}, {}
+    request = json.loads(sys.stdin.read(65536))
+    path = request['path']
+    if path == '~' or path.startswith('~/'): path = os.path.expanduser(path)
+    entries, unparsed, truncated, used = [], 0, False, 128
+    with os.scandir(path) as scan:
+        for item in scan:
+            name = name_of(item)
+            if name is None:
+                unparsed += 1
+                continue
+            if len(entries) >= 5000:
+                truncated = True
+                break
+            try: info = item.stat(follow_symlinks=False)
+            except OSError:
+                unparsed += 1
+                continue
+            kind = ('file' if stat.S_ISREG(info.st_mode) else 'directory' if stat.S_ISDIR(info.st_mode)
+                    else 'symlink' if stat.S_ISLNK(info.st_mode) else 'special')
+            owner, group = str(info.st_uid), str(info.st_gid)
+            if pwd is not None:
+                if info.st_uid not in owners:
+                    try: owners[info.st_uid] = pwd.getpwuid(info.st_uid).pw_name
+                    except KeyError: owners[info.st_uid] = owner
+                if info.st_gid not in groups:
+                    try: groups[info.st_gid] = grp.getgrgid(info.st_gid).gr_name
+                    except KeyError: groups[info.st_gid] = group
+                owner, group = owners[info.st_uid], groups[info.st_gid]
+            target = None
+            if kind == 'symlink':
+                try: target = text(os.readlink(item.path), 1024)
+                except OSError: pass
+            item_out = {'name': name, 'type': kind, 'size': info.st_size,
+                        'uid': info.st_uid, 'gid': info.st_gid,
+                        'owner': text(owner), 'group': text(group),
+                        'permissions': stat.filemode(info.st_mode), 'link_target': target,
+                        'modified_at': datetime.datetime.fromtimestamp(info.st_mtime, datetime.timezone.utc).isoformat()}
+            cost = len(json.dumps(item_out, ensure_ascii=True))
+            if used + cost > 7 * 1024 * 1024:
+                truncated = True
+                break
+            entries.append(item_out)
+            used += cost
+    result = {'ok': True, 'path': os.path.realpath(path), 'entries': entries,
+              'truncated': truncated, 'unparsed': unparsed}
+except OSError as exc:
+    result = {'ok': False, 'error_code': error(exc)}
+except (KeyError, ValueError, TypeError, OverflowError, UnicodeError):
+    result = {'ok': False, 'error_code': 'unreachable'}
+print('__ssm_list__=' + json.dumps(result, ensure_ascii=True, separators=(',', ':')))
+'''
+
+
+def listing_entry(raw: Any, directory: str) -> dict[str, Any] | None:
+    """Whitelist one fast-listing entry; the probe's output is untrusted.
+
+    Returns None for anything the browser could not render safely or that
+    disagrees with the shape the SFTP parser produces.
+    """
+    if not isinstance(raw, dict):
+        return None
+    name, kind = raw.get("name"), raw.get("type")
+    size = raw.get("size")
+    if not isinstance(name, str) or not name or name in {".", ".."} or "/" in name:
+        return None
+    if kind not in {"file", "directory", "symlink", "special"}:
+        return None
+    if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+        return None
+    permissions = raw.get("permissions")
+    if not isinstance(permissions, str) or len(permissions) != 10:
+        return None
+    entry: dict[str, Any] = {
+        "name": name,
+        "type": kind,
+        "size": size,
+        "modified": "",
+        "permissions": clean_remote_text(permissions, 10),
+        "owner": clean_remote_text(raw.get("owner")) if isinstance(raw.get("owner"), str) else "",
+        "group": clean_remote_text(raw.get("group")) if isinstance(raw.get("group"), str) else "",
+        "uid": raw["uid"] if isinstance(raw.get("uid"), int) and not isinstance(raw["uid"], bool) and raw["uid"] >= 0 else None,
+        "gid": raw["gid"] if isinstance(raw.get("gid"), int) and not isinstance(raw["gid"], bool) and raw["gid"] >= 0 else None,
+        "modified_at": None,
+        "link_target": clean_remote_text(raw["link_target"], 1024) if isinstance(raw.get("link_target"), str) else None,
+        "hidden": name.startswith("."),
+        "path": posixpath.join(directory, name),
+    }
+    modified = raw.get("modified_at")
+    if isinstance(modified, str):
+        try:
+            parsed = datetime.fromisoformat(modified.replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                entry["modified_at"] = parsed.astimezone(timezone.utc).isoformat()
+        except (ValueError, OverflowError):
+            pass
+    return entry
+
+
+def parse_listing_document(stdout: str) -> tuple[str, list[dict[str, Any]], int, bool] | None:
+    """Parse one ``LIST_SCRIPT`` document, or None when there is no usable one.
+
+    None means "this route did not answer" and sends the caller back to SFTP; it
+    never means an empty directory.
+    """
+    for line in reversed(stdout.splitlines()):
+        if not line.startswith(LIST_PREFIX):
+            continue
+        try:
+            document = json.loads(line[len(LIST_PREFIX):])
+        except (ValueError, TypeError):
+            return None
+        if not isinstance(document, dict) or document.get("ok") is not True:
+            return None
+        raw_entries = document.get("entries")
+        directory = document.get("path")
+        if not isinstance(raw_entries, list) or not isinstance(directory, str) or not directory:
+            return None
+        entries = [entry for entry in (listing_entry(raw, directory) for raw in raw_entries) if entry is not None]
+        unparsed = document.get("unparsed")
+        unparsed = unparsed if isinstance(unparsed, int) and not isinstance(unparsed, bool) else 0
+        # Same ordering as the SFTP parser so both routes render identically.
+        entries.sort(key=lambda item: (item["type"] != "directory", item["name"].casefold()))
+        return directory, entries, max(unparsed, 0), document.get("truncated") is True
+    return None

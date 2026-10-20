@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent} from 'react';
 import {api, ApiError, download, json, segment} from '../api';
 import {useDialogState} from '../hooks';
-import type {DirectoryEntry, DirectoryListing, Host, RuntimeInfo, SavedPath} from '../types';
+import type {DirectoryEnrichment, DirectoryEnrichmentEntry, DirectoryEntry, DirectoryListing, Host, RuntimeInfo, SavedPath} from '../types';
 import {Button, EmptyState, ErrorNotice, Icon, Modal, relativeDate} from '../ui';
 import './files.css';
 
@@ -11,6 +11,9 @@ type FileTab = {
   id: string; hostId: string; path?: string; filter: string; query: string;
   history: (string | undefined)[]; refresh: number; listing?: DirectoryListing;
   loading: boolean; error?: unknown; selected?: string;
+  // True while only the optional precise-metadata request is outstanding; the
+  // table is already painted from the SFTP listing.
+  enriching?: boolean;
 };
 type Upload = Readonly<{tabId: string; hostId: string; alias: string; directory: string; path: string; file: File}>;
 type Conflict = {upload: Upload; existing?: Record<string, unknown>; rename: string; error?: unknown};
@@ -45,7 +48,52 @@ function breadcrumb(path: string) {
   return crumbs.length ? crumbs : [{label: 'Home', path}];
 }
 
+// Revisiting a folder paints from here before the network is asked again. It
+// holds no secrets — only names, sizes and modes the server already sent — and
+// it is scoped per host so a host switch never shows another server's files.
+type CachedFolder = {listing: DirectoryListing};
+const folderCache = new Map<string, CachedFolder>();
+const folderCacheLimit = 40;
+const folderCacheKey = (hostId: string, path?: string) => `${hostId}\u0000${path || ''}`;
+function readFolderCache(hostId: string, path?: string) {
+  const key = folderCacheKey(hostId, path), hit = folderCache.get(key);
+  if (!hit) return undefined;
+  // Refresh recency so the entries a user actually revisits survive the cap.
+  folderCache.delete(key); folderCache.set(key, hit);
+  return hit;
+}
+function writeFolderCache(hostId: string, path: string | undefined, listing: DirectoryListing) {
+  // Cache under the path that was asked for and under the absolute path the
+  // server resolved (~ becomes /root), so "Home" and "/root" both hit.
+  for (const key of new Set([folderCacheKey(hostId, path), folderCacheKey(hostId, listing.path)])) {
+    folderCache.delete(key); folderCache.set(key, {listing});
+  }
+  while (folderCache.size > folderCacheLimit) folderCache.delete(folderCache.keys().next().value!);
+}
+/** Drop every cached folder; used when the session ends or a test starts. */
+export function clearFolderCache() {folderCache.clear();}
+// Folder names outlive the component but must not outlive the session that was
+// allowed to read them.
+if (typeof window !== 'undefined') window.addEventListener('ssm-session-expired', clearFolderCache);
+// One entry's precise metadata, applied only when it still describes the entry
+// on screen. The server already refused a probe that disagreed with SFTP; this
+// second check also drops an answer that arrives after the folder was replaced.
+function mergeEntry(entry: DirectoryEntry, extra?: DirectoryEnrichmentEntry): DirectoryEntry {
+  if (!extra) return entry;
+  const next = {...entry};
+  for (const key of ['uid', 'gid', 'modified_at', 'link_target', 'owner', 'group'] as const) {
+    if (extra[key] != null) next[key] = extra[key] as never;
+  }
+  return next;
+}
+const enrichable = (entry: DirectoryEntry) => ({
+  name: entry.name, type: entry.type, size: entry.size, uid: entry.uid ?? null, gid: entry.gid ?? null,
+});
+
 export default function FilesPage({hosts, runtime, initialHostId, initialPath}: Props) {
+  // Set once when this UI process cannot render its managed SSH config; every
+  // host action fails identically, so it is explained once instead of per folder.
+  const configProblem = runtime.config_problem || undefined;
   const initialHost = hosts.find(host => host.id === initialHostId) || hosts[0];
   const [tabs, setTabs] = useState<FileTab[]>(() => initialHost ? [newTab(initialHost.id, initialPath)] : []);
   const [activeId, setActiveId] = useState(() => tabs[0]?.id || '');
@@ -132,7 +180,7 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
     const cancel = (error: Error) => {
       if (settled || !isCurrent()) return;
       finish();
-      updateTab(tabId, {error, loading: false});
+      updateTab(tabId, {error: configProblem && error instanceof ApiError && error.message === configProblem ? undefined : error, loading: false});
       controller.abort();
     };
     const request = {key, cancel: () => cancel(new Error('Folder loading canceled. Retry folder to try again.'))};
@@ -142,12 +190,54 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
     const params = new URLSearchParams();
     if (activeTab.path !== undefined) params.set('path', activeTab.path);
     if (activeTab.query) params.set('name_filter', activeTab.query);
-    updateTab(tabId, {loading: true, error: undefined, selected: undefined});
+    // A revisited folder paints immediately from cache and then revalidates in
+    // the background; a filtered view is a different query, so it never reuses
+    // an unfiltered cache entry.
+    const cached = activeTab.query ? undefined : readFolderCache(host.id, activeTab.path);
+    if (cached) {
+      updateTab(tabId, {listing: cached.listing, loading: false, enriching: false, error: undefined, selected: undefined});
+      setVisibleCount(250);
+    } else {
+      updateTab(tabId, {loading: true, error: undefined, selected: undefined});
+    }
+    const accept = (result: DirectoryListing) => {
+      if (!activeTab.query) writeFolderCache(host.id, activeTab.path, result);
+      updateTab(tabId, {listing: result, loading: false}); setVisibleCount(250);
+      return result;
+    };
+    // The optional precise-metadata probe is a second remote round trip, so it
+    // runs after the folder is already on screen. It never surfaces an error:
+    // the SFTP listing stays authoritative and the probe is nullable by design.
+    // It is gated on isCurrent(), not settled — the listing request has already
+    // finished by the time this starts, but this tab still wants the answer.
+    const enrich = (result: DirectoryListing) => {
+      // The one-exec listing already carries precise metadata; asking again
+      // would cost a whole round trip to learn nothing.
+      if (result.enriched) return;
+      const claims = result.entries.map(enrichable);
+      if (!claims.length) return;
+      updateTab(tabId, {enriching: true});
+      api<DirectoryEnrichment>(`${hostApi(host.id)}/files/metadata`, {...json('POST', {path: result.path, entries: claims}), signal: controller.signal})
+        .then(document => {
+          if (controller.signal.aborted || !isCurrent()) return;
+          const extras = document?.entries || {};
+          setTabs(previous => previous.map(tab => {
+            // Skip a stale probe: the tab must still show the folder it described.
+            if (tab.id !== tabId || tab.listing !== result) return tab;
+            if (!Object.keys(extras).length) return {...tab, enriching: false};
+            return {...tab, enriching: false, listing: {...result, entries: result.entries.map(entry => mergeEntry(entry, extras[entry.name]))}};
+          }));
+        })
+        .catch(() => {
+          if (controller.signal.aborted || !isCurrent()) return;
+          setTabs(previous => previous.map(tab => tab.id === tabId ? {...tab, enriching: false} : tab));
+        });
+    };
     api<DirectoryListing>(`${hostApi(host.id)}/files${params.size ? `?${params}` : ''}`, {signal: controller.signal})
       .then(result => {
         if (settled || controller.signal.aborted || !isCurrent()) return;
         finish();
-        updateTab(tabId, {listing: result, loading: false}); setVisibleCount(250);
+        enrich(accept(result));
       }).catch(error => {
         if (settled || controller.signal.aborted || !isCurrent()) return;
         finish();
@@ -307,7 +397,8 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
           <button className="files-host-switch" aria-label="Switch file host" onClick={() => {setHostSearch(''); setSwitcher('switch');}}>
             <span className="files-host-icon"><Icon name="hosts" size={16}/></span>
             <h1>{host.alias}</h1>
-            {listing && !staleListing && !activeTab.error && <span className="files-connected"><span className="status-dot ok"/>Connected · {listing.latency_ms} ms</span>}
+            {listing && !staleListing && !activeTab.error && <span className="files-connected" title={`SFTP directory listing took ${listing.latency_ms} ms${listing.enrichment_ms != null ? `; precise metadata added ${listing.enrichment_ms} ms` : ''}`}><span className="status-dot ok"/>Connected · {listing.latency_ms} ms</span>}
+            {activeTab.enriching && <span className="files-connected files-enriching" role="status"><span className="status-dot"/>{activeTab.enriching ? 'Reading precise metadata…' : ''}</span>}
             {host.tags[0] && <span className="files-env"><span className={`tag-dot ${['rose','amber','blue','green'][host.tags[0].length % 4]}`}/>{host.tags[0]}</span>}
             <Icon name="arrow" size={12}/><kbd className="key-hint">⌘K</kbd>
           </button>
@@ -339,7 +430,7 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
         <Button aria-pressed={showHidden} aria-label={`Hidden files${hiddenCount ? ` (${hiddenCount})` : ''}`} onClick={() => setShowHidden(previous => !previous)}><Icon name="globe" size={14}/>Hidden files</Button>
         <Button disabled={!listing || !!staleListing} onClick={() => setEditor({hostId: host.id, alias: host.alias, label: currentPath.split('/').filter(Boolean).at(-1) || 'Home', path: currentPath, notes: ''})}>☆ Save path</Button>
       </div>
-      <div className="files-notices"><ErrorNotice error={transferError}/>{message && <div role="status" className="notice success">{message}</div>}</div>
+      <div className="files-notices">{configProblem && <p role="alert" className="notice warning">{configProblem}</p>}<ErrorNotice error={transferError}/>{message && <div role="status" className="notice success">{message}</div>}</div>
       <div className="files-body" id="files-content" role="tabpanel" aria-labelledby={`files-tab-${activeId}`} tabIndex={0}>
         <aside className={`files-saved${showSaved === false || focus ? ' collapsed' : ''}${showSaved === true ? ' explicitly-open' : ''}`} aria-label="Saved paths">
           <h2 className="rail-label">Saved paths</h2><ErrorNotice error={pathsError}/>{!!pathsError && <Button onClick={() => setPathsRefresh(value => value + 1)}>Retry saved paths</Button>}
@@ -352,7 +443,8 @@ export default function FilesPage({hosts, runtime, initialHostId, initialPath}: 
           <p className="files-transfer-hint">Web transfers up to {bytes(maxBytes)}.<br/>Larger files: <span className="mono">serverctl get / put</span>.</p>
         </aside>
         <div className="files-list">
-          <ErrorNotice error={activeTab.error}/>{!!activeTab.error && <div className="files-retry"><Button onClick={() => updateTab(activeTab.id, {refresh: activeTab.refresh + 1})}>Retry folder</Button></div>}
+          {/* The managed-config warning above already names this failure; a second copy only repeats it. */}
+          <ErrorNotice error={configProblem && activeTab.error instanceof ApiError && activeTab.error.message === configProblem ? undefined : activeTab.error}/>{!!activeTab.error && <div className="files-retry"><Button onClick={() => updateTab(activeTab.id, {refresh: activeTab.refresh + 1})}>Retry folder</Button></div>}
           {staleListing ? <div className="files-loading" role="status">{activeTab.filter !== activeTab.query ? 'Waiting for search…' : <>Loading folder… <Button onClick={() => {if (listingRequest.current?.key === contextRef.current) listingRequest.current.cancel();}}>Cancel loading</Button></>}</div> : !activeTab.error && listing && <>
             <div className="files-table-wrap"><table className="files-table" aria-label="Remote files">
               <thead><tr><th className="files-name-column" aria-sort={sort.key === 'name' ? sort.descending ? 'descending' : 'ascending' : 'none'}><button onClick={() => toggleSort('name')}>Name{sort.key === 'name' ? sort.descending ? ' ↓' : ' ↑' : ''}</button></th>{(['size', 'modified', 'permissions', 'owner'] as SortKey[]).map(key => <th className={`files-${key}-column`} key={key} aria-sort={sort.key === key ? sort.descending ? 'descending' : 'ascending' : 'none'}><button onClick={() => toggleSort(key)}>{key === 'permissions' ? 'Mode' : key}{sort.key === key ? sort.descending ? ' ↓' : ' ↑' : ''}</button></th>)}<th className="files-action-column"><span className="sr-only">Actions</span></th></tr></thead>
