@@ -30,6 +30,20 @@ def data_dir() -> Path:
         return Path(os.environ.get("XDG_DATA_HOME", home / ".local" / "share")) / APP_NAME
 
 
+def _writable_directory(path: Path) -> bool:
+    try:
+        ensure_private_dir(path)
+    except OSError:
+        return False
+    probe = path / ".write-probe"
+    try:
+        probe.touch()
+        probe.unlink()
+        return True
+    except OSError:
+        return False
+
+
 def ensure_private_dir(path: Path) -> Path:
     if path.exists() or path.is_symlink():
         info = path.lstat()
@@ -62,6 +76,11 @@ def runtime_dir() -> Path:
     return ensure_private_dir(base.resolve())
 
 
+def error_log_path() -> Path:
+    """Private, mode-600 log for unexpected UI server failures (tracebacks only)."""
+    return runtime_dir() / "ui-errors.log"
+
+
 def original_ssh_config_path() -> Path:
     override = os.environ.get("SSM_ORIGINAL_SSH_CONFIG")
     if override:
@@ -74,6 +93,29 @@ def managed_ssh_config_path() -> Path:
     if override:
         return Path(override).expanduser().resolve()
     return Path.home() / ".ssh" / "ssh-server-manager.conf"
+
+
+def cache_dir() -> Path:
+    """Private per-user cache; the fallback home for a managed config that cannot
+    be written next to the user's own SSH files.
+
+    A privacy control can deny the platform cache root too, so the runtime
+    directory (already used for the UI record, socket paths and error log) is
+    the last resort before the caller reports an unusable location.
+    """
+    if os.environ.get("SSM_CACHE_DIR"):
+        base = Path(os.environ["SSM_CACHE_DIR"]).expanduser()
+    else:
+        home = Path.home()
+        if sys.platform == "darwin":
+            base = home / "Library" / "Caches" / APP_NAME
+        elif os.name == "nt":
+            base = Path(os.environ.get("LOCALAPPDATA", home / "AppData" / "Local")) / APP_NAME / "cache"
+        else:
+            base = Path(os.environ.get("XDG_CACHE_HOME", home / ".cache")) / APP_NAME
+    if not _writable_directory(base):
+        return ensure_private_dir(runtime_dir())
+    return ensure_private_dir(base.resolve())
 
 
 def asset_dir() -> Path:

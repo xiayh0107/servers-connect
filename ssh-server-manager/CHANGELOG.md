@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- Cut remote directory browsing to a single round trip. A listing now runs
+  `os.scandir` through one managed `ssh` exec and returns the display fields
+  together with precise owner names, UTC timestamps and symlink targets, instead
+  of paying for the SFTP subsystem handshake plus one `lstat` round trip per
+  entry and then a second probe. Measured on a 104 ms-RTT host: 2973 ms on the
+  first folder and ~1.1 s afterwards, against 3.4–5.8 s before; a 387-entry
+  directory lists in 84 ms against 335 ms over SFTP. The fast route is only used
+  once SFTP and the shell have been shown to resolve `~` to the same directory,
+  so a chrooted or jailed shell keeps the SFTP listing, and transfers are still
+  authorized by an explicit SFTP `stat_file`. Responses say `enriched: true` when
+  they already carry precise metadata so the UI does not probe again. Every
+  decision behind the route expires instead of being remembered for the life of
+  the process: the namespace verdict lasts ten minutes and is tied to the
+  hostname, port and user it was proven for, so a repointed host or a lifted jail
+  is noticed while the app runs; a host that cannot answer is retried after two
+  minutes rather than pinned to SFTP until a restart; a definitively jailed
+  shell is no longer attempted folder by folder; and concurrent folders share one
+  in-flight check per host instead of each paying for it.
+- Show a remote folder as soon as its SFTP listing arrives instead of waiting
+  for the optional precise-metadata probe, and paint a revisited folder from a
+  per-host cache before revalidating it in the background. The probe moves to
+  `POST /api/v1/hosts/{identifier}/files/metadata`, which repeats each entry's
+  SFTP type, size, `uid` and `gid` so the server still refuses metadata from a
+  replaced file or a shell namespace that disagrees with the listing. Directory
+  listings also report `enrichment_ms` and `total_ms` beside the unchanged
+  `latency_ms` (still the SFTP phase, which is the connection health sample), so
+  the second round trip is measurable instead of invisible.
+- Report a host database or managed SSH config this app cannot write instead of
+  failing host actions with an opaque `Request failed (500)`. Both are probed
+  once at startup: `GET /api/v1/runtime` reports `config_problem`, the Files
+  page shows it once with a retry, and `serverctl web` prints it. A read-only
+  SQLite database is now a `DatabaseError` naming the file instead of a raw
+  `sqlite3.OperationalError`; a failed config render is an `SSHConfigError`
+  naming the directory. Tightening the config directory mode is best effort, so
+  a render never depends on `chmod`.
+- Keep remote commands working when the managed config's usual directory is
+  not writable: they render it in the private cache instead (with a one-line
+  warning naming both paths), so browsing and transfers are not blocked by a
+  missing Full Disk Access grant.
+- Log unexpected UI server failures. Failures no expected-error handler claims
+  reach the 500 the dialog shows as `Request failed (500)`; they are now
+  appended to a mode-600 `ui-errors.log` in the private runtime directory (with
+  method, path and traceback, never request bodies) and the response body states
+  `internal server error` instead of a blank payload.
 - Load missing/stale system facts automatically after dwelling on a host name,
   replacing the inventory's collection buttons with inline field skeletons.
   Preserve saved values during refresh, serialize hover probes, reuse successful

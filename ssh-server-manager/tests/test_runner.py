@@ -39,7 +39,9 @@ def password_runner(tmp_path, monkeypatch):
     monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(original))
     monkeypatch.setenv(HOST_KEY_CONFIRM_ENV, "terminal")
     monkeypatch.setattr(SSHRunner, "_askpass_launcher", lambda self: tmp_path / "askpass")
-    return SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp"), server, original
+    instance = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp")
+    instance.fast_listing = False  # these tests assert the SFTP command shape
+    return instance, server, original
 
 
 @pytest.mark.parametrize("input_tty,output_tty", [(True, True), (False, True), (True, False), (False, False)])
@@ -111,15 +113,16 @@ def test_sftp_selects_the_same_ssh_client_used_for_config_formatting(tmp_path, m
     selected = str(tmp_path / "Git SSH" / "ssh.exe")
     rendered = []
 
-    def render(_database, *, ssh_binary):
-        rendered.append(ssh_binary)
+    def render(_database, *, ssh_binary, fallback=False):
+        rendered.append((ssh_binary, fallback))
         return tmp_path / "managed"
 
     monkeypatch.setattr("ssh_server_manager.ssh_runner.render_config", render)
     runner = SSHRunner(database, ssh_binary=selected, sftp_binary="sftp")
     command = runner._sftp_command(server, timeout=10, reuse=0)
     assert command[command.index("-S") + 1] == selected
-    assert rendered == [selected]
+    # Remote commands may relocate the config; the ssh client stays the same.
+    assert rendered == [(selected, True)]
 
 
 def test_diagnose_runs_profile_ssh_sftp_and_remote_checks(tmp_path, monkeypatch):
@@ -397,9 +400,9 @@ lrwxrwxrwx    ? alice users           3 Jul 14 08:12 current
         return subprocess.CompletedProcess(command, 0, stdout=listing, stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp").list_directory(
-        "box", "/home/alice/project"
-    )
+    instance = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp")
+    instance.fast_listing = False
+    result = instance.list_directory("box", "/home/alice/project")
 
     assert result["path"] == "/home/alice/project"
     assert result["parent"] == "/home/alice"
@@ -433,7 +436,9 @@ def test_sftp_directory_listing_quotes_paths_and_rejects_command_injection(tmp_p
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     with pytest.raises(ValidationError, match="control characters"):
-        SSHRunner(database, sftp_binary="sftp").list_directory("box", "/tmp\n@rm escaped")
+        instance = SSHRunner(database, sftp_binary="sftp")
+        instance.fast_listing = False
+        instance.list_directory("box", "/tmp\n@rm escaped")
     assert called is False
     assert SSHRunner._directory_batch('/tmp/a "quoted" path').startswith(
         '@cd "/tmp/a \\"quoted\\" path"'
@@ -480,7 +485,9 @@ def test_sftp_directory_listing_treats_diagnostics_as_failure(tmp_path, monkeypa
         ),
     )
     with pytest.raises(SSHError, match="No such file"):
-        SSHRunner(database, sftp_binary="sftp").list_directory("box", "/missing")
+        instance = SSHRunner(database, sftp_binary="sftp")
+        instance.fast_listing = False
+        instance.list_directory("box", "/missing")
     assert database.get_server("box")["last_test_status"] == "ok"
 
 
@@ -497,8 +504,10 @@ def test_sftp_connection_failure_updates_host_status(tmp_path, monkeypatch):
         ),
     )
 
+    instance = SSHRunner(database, sftp_binary="sftp")
+    instance.fast_listing = False
     with pytest.raises(SSHError, match="Connection refused"):
-        SSHRunner(database, sftp_binary="sftp").list_directory("box", "~")
+        instance.list_directory("box", "~")
 
     server = database.get_server("box")
     assert server["last_test_status"] == "failed"
@@ -521,7 +530,9 @@ def test_sftp_directory_listing_allows_a_server_login_banner(tmp_path, monkeypat
             stderr="Authorized users only. Activity may be monitored.\n",
         ),
     )
-    result = SSHRunner(database, sftp_binary="sftp").list_directory("box", "~")
+    instance = SSHRunner(database, sftp_binary="sftp")
+    instance.fast_listing = False
+    result = instance.list_directory("box", "~")
     assert result["path"] == "/home/alice"
     assert result["entries"] == []
 

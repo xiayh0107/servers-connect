@@ -76,6 +76,11 @@
 .files-host-switch{padding:4px 10px 4px 6px;gap:10px;height:38px}
 .files-host-icon{color:#E95420;border-color:var(--color-line)}
 .files-connected{display:inline-flex;align-items:center;gap:6px;height:22px;padding:2px 8px;border-radius:999px;background:var(--color-success-soft);color:var(--color-success);font-size:var(--text-sm);font-weight:500;white-space:nowrap}
+/* The precise-metadata probe is still running behind an already-painted folder. */
+.files-enriching{background:var(--color-control);color:var(--color-muted);font-weight:400}
+.files-enriching .status-dot{background:var(--color-muted);animation:files-pulse 1.4s ease-in-out infinite}
+@keyframes files-pulse{50%{opacity:.35}}
+@media(prefers-reduced-motion:reduce){.files-enriching .status-dot{animation:none}}
 .files-env{display:inline-flex;align-items:center;gap:6px;height:22px;padding:2px 8px;border:1px solid var(--color-line);border-radius:999px;font-size:var(--text-sm);color:var(--color-ink);white-space:nowrap}
 .panel-toggles{display:flex;align-items:center;gap:2px;height:32px;padding:2px;border:1px solid var(--color-line-strong);border-radius:var(--radius-md)}
 .panel-toggles>button{display:grid;place-items:center;width:30px;height:26px;border:0;border-radius:var(--radius-sm);background:none;color:var(--color-muted)}

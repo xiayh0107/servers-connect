@@ -1,9 +1,13 @@
 import asyncio
+import os
 import posixpath
 import secrets
 import shutil
+import stat
+import sys
 import tempfile
 import time
+import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,7 +16,7 @@ from urllib.parse import quote
 from .application import ApplicationServices
 from .auth import AuthenticationError, RevealAuth
 from .db import ConflictError, Database, DatabaseError, NotFoundError
-from .paths import asset_dir, managed_ssh_config_path, runtime_dir
+from .paths import asset_dir, error_log_path, managed_ssh_config_path, runtime_dir
 from .ssh_config import SSHConfigError, render_config
 from .ssh_runner import SSHError, SSHRunner
 from .runtime import (
@@ -53,6 +57,32 @@ class WebState:
         self.origin = origin
         self.sessions: dict[str, BrowserSession] = {}
         self.auth = RevealAuth(database, rp_id="localhost", origin=origin)
+        # Two private locations decide whether host actions can work at all: the
+        # host database (every action records its result) and the managed SSH
+        # config. Probe both once at startup instead of failing per request.
+        self.config_problem: str | None = None
+        self.check_config(database)
+
+    def check_config(self, database: Database) -> None:
+        from .config_errors import database_write_problem, directory_write_problem
+
+        # Both failures share one cause and one fix, so report the locations
+        # together rather than repeating the remedy per location.
+        locations = [
+            str(path) for path, problem in (
+                (database.path.parent, database_write_problem(database.path)),
+                (managed_ssh_config_path().parent, directory_write_problem(managed_ssh_config_path().parent)),
+            ) if problem is not None
+        ]
+        if not locations:
+            self.config_problem = None
+            return
+        from .config_errors import UI_WRITE_NOTE
+
+        self.config_problem = (
+            f"this app cannot write {', '.join(locations)}; host actions that record "
+            f"results or render the managed config will fail. {UI_WRITE_NOTE}."
+        )
 
     def create_session(self) -> tuple[str, BrowserSession]:
         identifier = secrets.token_urlsafe(32)
@@ -74,6 +104,18 @@ class WebState:
             self.launch_url_file.unlink(missing_ok=True)
         except OSError:
             pass
+
+
+def open_error_log():
+    """Append-mode handle for the private UI error log; stderr when unavailable."""
+    try:
+        path = error_log_path()
+        handle = open(path, "a", encoding="utf-8")
+        if os.name != "nt":
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        return handle
+    except (OSError, RuntimeError):
+        return sys.stderr
 
 
 def create_app(database: Database, *, launch_token: str, port: int, launch_url_file: Path | None = None):
@@ -152,6 +194,27 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
             response.headers["Cache-Control"] = "no-store"
         return response
 
+    @app.exception_handler(Exception)
+    async def unexpected_error(request: Request, exc: Exception):
+        # Only failures no expected-error handler claimed reach this point: they
+        # surface in the UI as "Request failed (500)". Record the traceback to
+        # the private runtime log (never the request body, which can carry
+        # secrets) so the next report is actionable, and keep the response body
+        # free of internal detail.
+        try:
+            with open_error_log() as handle:
+                handle.write(f"\n{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {request.method} {request.url.path}\n")
+                traceback.print_exception(exc, file=handle)
+                handle.flush()
+        except OSError:
+            pass
+        if request.url.path.startswith("/api/"):
+            return JSONResponse(
+                {"ok": False, "error": "InternalServerError", "message": "internal server error"},
+                status_code=500,
+            )
+        return JSONResponse({"error": "internal server error"}, status_code=500)
+
     @app.exception_handler(AuthenticationError)
     @app.exception_handler(ValidationError)
     @app.exception_handler(DatabaseError)
@@ -166,7 +229,7 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
             else 409
             if isinstance(exc, ConflictError)
             else 502
-            if isinstance(exc, SSHError)
+            if isinstance(exc, (SSHError, SSHConfigError))
             else 400
         )
         payload = {"ok": False, "error": exc.__class__.__name__, "message": str(exc)}

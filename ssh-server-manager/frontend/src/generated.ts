@@ -454,6 +454,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/hosts/{identifier}/files/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Files Metadata */
+        post: operations["files_metadata_api_v1_hosts__identifier__files_metadata_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/hosts/{identifier}/notes": {
         parameters: {
             query?: never;
@@ -1279,6 +1296,64 @@ export interface components {
             /** Warnings */
             warnings: number;
         };
+        /** DirectoryEnrichment */
+        DirectoryEnrichment: {
+            /** Entries */
+            entries: {
+                [key: string]: components["schemas"]["DirectoryEnrichmentEntry"];
+            };
+            /** Path */
+            path: string;
+        };
+        /**
+         * DirectoryEnrichmentClaim
+         * @description The SFTP facts the caller is enriching, so the server can verify a match.
+         *
+         *     The probe runs in a shell namespace that can differ from the SFTP one (a
+         *     chroot, for example). Sending back what SFTP reported lets the server keep
+         *     the same refusal it applied when both phases ran in one request, instead of
+         *     trusting the caller to compare them correctly.
+         */
+        DirectoryEnrichmentClaim: {
+            /** Gid */
+            gid?: number | null;
+            /** Name */
+            name: string;
+            /** Size */
+            size: number;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "file" | "directory" | "symlink" | "special";
+            /** Uid */
+            uid?: number | null;
+        };
+        /**
+         * DirectoryEnrichmentEntry
+         * @description Only the fields the probe may contribute; size/type stay SFTP's.
+         */
+        DirectoryEnrichmentEntry: {
+            /** Gid */
+            gid?: number | null;
+            /** Group */
+            group?: string | null;
+            /** Link Target */
+            link_target?: string | null;
+            /** Modified At */
+            modified_at?: string | null;
+            /** Owner */
+            owner?: string | null;
+            /** Uid */
+            uid?: number | null;
+        };
+        /** DirectoryEnrichmentRequest */
+        DirectoryEnrichmentRequest: {
+            /** Entries */
+            entries?: components["schemas"]["DirectoryEnrichmentClaim"][];
+            /** Path */
+            path: string;
+        };
         /** DirectoryEntry */
         DirectoryEntry: {
             /** Gid */
@@ -1317,6 +1392,13 @@ export interface components {
             alias: string;
             /** Connection Checked At */
             connection_checked_at: string;
+            /**
+             * Enriched
+             * @default false
+             */
+            enriched: boolean;
+            /** Enrichment Ms */
+            enrichment_ms?: number | null;
             /** Entries */
             entries: components["schemas"]["DirectoryEntry"][];
             /** Latency Ms */
@@ -1329,6 +1411,8 @@ export interface components {
             path: string;
             /** Total */
             total: number;
+            /** Total Ms */
+            total_ms?: number | null;
             /** Truncated */
             truncated: boolean;
             /** Unparsed */
@@ -1960,6 +2044,8 @@ export interface components {
             api_version: "1";
             auth: components["schemas"]["AuthStatus"];
             capabilities: components["schemas"]["Capabilities"];
+            /** Config Problem */
+            config_problem?: string | null;
             /** Csrf */
             csrf: string;
             /** Server Time */
@@ -5646,6 +5732,113 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DirectoryListing"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    files_metadata_api_v1_hosts__identifier__files_metadata_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                identifier: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DirectoryEnrichmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryEnrichment"];
                 };
             };
             /** @description Bad Request */

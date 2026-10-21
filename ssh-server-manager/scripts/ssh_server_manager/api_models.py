@@ -6,6 +6,10 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 
+# Matches the runner's per-directory probe cap; a listing never exceeds it.
+MAX_ENRICHMENT_NAMES = 5000
+
+
 class RequestModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -513,6 +517,50 @@ class DirectoryListing(BaseModel):
     unparsed: int
     latency_ms: int
     connection_checked_at: str
+    # The optional precise-metadata probe is a separate request, so a web
+    # listing reports it as skipped; CLI listings still report both phases.
+    enrichment_ms: int | None = None
+    total_ms: int | None = None
+    # True when the listing already carries precise metadata (the one-exec
+    # route), so the UI must not request the optional probe for it.
+    enriched: bool = False
+
+
+class DirectoryEnrichmentClaim(RequestModel):
+    """The SFTP facts the caller is enriching, so the server can verify a match.
+
+    The probe runs in a shell namespace that can differ from the SFTP one (a
+    chroot, for example). Sending back what SFTP reported lets the server keep
+    the same refusal it applied when both phases ran in one request, instead of
+    trusting the caller to compare them correctly.
+    """
+
+    name: str = Field(min_length=1)
+    type: Literal["file", "directory", "symlink", "special"]
+    size: int = Field(ge=0)
+    uid: int | None = Field(default=None, ge=0)
+    gid: int | None = Field(default=None, ge=0)
+
+
+class DirectoryEnrichmentRequest(RequestModel):
+    path: str = Field(min_length=1)
+    entries: list[DirectoryEnrichmentClaim] = Field(default_factory=list, max_length=MAX_ENRICHMENT_NAMES)
+
+
+class DirectoryEnrichmentEntry(BaseModel):
+    """Only the fields the probe may contribute; size/type stay SFTP's."""
+
+    uid: int | None = None
+    gid: int | None = None
+    modified_at: str | None = None
+    link_target: str | None = None
+    owner: str | None = None
+    group: str | None = None
+
+
+class DirectoryEnrichment(BaseModel):
+    path: str
+    entries: dict[str, DirectoryEnrichmentEntry]
 
 
 class DownloadRequest(RequestModel):
@@ -594,6 +642,10 @@ class RuntimeInfo(BaseModel):
     session: RuntimeSession
     server_time: str
     vault: RuntimeVault
+    # Set when this process cannot write the host database or the managed SSH
+    # config, so host actions would fail; the UI explains it instead of
+    # retrying every view.
+    config_problem: str | None = None
 
 
 class MasterEnroll(RequestModel):

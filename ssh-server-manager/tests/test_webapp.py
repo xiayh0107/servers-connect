@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -239,7 +240,7 @@ def test_ui_lists_remote_files_for_an_authenticated_browser_session(tmp_path, mo
 
     observed = {}
 
-    def fake_list_directory(self, identifier, path=None):
+    def fake_list_directory(self, identifier, path=None, *, enrich=True):
         observed.update(identifier=identifier, path=path)
         return {
             "alias": "box",
@@ -643,3 +644,27 @@ def assert_built_resources(client, html):
     assert client.get("/assets/asset-manifest.json").status_code == 404
     assert client.get("/assets/index.html").status_code == 404
     assert client.get("/assets/not-a-resource.js").status_code == 404
+
+
+def test_unexpected_api_failure_is_logged_and_not_disclosed(tmp_path, monkeypatch):
+    database = Database(tmp_path / "manager.db")
+    monkeypatch.setattr(
+        Database,
+        "list_server_paths",
+        lambda self, identifier: (_ for _ in ()).throw(RuntimeError("vault handle leaked /secret")),
+    )
+    app = create_app(database, launch_token="launch", port=8765)
+    with TestClient(app, base_url="http://localhost:8765", raise_server_exceptions=False) as client:
+        client.get("/?token=launch")
+        response = client.get("/api/v1/hosts/missing/paths")
+    assert response.status_code == 500
+    assert response.json() == {"ok": False, "error": "InternalServerError", "message": "internal server error"}
+    log = tmp_path / "runtime" / "ui-errors.log"
+    assert log.exists()
+    # Windows has no POSIX mode bits: st_mode reports 0o666 for any file, so the
+    # privacy assertion only means something where the chmod can take effect.
+    if os.name != "nt":
+        assert stat.S_IMODE(log.stat().st_mode) == 0o600
+    text = log.read_text(encoding="utf-8")
+    assert "/api/v1/hosts/missing/paths" in text
+    assert "RuntimeError: vault handle leaked /secret" in text

@@ -1,8 +1,8 @@
 import {act, fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {api, ApiError, download} from '../api';
-import type {DirectoryEntry, DirectoryListing, Host, RuntimeInfo, SavedPath} from '../types';
-import FilesPage from './FilesPage';
+import type {DirectoryEnrichment, DirectoryEntry, DirectoryListing, Host, RuntimeInfo, SavedPath} from '../types';
+import FilesPage, {clearFolderCache} from './FilesPage';
 
 vi.mock('../api', async importOriginal => ({...await importOriginal<typeof import('../api')>(), api: vi.fn(), download: vi.fn()}));
 const apiMock = vi.mocked(api), downloadMock = vi.mocked(download);
@@ -27,13 +27,16 @@ function entry(name: string, changes: Partial<DirectoryEntry> = {}): DirectoryEn
 function listing(changes: Partial<DirectoryListing> = {}): DirectoryListing {
   const entries = [entry('readme.txt')];
   return {alias: 'alpha', path: '/srv/app', parent: '/srv', entries, total: entries.length, matching_total: entries.length,
-    truncated: false, unparsed: 0, latency_ms: 20, connection_checked_at: '2026-10-15T12:00:00Z', ...changes};
+    truncated: false, unparsed: 0, latency_ms: 20, connection_checked_at: '2026-10-15T12:00:00Z',
+    // Fixtures describe the SFTP fallback unless a test opts into the one-exec listing.
+    enriched: false, ...changes};
 }
 function saved(changes: Partial<SavedPath> = {}): SavedPath {
   return {id: 'saved/#', server: 'alpha', label: 'App logs', path: '/var/log/a #&?中', notes: 'Logs', created_at: '', updated_at: '', last_used_at: null, ...changes};
 }
-function mockBackend(files = listing(), paths: SavedPath[] = []) {
+function mockBackend(files = listing(), paths: SavedPath[] = [], enrichment: DirectoryEnrichment = {path: files.path, entries: {}}) {
   apiMock.mockImplementation(async (path, options) => {
+    if (path.endsWith('/files/metadata')) return enrichment;
     if (path.includes('/files')) return files;
     if (path.endsWith('/paths') && !options?.method) return paths;
     if (path.endsWith('/upload')) return {bytes: 3};
@@ -51,7 +54,12 @@ async function switchToBeta() {
   await waitFor(() => expect(location.hash).not.toContain('files-switcher'));
 }
 const uploadCalls = () => apiMock.mock.calls.filter(([path]) => path.endsWith('/upload'));
-beforeEach(() => {history.replaceState(null, '', '#/files'); apiMock.mockReset(); downloadMock.mockReset();});
+// The precise-metadata probe shares the /files prefix; only the plain listing
+// request counts as a folder load.
+const listingCalls = () => apiMock.mock.calls.filter(([path]) => path.includes('/files') && !path.endsWith('/files/metadata'));
+// The folder cache is module state; a shared cache would leak a previous test's
+// listing into the next one and hide the very loading states these tests assert.
+beforeEach(() => {history.replaceState(null, '', '#/files'); clearFolderCache(); apiMock.mockReset(); downloadMock.mockReset();});
 afterEach(() => {vi.useRealTimers(); vi.unstubAllGlobals();});
 
 describe('Files page', () => {
@@ -59,12 +67,12 @@ describe('Files page', () => {
     mockBackend();
     const view = render(<FilesPage hosts={hosts} runtime={runtime} initialHostId={hosts[0].id} initialPath="/linked #&?中"/>);
     await screen.findByRole('table', {name: 'Remote files'});
-    const request = apiMock.mock.calls.find(([path]) => path.includes('/files'))![0];
+    const request = listingCalls()[0]![0];
     expect(new URL(`http://local${request}`).searchParams.get('path')).toBe('/linked #&?中');
-    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(1);
+    expect(listingCalls()).toHaveLength(1);
     view.rerender(<FilesPage hosts={hosts} runtime={runtime} initialHostId={hosts[0].id} initialPath="/another folder"/>);
-    await waitFor(() => expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(2));
-    const next = apiMock.mock.calls.filter(([path]) => path.includes('/files')).at(-1)![0];
+    await waitFor(() => expect(listingCalls()).toHaveLength(2));
+    const next = listingCalls().at(-1)![0];
     expect(new URL(`http://local${next}`).searchParams.get('path')).toBe('/another folder');
     expect(screen.getAllByRole('tab')).toHaveLength(1);
   });
@@ -76,14 +84,14 @@ describe('Files page', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Edit remote path'}));
     fireEvent.change(screen.getByRole('textbox', {name: 'Remote directory path'}), {target: {value: '/space dir/#&?中'}});
     fireEvent.click(screen.getByRole('button', {name: 'Go'})); await act(async () => {});
-    const navigation = apiMock.mock.calls.filter(([path]) => path.includes('/files')).at(-1)![0];
+    const navigation = listingCalls().at(-1)![0];
     expect(new URL(`http://local${navigation}`).searchParams.get('path')).toBe('/space dir/#&?中');
-    const before = apiMock.mock.calls.filter(([path]) => path.includes('/files')).length;
+    const before = listingCalls().length;
     fireEvent.change(screen.getByRole('textbox', {name: 'Filter this folder'}), {target: {value: 'file #&?中'}});
     await act(async () => {vi.advanceTimersByTime(299);});
-    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(before);
+    expect(listingCalls()).toHaveLength(before);
     await act(async () => {vi.advanceTimersByTime(1);});
-    const search = apiMock.mock.calls.filter(([path]) => path.includes('/files')).at(-1)![0];
+    const search = listingCalls().at(-1)![0];
     expect(new URL(`http://local${search}`).searchParams.get('name_filter')).toBe('file #&?中');
     expect(new URL(`http://local${search}`).searchParams.get('path')).toBe('/space dir/#&?中');
   });
@@ -164,10 +172,10 @@ describe('Files page', () => {
     expect(screen.queryByText('Loading folder…')).not.toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Refresh'})).toBeEnabled();
     expect(screen.queryByRole('table', {name: 'Remote files'})).not.toBeInTheDocument();
-    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(1);
+    expect(listingCalls()).toHaveLength(1);
     mockBackend(); fireEvent.click(screen.getByRole('button', {name: 'Retry folder'}));
     expect(await screen.findByRole('table', {name: 'Remote files'})).toBeVisible();
-    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(2);
+    expect(listingCalls()).toHaveLength(2);
   });
 
   it('shows a transport AbortError when this page did not cancel the request', async () => {
@@ -177,11 +185,11 @@ describe('Files page', () => {
     });
     render(<FilesPage hosts={hosts} runtime={runtime}/>);
     expect(await screen.findByRole('alert')).toHaveTextContent('Folder loading was interrupted');
-    const signal = apiMock.mock.calls.find(([path]) => path.includes('/files'))![1]!.signal!;
+    const signal = listingCalls()[0]![1]!.signal!;
     expect(signal.aborted).toBe(false);
     expect(screen.queryByText('Loading folder…')).not.toBeInTheDocument();
     expect(screen.getByRole('button', {name: 'Refresh'})).toBeEnabled();
-    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(1);
+    expect(listingCalls()).toHaveLength(1);
     mockBackend(); fireEvent.click(screen.getByRole('button', {name: 'Retry folder'}));
     expect(await screen.findByRole('table', {name: 'Remote files'})).toBeVisible();
   });
@@ -212,7 +220,7 @@ describe('Files page', () => {
     const pending = deferred<DirectoryListing>();
     apiMock.mockImplementation(async path => path.endsWith('/paths') ? [] : pending.promise);
     render(<FilesPage hosts={hosts} runtime={runtime}/>); await act(async () => {});
-    const signal = apiMock.mock.calls.find(([path]) => path.includes('/files'))![1]!.signal!;
+    const signal = listingCalls()[0]![1]!.signal!;
     await act(async () => {vi.advanceTimersByTime(44_999);});
     expect(screen.getByText('Loading folder…')).toBeVisible();
     expect(signal.aborted).toBe(false);
@@ -224,11 +232,11 @@ describe('Files page', () => {
     await act(async () => {pending.resolve(listing({entries: [entry('late-file')]})); vi.advanceTimersByTime(90_000);});
     expect(screen.getByRole('alert')).toHaveTextContent('timed out');
     expect(screen.queryByRole('button', {name: 'late-file'})).not.toBeInTheDocument();
-    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(1);
+    expect(listingCalls()).toHaveLength(1);
     mockBackend(); fireEvent.click(screen.getByRole('button', {name: 'Retry folder'})); await act(async () => {});
     expect(screen.getByRole('table', {name: 'Remote files'})).toBeVisible();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(2);
+    expect(listingCalls()).toHaveLength(2);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -238,10 +246,10 @@ describe('Files page', () => {
     render(<FilesPage hosts={hosts} runtime={runtime}/>);
     fireEvent.click(screen.getByRole('button', {name: 'Cancel loading'}));
     expect(screen.getByRole('alert')).toHaveTextContent('Folder loading canceled');
-    const signal = apiMock.mock.calls.find(([path]) => path.includes('/files'))![1]!.signal!;
+    const signal = listingCalls()[0]![1]!.signal!;
     expect(signal.aborted).toBe(true);
     expect(screen.queryByText('Loading folder…')).not.toBeInTheDocument();
-    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(1);
+    expect(listingCalls()).toHaveLength(1);
     mockBackend(); fireEvent.click(screen.getByRole('button', {name: 'Retry folder'}));
     expect(await screen.findByRole('table', {name: 'Remote files'})).toBeVisible();
     await act(async () => {pending.resolve(listing({entries: [entry('canceled-file')]}));});
@@ -256,7 +264,7 @@ describe('Files page', () => {
     apiMock.mockImplementation(async path => path.endsWith('/paths') ? [] : path.startsWith('/hosts/b/') ? beta.promise : alpha.promise);
     const view = render(<FilesPage hosts={hosts} runtime={runtime} initialHostId={hosts[0].id}/>);
     await act(async () => {});
-    const alphaSignal = apiMock.mock.calls.find(([path]) => path.includes('/files'))![1]!.signal!;
+    const alphaSignal = listingCalls()[0]![1]!.signal!;
     await act(async () => {vi.advanceTimersByTime(20_000);});
     view.rerender(<FilesPage hosts={hosts} runtime={runtime} initialHostId={hosts[1].id}/>); await act(async () => {});
     const betaSignal = apiMock.mock.calls.find(([path]) => path.startsWith('/hosts/b/files'))![1]!.signal!;
@@ -271,12 +279,12 @@ describe('Files page', () => {
     const next = deferred<DirectoryListing>();
     apiMock.mockImplementation(async path => path.endsWith('/paths') ? [] : next.promise);
     fireEvent.click(screen.getByRole('button', {name: 'Refresh'})); await act(async () => {});
-    const refreshSignal = apiMock.mock.calls.filter(([path]) => path.includes('/files')).at(-1)![1]!.signal!;
+    const refreshSignal = listingCalls().at(-1)![1]!.signal!;
     view.unmount();
     expect(refreshSignal.aborted).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
     await act(async () => {next.resolve(listing()); vi.advanceTimersByTime(90_000);});
-    expect(apiMock.mock.calls.filter(([path]) => path.includes('/files'))).toHaveLength(3);
+    expect(listingCalls()).toHaveLength(3);
   });
 
   it('does not apply the folder deadline to an upload or replay the write', async () => {
@@ -374,6 +382,129 @@ describe('Files page', () => {
     expect(uploadCalls()).toHaveLength(1); expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('paints the SFTP listing before the precise-metadata probe answers', async () => {
+    const precise = deferred<DirectoryEnrichment>();
+    mockBackend(listing({entries: [entry('report.txt', {owner: '1000', modified_at: null})]}));
+    const base = apiMock.getMockImplementation()!;
+    apiMock.mockImplementation(async (path, options) => path.endsWith('/files/metadata') ? precise.promise : base(path, options));
+    render(<FilesPage hosts={hosts} runtime={runtime}/>);
+    // The row is on screen while the probe is still outstanding.
+    expect(await screen.findByRole('button', {name: 'report.txt'})).toBeVisible();
+    expect(screen.getByText('Reading precise metadata…')).toBeVisible();
+    expect(screen.queryByText('Loading folder…')).not.toBeInTheDocument();
+    await act(async () => {precise.resolve({path: '/srv/app', entries: {'report.txt': {owner: 'deploy', modified_at: '2026-10-15T00:00:00Z'}}});});
+    expect(screen.queryByText('Reading precise metadata…')).not.toBeInTheDocument();
+    expect(screen.getByText('deploy')).toBeVisible();
+    expect(screen.getByRole('button', {name: 'report.txt'})).toBeVisible();
+  });
+
+  it('skips the metadata probe when the listing already carries precise metadata', async () => {
+    await ready(listing({enriched: true, entries: [entry('report.txt', {owner: 'deploy', modified_at: '2026-10-15T00:00:00Z'})]}));
+    // The one-exec listing needs no second round trip.
+    expect(apiMock.mock.calls.some(([path]) => path.endsWith('/files/metadata'))).toBe(false);
+    expect(screen.getByText('deploy')).toBeVisible();
+    expect(screen.queryByText('Reading precise metadata…')).not.toBeInTheDocument();
+  });
+
+  it('sends the SFTP facts with the probe so the server can refuse a mismatched shell', async () => {
+    await ready(listing({entries: [entry('report.txt', {uid: 1001, gid: 1001})]}));
+    const probe = apiMock.mock.calls.find(([path]) => path.endsWith('/files/metadata'))!;
+    expect(probe[1]).toEqual(expect.objectContaining({method: 'POST'}));
+    expect(JSON.parse(String(probe[1]!.body))).toEqual({
+      path: '/srv/app',
+      entries: [{name: 'report.txt', type: 'file', size: 3, uid: 1001, gid: 1001}],
+    });
+  });
+
+  it('ignores a metadata answer for a folder that was already replaced', async () => {
+    const precise = deferred<DirectoryEnrichment>();
+    await ready();
+    apiMock.mockImplementation(async path => {
+      if (path.endsWith('/files/metadata')) return precise.promise;
+      if (path.includes('/files')) return listing({path: '/srv/other', entries: [entry('other.txt', {path: '/srv/other/other.txt'})]});
+      return [];
+    });
+    fireEvent.click(screen.getByRole('button', {name: 'Edit remote path'}));
+    fireEvent.change(screen.getByRole('textbox', {name: 'Remote directory path'}), {target: {value: '/srv/other'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Go'}));
+    expect(await screen.findByRole('button', {name: 'other.txt'})).toBeVisible();
+    await act(async () => {precise.resolve({path: '/srv/app', entries: {'readme.txt': {owner: 'stale-owner'}}});});
+    expect(screen.queryByText('stale-owner')).not.toBeInTheDocument();
+  });
+
+  it('revisits a folder from cache without showing a loading state', async () => {
+    await ready();
+    fireEvent.click(screen.getByRole('button', {name: 'Edit remote path'}));
+    fireEvent.change(screen.getByRole('textbox', {name: 'Remote directory path'}), {target: {value: '/srv/second'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Go'}));
+    expect(await screen.findByRole('button', {name: 'readme.txt'})).toBeVisible();
+    // Return to the first folder: its files are painted immediately and the
+    // refetch runs behind them, so the loading placeholder never appears.
+    const pending = deferred<DirectoryListing>();
+    apiMock.mockImplementation(async path => path.endsWith('/paths') ? [] : pending.promise);
+    fireEvent.click(screen.getByRole('button', {name: 'Back to previous folder'}));
+    expect(screen.getByRole('button', {name: 'readme.txt'})).toBeVisible();
+    expect(screen.queryByText('Loading folder…')).not.toBeInTheDocument();
+    expect(listingCalls().at(-1)![0]).toContain('/files');
+    await act(async () => {pending.resolve(listing({entries: [entry('refreshed.txt')]}));});
+    expect(screen.getByRole('button', {name: 'refreshed.txt'})).toBeVisible();
+  });
+
+  it('never shows one host a cached folder belonging to another', async () => {
+    await ready();
+    await switchToBeta();
+    apiMock.mockImplementation(async path => {
+      if (path.endsWith('/files/metadata')) return {path: '/srv/app', entries: {}};
+      if (path.includes('/files')) return new Promise(() => {});
+      return [];
+    });
+    // Back to alpha: its own cache paints, and beta's listing must not.
+    fireEvent.click(screen.getByRole('button', {name: 'Switch file host'}));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', {name: /alpha/}));
+    await screen.findByRole('heading', {name: 'alpha'});
+    expect(screen.getByRole('button', {name: 'readme.txt'})).toBeVisible();
+    expect(screen.queryByRole('button', {name: 'beta-file'})).not.toBeInTheDocument();
+  });
+
+  it('reuses one cached folder for both its shorthand and its resolved path', async () => {
+    mockBackend(listing({path: '/root'}));
+    render(<FilesPage hosts={hosts} runtime={runtime}/>);
+    expect(await screen.findByRole('button', {name: 'readme.txt'})).toBeVisible();
+    const pending = deferred<DirectoryListing>();
+    apiMock.mockImplementation(async path => path.endsWith('/paths') ? [] : pending.promise);
+    fireEvent.click(screen.getByRole('button', {name: 'Edit remote path'}));
+    fireEvent.change(screen.getByRole('textbox', {name: 'Remote directory path'}), {target: {value: '/root'}});
+    fireEvent.click(screen.getByRole('button', {name: 'Go'}));
+    // "Home" resolved to /root; navigating to /root must hit that same entry.
+    expect(screen.getByRole('button', {name: 'readme.txt'})).toBeVisible();
+    expect(screen.queryByText('Loading folder…')).not.toBeInTheDocument();
+  });
+
+  it('drops cached folders when the session expires', async () => {
+    await ready();
+    act(() => {window.dispatchEvent(new Event('ssm-session-expired'));});
+    const pending = deferred<DirectoryListing>();
+    apiMock.mockImplementation(async path => path.endsWith('/paths') ? [] : pending.promise);
+    fireEvent.click(screen.getByRole('button', {name: 'Refresh'}));
+    // Nothing may be painted from the expired session's cache.
+    expect(screen.queryByRole('table', {name: 'Remote files'})).not.toBeInTheDocument();
+    expect(screen.getByText('Loading folder…')).toBeVisible();
+  });
+
+  it('explains an unusable managed SSH config once, even when every folder fails', async () => {
+    const problem = 'cannot write the managed SSH config in /home/u/.ssh; this app\'s remote actions use /tmp/ssm-501/ssh-ssh.conf';
+    apiMock.mockImplementation(async path => {
+      if (path.includes('/files')) throw new ApiError(502, 'SSHConfigError', problem);
+      return [];
+    });
+    render(<FilesPage hosts={hosts} runtime={{...runtime, config_problem: problem}}/>);
+    await screen.findByRole('alert');
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getByRole('alert')).toHaveTextContent('cannot write the managed SSH config in /home/u/.ssh');
+    // An unusable config explains itself once; with no usable fallback it also offers a retry.
+    expect(screen.getByRole('button', {name: 'Retry folder'})).toBeTruthy();
+  });
+
   it('creates, visits, edits and deletes saved paths through the real API contract', async () => {
     const first = saved(); await ready(listing(), [first]);
     apiMock.mockImplementation(async (path, options) => {
@@ -386,7 +517,7 @@ describe('Files page', () => {
     });
     fireEvent.click((await screen.findByText(first.label)).closest('button')!);
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/hosts/a%2F%23/paths/saved%2F%23/used', {method: 'POST'}));
-    const visited = apiMock.mock.calls.filter(([path]) => path.includes('/files')).at(-1)![0];
+    const visited = listingCalls().at(-1)![0];
     expect(new URL(`http://local${visited}`).searchParams.get('path')).toBe(first.path);
     await screen.findByRole('table', {name: 'Remote files'});
     fireEvent.click(screen.getByRole('button', {name: '☆ Save path'})); let dialog = screen.getByRole('dialog');

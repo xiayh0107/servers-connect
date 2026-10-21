@@ -1170,6 +1170,180 @@
         "title": "DiagnosticSummary",
         "type": "object"
       },
+      "DirectoryEnrichment": {
+        "properties": {
+          "entries": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DirectoryEnrichmentEntry"
+            },
+            "title": "Entries",
+            "type": "object"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "entries"
+        ],
+        "title": "DirectoryEnrichment",
+        "type": "object"
+      },
+      "DirectoryEnrichmentClaim": {
+        "additionalProperties": false,
+        "description": "The SFTP facts the caller is enriching, so the server can verify a match.\n\nThe probe runs in a shell namespace that can differ from the SFTP one (a\nchroot, for example). Sending back what SFTP reported lets the server keep\nthe same refusal it applied when both phases ran in one request, instead of\ntrusting the caller to compare them correctly.",
+        "properties": {
+          "gid": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "minimum": 0.0,
+            "title": "Size",
+            "type": "integer"
+          },
+          "type": {
+            "enum": [
+              "file",
+              "directory",
+              "symlink",
+              "special"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "uid": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uid"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "size"
+        ],
+        "title": "DirectoryEnrichmentClaim",
+        "type": "object"
+      },
+      "DirectoryEnrichmentEntry": {
+        "description": "Only the fields the probe may contribute; size/type stay SFTP's.",
+        "properties": {
+          "gid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gid"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          },
+          "link_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Target"
+          },
+          "modified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modified At"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "uid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uid"
+          }
+        },
+        "title": "DirectoryEnrichmentEntry",
+        "type": "object"
+      },
+      "DirectoryEnrichmentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/DirectoryEnrichmentClaim"
+            },
+            "maxItems": 5000,
+            "title": "Entries",
+            "type": "array"
+          },
+          "path": {
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "DirectoryEnrichmentRequest",
+        "type": "object"
+      },
       "DirectoryEntry": {
         "properties": {
           "gid": {
@@ -1283,6 +1457,22 @@
             "title": "Connection Checked At",
             "type": "string"
           },
+          "enriched": {
+            "default": false,
+            "title": "Enriched",
+            "type": "boolean"
+          },
+          "enrichment_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enrichment Ms"
+          },
           "entries": {
             "items": {
               "$ref": "#/components/schemas/DirectoryEntry"
@@ -1323,6 +1513,17 @@
           "total": {
             "title": "Total",
             "type": "integer"
+          },
+          "total_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Ms"
           },
           "truncated": {
             "title": "Truncated",
@@ -3369,6 +3570,17 @@
           },
           "capabilities": {
             "$ref": "#/components/schemas/Capabilities"
+          },
+          "config_problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Problem"
           },
           "csrf": {
             "title": "Csrf",
@@ -8436,6 +8648,144 @@
           }
         ],
         "summary": "Files",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/hosts/{identifier}/files/metadata": {
+      "post": {
+        "operationId": "files_metadata_api_v1_hosts__identifier__files_metadata_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "identifier",
+            "required": true,
+            "schema": {
+              "title": "Identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectoryEnrichmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryEnrichment"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": [],
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Files Metadata",
         "tags": [
           "files"
         ]

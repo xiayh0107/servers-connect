@@ -282,8 +282,8 @@ def test_explicit_diagnostics_directory_and_import_contracts(backend, monkeypatc
     def observe(_self, identifier, *, timeout=8):
         observed.append(("observe", identifier, timeout))
         return {"alias": "box", "ok": True, "latency_ms": 2, "error_code": None, "message": "Host info collected"}
-    def directory(_self, identifier, path):
-        observed.append(("files", identifier, path))
+    def directory(_self, identifier, path, *, enrich=True):
+        observed.append(("files", identifier, path, enrich))
         return {"alias": "box", "path": "/srv", "parent": "/", "entries": [], "total": 0, "truncated": False, "unparsed": 0, "latency_ms": 1, "connection_checked_at": "2026-10-03T00:00:00+00:00"}
     monkeypatch.setattr(SSHRunner, "test", test)
     monkeypatch.setattr(SSHRunner, "diagnose", diagnose)
@@ -294,7 +294,7 @@ def test_explicit_diagnostics_directory_and_import_contracts(backend, monkeypatc
     assert client.post("/api/v1/hosts/box/observe", headers=headers, json={"timeout": 12}).json()["ok"]
     assert client.post("/api/v1/hosts/box/observe", headers=headers).json()["ok"]
     assert client.get("/api/v1/hosts/box/files", params={"path": "/srv"}).json()["entries"] == []
-    assert observed == [("test", "box", 10), ("diagnose", "box", 8), ("observe", "box", 12), ("observe", "box", 8), ("files", "box", "/srv")]
+    assert observed == [("test", "box", 10), ("diagnose", "box", 8), ("observe", "box", 12), ("observe", "box", 8), ("files", "box", "/srv", False)]
     assert client.post("/api/v1/hosts/box/test", headers=headers, json={"timeout": 0}).status_code == 422
     assert client.post("/api/v1/hosts/box/observe", headers=headers, json={"timeout": 121}).status_code == 422
     preview = client.post("/api/v1/import/preview", headers=headers, json={"config": str(tmp_path / "missing.conf")})
@@ -500,8 +500,9 @@ def test_file_filter_metadata_and_explicit_overwrite_contract(backend, monkeypat
     headers = login(client)
     observed = []
 
-    def directory(identifier, path, *, name_filter=None):
-        observed.append(name_filter)
+    def directory(identifier, path, *, name_filter=None, enrich=True):
+        # The v1 listing route skips the probe; the UI requests it separately.
+        observed.append((name_filter, enrich))
         return {"alias": "box", "path": "/srv", "parent": "/", "entries": [{"name": "file", "path": "/srv/file", "type": "symlink", "size": 4, "modified": "Oct 15 14:00", "permissions": "lrwxrwxrwx", "owner": "user", "group": "staff", "hidden": False, "uid": 1000, "gid": 100, "link_target": "release", "modified_at": "2026-10-15T14:00:00Z"}], "total": 6000, "matching_total": 1, "truncated": False, "unparsed": 0, "latency_ms": 1, "connection_checked_at": "2026-10-15T00:00:00Z"}
 
     def upload(identifier, source, path, *, overwrite):
@@ -519,10 +520,42 @@ def test_file_filter_metadata_and_explicit_overwrite_contract(backend, monkeypat
         if flag:
             data["overwrite"] = flag
         assert client.post("/api/v1/hosts/box/upload", headers=headers, data=data, files={"file": ("file", b"abcd")}).status_code == 200
-    assert observed == ["file", False, True]
+    assert observed == [("file", False), False, True]
     # Local staging never derives a platform path from an untrusted filename.
     assert client.post("/api/v1/hosts/box/upload", headers=headers, data={"path": "/srv/file"}, files={"file": ("..", b"abcd")}).status_code == 200
     for path in (".", "..", "/srv/../file", "/srv/./file", "/srv/"):
         assert client.post("/api/v1/hosts/box/upload", headers=headers, data={"path": path}, files={"file": ("file", b"data")}).status_code == 400
     capabilities = client.get("/api/v1/runtime").json()["capabilities"]
     assert capabilities["bulk_checks"] and capabilities["host_routes"] and capabilities["file_conflicts"]
+
+
+def test_file_metadata_probe_is_a_separate_csrf_protected_request(backend, monkeypatch):
+    client, app, _database, _vault = backend
+    headers = login(client)
+    observed = []
+
+    def enrich(identifier, path, claims):
+        observed.append((identifier, path, claims))
+        return {"entries": {"file": {"uid": 1000, "gid": 100, "owner": "user", "group": "staff",
+                                     "modified_at": "2026-10-15T14:00:00+00:00", "link_target": "release"}}}
+
+    monkeypatch.setattr(app.state.services.files, "enrich_directory", enrich)
+    body = {"path": "/srv", "entries": [{"name": "file", "type": "file", "size": 4, "uid": 1000, "gid": 100}]}
+    result = client.post("/api/v1/hosts/box/files/metadata", headers=headers, json=body)
+    assert result.status_code == 200
+    assert result.json() == {"path": "/srv", "entries": {"file": {
+        "uid": 1000, "gid": 100, "owner": "user", "group": "staff",
+        "modified_at": "2026-10-15T14:00:00+00:00", "link_target": "release",
+    }}}
+    assert observed == [("box", "/srv", [{"name": "file", "type": "file", "size": 4, "uid": 1000, "gid": 100}])]
+    # A read-only probe is still a remote operation, so it needs the CSRF header.
+    assert client.post("/api/v1/hosts/box/files/metadata", json=body).status_code == 403
+    # The DTO refuses a claim the server would have to guess about.
+    for bad in (
+        {"path": "/srv", "entries": [{"name": "file", "type": "socket", "size": 4}]},
+        {"path": "/srv", "entries": [{"name": "file", "type": "file", "size": -1}]},
+        {"path": "/srv", "entries": [{"name": "file", "type": "file", "size": 4, "uid": -2}]},
+        {"path": "/srv", "entries": [{"name": "file", "type": "file", "size": 4, "unknown": 1}]},
+        {"path": "", "entries": []},
+    ):
+        assert client.post("/api/v1/hosts/box/files/metadata", headers=headers, json=bad).status_code == 422

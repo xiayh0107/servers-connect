@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 import subprocess
 import sys
+import threading
 import time
 import unicodedata
 from datetime import datetime, timezone
@@ -12,8 +14,8 @@ import pytest
 
 from ssh_server_manager.db import Database
 from ssh_server_manager.remote_files import (
-    METADATA_PREFIX, METADATA_SCRIPT, file_error_code, normalize_metadata,
-    run_metadata_command, validate_web_file_path,
+    LIST_PREFIX, LIST_SCRIPT, METADATA_PREFIX, METADATA_SCRIPT, file_error_code,
+    normalize_metadata, run_metadata_command, validate_web_file_path,
 )
 from ssh_server_manager.ssh_runner import FileOperationError, SSHRunner
 from ssh_server_manager.validation import ValidationError
@@ -26,7 +28,11 @@ def runner(tmp_path, monkeypatch):
     monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
     monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing.conf"))
     monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
-    return SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp")
+    instance = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp")
+    # These tests pin the SFTP compatibility path; the fast one-exec listing has
+    # its own tests below.
+    instance.fast_listing = False
+    return instance
 
 
 def listing(*names):
@@ -344,3 +350,410 @@ def test_listing_does_not_record_checks_after_host_address_changes(runner, monke
     current = runner.database.get_server("box")
     assert current["hostname"] == "new.example" and current["port"] == 2222
     assert current["last_test_at"] is None and current["last_test_status"] is None
+
+
+def test_web_listing_skips_the_probe_and_reports_the_sftp_phase(runner, monkeypatch):
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command", lambda *_args, **_options: pytest.fail("the split listing must not probe"))
+    monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 0, listing("report.txt"), ""))
+    result = runner.list_directory("box", "/srv", enrich=False)
+    assert result["entries"][0]["owner"] == "1000"
+    # The listing alone is timed; total_ms exists so a caller can still report
+    # what the one-request CLI path cost end to end.
+    assert result["enrichment_ms"] is None and result["total_ms"] == result["latency_ms"]
+
+
+def test_separate_enrichment_keeps_the_type_size_and_owner_agreement_check(runner, monkeypatch):
+    def metadata_run(command, **options):
+        result = {"ok": True, "entries": {
+            "report.txt": metadata(owner="deploy"),
+            # A replaced file: same name, different size.
+            "grown.txt": metadata(size=99),
+            # A shell in another namespace: same size, different numeric owner.
+            "chroot.txt": metadata(uid=4242, gid=4242),
+        }}
+        return subprocess.CompletedProcess(command, 0, METADATA_PREFIX + json.dumps(result), ""), False
+
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command", metadata_run)
+    claims = [
+        {"name": "report.txt", "type": "file", "size": 12, "uid": 1000, "gid": 1001},
+        {"name": "grown.txt", "type": "file", "size": 12, "uid": 1000, "gid": 1001},
+        {"name": "chroot.txt", "type": "file", "size": 12, "uid": 1000, "gid": 1001},
+        {"name": ".", "type": "file", "size": 12, "uid": None, "gid": None},
+    ]
+    result = runner.enrich_listing("box", "/srv", claims)
+    assert set(result["entries"]) == {"report.txt"}
+    assert result["entries"]["report.txt"]["owner"] == "deploy"
+    assert result["entries"]["report.txt"]["modified_at"] == "2026-10-02T13:30:00+00:00"
+    # Only the fields a probe may contribute are returned, never size or type.
+    assert set(result["entries"]["report.txt"]) == {
+        "uid", "gid", "modified_at", "link_target", "owner", "group",
+    }
+
+
+def test_separate_enrichment_is_optional_when_python_or_the_probe_is_missing(runner, monkeypatch):
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command",
+                        lambda command, **_: (subprocess.CompletedProcess(command, 127, "", "python3: not found"), False))
+    claims = [{"name": "report.txt", "type": "file", "size": 12, "uid": 1000, "gid": 1001}]
+    assert runner.enrich_listing("box", "/srv", claims)["entries"] == {}
+    # An empty claim list never opens a connection at all.
+    assert runner.enrich_listing("box", "/srv", [])["entries"] == {}
+
+
+def test_separate_enrichment_rejects_a_path_with_control_characters(runner):
+    with pytest.raises(ValidationError):
+        runner.enrich_listing("box", "/srv\n@rm escaped", [{"name": "report.txt", "type": "file", "size": 12}])
+
+
+def fast_listing_document(entries, path="/srv", truncated=False, unparsed=0):
+    return LIST_PREFIX + json.dumps({"ok": True, "path": path, "entries": entries,
+                                     "truncated": truncated, "unparsed": unparsed})
+
+
+def fast_entry(name, **changes):
+    return {"name": name, "type": "file", "size": 12, "uid": 1000, "gid": 1001,
+            "owner": "deploy", "group": "staff", "permissions": "-rw-r--r--",
+            "modified_at": "2026-10-02T13:30:00+00:00", "link_target": None, **changes}
+
+
+@pytest.fixture
+def fast_runner(tmp_path, monkeypatch):
+    """A runner whose namespace check passes and whose listing comes from Python."""
+    database = Database(tmp_path / "hosts.db")
+    database.create_server(alias="box", hostname="box.example", username="alice", port=22)
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing.conf"))
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    instance = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp")
+    # The namespace check is answered directly; its own test covers the probe.
+    monkeypatch.setattr(instance, "_shell_matches_sftp", lambda *_a, **_k: True)
+    return instance
+
+
+def test_fast_listing_returns_display_fields_and_precise_metadata_in_one_call(fast_runner, monkeypatch):
+    requests = []
+
+    def run(command, **options):
+        requests.append(json.loads(options["request"]))
+        document = fast_listing_document([
+            fast_entry("report.txt"),
+            fast_entry("current", type="symlink", link_target="report.txt"),
+            fast_entry(".hidden", type="directory", permissions="drwxr-xr-x"),
+        ])
+        return subprocess.CompletedProcess(command, 0, document, ""), False
+
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command", run)
+    # The SFTP subsystem must not be started at all on this path.
+    monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: pytest.fail("the fast listing must not run sftp"))
+    result = fast_runner.list_directory("box", "/srv")
+    assert requests == [{"path": "/srv"}]
+    assert result["path"] == "/srv" and result["parent"] == "/"
+    assert result["enrichment_ms"] is None
+    by_name = {entry["name"]: entry for entry in result["entries"]}
+    assert by_name["report.txt"]["owner"] == "deploy"
+    assert by_name["report.txt"]["modified_at"] == "2026-10-02T13:30:00+00:00"
+    assert by_name["report.txt"]["permissions"] == "-rw-r--r--"
+    assert by_name["current"]["type"] == "symlink" and by_name["current"]["link_target"] == "report.txt"
+    assert by_name[".hidden"]["hidden"] is True
+    assert by_name["report.txt"]["path"] == "/srv/report.txt"
+    # Directory-first ordering still applies.
+    assert result["entries"][0]["name"] == ".hidden"
+
+
+def test_fast_listing_falls_back_to_sftp_when_python_is_missing(fast_runner, monkeypatch):
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command",
+                        lambda command, **_: (subprocess.CompletedProcess(command, 127, "", "python3: not found"), False))
+    monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 0, listing("report.txt"), ""))
+    result = fast_runner.list_directory("box", "/srv")
+    # The SFTP parser produced this entry, not the Python listing.
+    assert result["entries"][0]["name"] == "report.txt"
+    assert result["path"] == "/srv"
+
+
+def test_fast_listing_falls_back_to_sftp_when_the_shell_namespace_differs(tmp_path, monkeypatch):
+    database = Database(tmp_path / "hosts.db")
+    database.create_server(alias="box", hostname="box.example", username="alice", port=22)
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing.conf"))
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    instance = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp")
+    monkeypatch.setattr(instance, "_shell_matches_sftp", lambda *_a, **_k: False)
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command",
+                        lambda command, **_: (subprocess.CompletedProcess(command, 0, fast_listing_document([fast_entry("shell-only.txt")]), ""), False))
+    monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 0, listing("sftp-only.txt"), ""))
+    result = instance.list_directory("box", "/srv")
+    # A shell that disagrees with SFTP must never supply the listing.
+    assert [entry["name"] for entry in result["entries"]] == ["sftp-only.txt"]
+
+
+def test_fast_listing_rejects_untrusted_entries(fast_runner, monkeypatch):
+    def run(command, **_options):
+        document = fast_listing_document([
+            fast_entry("ok.txt"),
+            fast_entry("../escape"),
+            fast_entry("badtype", type="socket"),
+            fast_entry("badsize", size=-1),
+            fast_entry("badperm", permissions="rw-r--r--"),
+            fast_entry("control\x1b[31m"),
+            "not-a-dict",
+            fast_entry("baduid", uid=-5),
+        ], unparsed=2)
+        return subprocess.CompletedProcess(command, 0, document, ""), False
+
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command", run)
+    monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: pytest.fail("must not fall back"))
+    result = fast_runner.list_directory("box", "/srv")
+    names = [entry["name"] for entry in result["entries"]]
+    # A name that escapes the directory, a bad type, a negative size and a
+    # malformed mode are dropped; the surviving entry keeps its fields.
+    assert "ok.txt" in names
+    assert not {"../escape", "badtype", "badsize", "badperm", "not-a-dict"} & set(names)
+    assert result["unparsed"] >= 2
+
+
+def test_fast_listing_reports_truncation_and_filtering(fast_runner, monkeypatch):
+    def run(command, **_options):
+        document = fast_listing_document([fast_entry("alpha.txt"), fast_entry("beta.txt")], truncated=True)
+        return subprocess.CompletedProcess(command, 0, document, ""), False
+
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command", run)
+    monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: pytest.fail("must not fall back"))
+    result = fast_runner.list_directory("box", "/srv", name_filter="ALPHA")
+    assert result["truncated"] is True
+    assert [entry["name"] for entry in result["entries"]] == ["alpha.txt"]
+    assert result["total"] == 2 and result["matching_total"] == 1
+
+
+def test_fast_listing_failure_documents_keep_sftp_in_charge(fast_runner, monkeypatch):
+    for payload in (
+        "__ssm_list__=not json",
+        "__ssm_list__=" + json.dumps({"ok": False, "error_code": "not_found"}),
+        "__ssm_list__=" + json.dumps({"ok": True, "path": "", "entries": []}),
+        "__ssm_list__=" + json.dumps({"ok": True, "path": "/srv", "entries": "nope"}),
+        "",
+    ):
+        monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command",
+                            lambda command, _p=payload, **_: (subprocess.CompletedProcess(command, 0, _p, ""), False))
+        monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 0, listing("fallback.txt"), ""))
+        result = fast_runner.list_directory("box", "/srv")
+        assert [entry["name"] for entry in result["entries"]] == ["fallback.txt"]
+
+
+def test_namespace_check_compares_home_between_sftp_and_shell(tmp_path, monkeypatch):
+    database = Database(tmp_path / "hosts.db")
+    database.create_server(alias="box", hostname="box.example", username="alice", port=22)
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing.conf"))
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    instance = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp")
+    server = database.get_server("box")
+    monkeypatch.setattr(instance, "_sftp_resolved_path", lambda *_a, **_k: "/jail/home/alice")
+    monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 0, "/home/alice\n", ""))
+    # SFTP lands in a jail the shell does not share: refuse the fast path.
+    assert instance._shell_matches_sftp(server, timeout=5, reuse=0) is False
+    monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 0, "/jail/home/alice\n", ""))
+    instance.listing.forget()
+    assert instance._shell_matches_sftp(server, timeout=5, reuse=0) is True
+    # The verdict is cached per host; the probe is not repeated per directory.
+    monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: pytest.fail("the verdict must be cached"))
+    assert instance._shell_matches_sftp(server, timeout=5, reuse=0) is True
+
+
+def test_namespace_check_fails_closed_without_an_answer(tmp_path, monkeypatch):
+    database = Database(tmp_path / "hosts.db")
+    database.create_server(alias="box", hostname="box.example", username="alice", port=22)
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing.conf"))
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    instance = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp")
+    server = database.get_server("box")
+    monkeypatch.setattr(instance, "_sftp_resolved_path", lambda *_a, **_k: None)
+    assert instance._shell_matches_sftp(server, timeout=5, reuse=0) is False
+    instance.listing.forget()
+    monkeypatch.setattr(instance, "_sftp_resolved_path", lambda *_a, **_k: "/root")
+    monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 1, "", "boom"))
+    assert instance._shell_matches_sftp(server, timeout=5, reuse=0) is False
+
+
+def test_fast_listing_is_not_retried_after_a_transport_failure(fast_runner, monkeypatch):
+    listing_calls = []
+
+    def run(command, **options):
+        # Only the listing request is counted; the SFTP fallback's own metadata
+        # probe shares this helper and is expected.
+        if json.loads(options["request"]) == {"path": "/srv"}:
+            listing_calls.append(command)
+        return subprocess.CompletedProcess(command, 255, "", "Connection closed"), False
+
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command", run)
+    monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 0, listing("via-sftp.txt"), ""))
+    first = fast_runner.list_directory("box", "/srv", enrich=False)
+    assert [entry["name"] for entry in first["entries"]] == ["via-sftp.txt"]
+    assert len(listing_calls) == 1
+    # The host has now shown it cannot answer this route; a second folder must
+    # go straight to SFTP instead of paying the same failure again.
+    fast_runner.list_directory("box", "/srv", enrich=False)
+    assert len(listing_calls) == 1
+
+
+def test_fast_listing_is_skipped_for_a_host_with_a_recorded_transport_failure(fast_runner, monkeypatch):
+    fast_runner.database.record_test(
+        "box", status="failed", latency_ms=1, error_code="connection-refused",
+        message="Connection refused", expected_endpoint=("box.example", 22),
+    )
+    def run(command, **options):
+        # The SFTP fallback may still run its metadata probe; the one-exec
+        # listing request (which carries no "mode") must never be attempted.
+        assert json.loads(options["request"]).get("mode") == "entries", "a known-unreachable host must not try the fast route"
+        return subprocess.CompletedProcess(command, 0, "", ""), False
+
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command", run)
+    monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 0, listing("via-sftp.txt"), ""))
+    result = fast_runner.list_directory("box", "/srv")
+    assert [entry["name"] for entry in result["entries"]] == ["via-sftp.txt"]
+
+
+# -- both routes over one real directory -------------------------------------
+#
+# The fast listing replaced SFTP for browsing, so the two routes are only
+# interchangeable if they describe the same directory the same way. Asserting
+# that field by field on a fixed fixture host drifts; running both parsers over
+# one real directory cannot drift.
+
+def sftp_listing_text(directory):
+    """Render what `sftp @ls -lan` prints for this directory."""
+    lines = [f"Remote working directory: {directory}"]
+    for entry in sorted(os.scandir(directory), key=lambda item: item.name):
+        info = entry.stat(follow_symlinks=False)
+        lines.append(
+            f"{stat.filemode(info.st_mode)} 1 {info.st_uid} {info.st_gid} "
+            f"{info.st_size} Oct  2 09:30 {entry.name}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def populate(directory):
+    """A directory with the shapes a real share has."""
+    (directory / "report.txt").write_bytes(b"0123456789")
+    (directory / "sub").mkdir()
+    (directory / "with space.txt").write_bytes(b"x")
+    (directory / ".hidden").write_bytes(b"h")
+    (directory / "unicode-\u6587\u4ef6.txt").write_bytes(b"u")
+    (directory / "Upper.TXT").write_bytes(b"U")
+    try:
+        (directory / "current").symlink_to("report.txt")
+    except (OSError, NotImplementedError):
+        pass  # Windows without the privilege: the rest still compares.
+
+
+def test_both_listing_routes_describe_one_directory_identically(fast_runner, tmp_path, monkeypatch):
+    directory = tmp_path / "share"
+    directory.mkdir()
+    populate(directory)
+    path = os.path.realpath(directory)
+    # Captured before the SFTP stand-in replaces the module attribute below.
+    local_run = subprocess.run
+
+    def fast_transport(command, *, request, env, timeout):
+        # The real script, run locally instead of over ssh.
+        result = local_run(
+            [sys.executable, "-c", LIST_SCRIPT], input=request,
+            capture_output=True, text=True, check=False,
+        )
+        return result, False
+
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command", fast_transport)
+    # Browsing through the shell must not start the SFTP subsystem at all.
+    monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: pytest.fail("the fast listing must not run sftp"))
+    fast = fast_runner.list_directory("box", path)
+    assert fast["enriched"] is True
+
+    # The same directory as the SFTP route sees it.
+    fast_runner.fast_listing = False
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda command, **_: subprocess.CompletedProcess(command, 0, sftp_listing_text(path), ""),
+    )
+    plain = fast_runner.list_directory("box", path, enrich=False)
+    assert plain["enriched"] is False
+
+    assert fast["path"] == plain["path"] == path
+    assert fast["truncated"] is plain["truncated"] is False
+    # Same entries, in the same order, with the same display facts.
+    assert [entry["name"] for entry in fast["entries"]] == [entry["name"] for entry in plain["entries"]]
+    assert fast["total"] == plain["total"] == len(plain["entries"])
+    for fast_entry_, plain_entry in zip(fast["entries"], plain["entries"]):
+        for key in ("name", "type", "size", "permissions", "hidden"):
+            assert fast_entry_[key] == plain_entry[key], (fast_entry_["name"], key)
+        assert fast_entry_["path"] == plain_entry["path"]
+    # The difference is only the precise metadata the fast route already has.
+    for entry in fast["entries"]:
+        assert entry["uid"] is not None and entry["gid"] is not None
+        assert entry["modified_at"] is not None
+    symlinks = [entry for entry in fast["entries"] if entry["type"] == "symlink"]
+    if symlinks:
+        assert symlinks[0]["link_target"] == "report.txt"
+
+
+def test_a_jailed_shell_stops_paying_for_the_discarded_fast_exec(tmp_path, monkeypatch):
+    database = Database(tmp_path / "hosts.db")
+    database.create_server(alias="box", hostname="box.example", username="alice", port=22)
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing.conf"))
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    instance = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp")
+    fast_calls = []
+
+    def fast_transport(command, **_options):
+        fast_calls.append(command)
+        return subprocess.CompletedProcess(command, 0, fast_listing_document([fast_entry("shell-only.txt")]), ""), False
+
+    def run(command, **_options):
+        # SFTP lands in a jail the shell's Python does not share.
+        if any("python3 -c" in argument for argument in command):
+            return subprocess.CompletedProcess(command, 0, "/home/alice\n", "")
+        return subprocess.CompletedProcess(command, 0, listing("sftp-only.txt"), "")
+
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command", fast_transport)
+    monkeypatch.setattr(subprocess, "run", run)
+    first = instance.list_directory("box", "/srv", enrich=False)
+    assert [entry["name"] for entry in first["entries"]] == ["sftp-only.txt"]
+    assert len(fast_calls) == 1
+    # The verdict is a "no" with a lifetime, so the next folder does not even
+    # pay for the exec it would have to discard.
+    second = instance.list_directory("box", "/srv", enrich=False)
+    assert [entry["name"] for entry in second["entries"]] == ["sftp-only.txt"]
+    assert len(fast_calls) == 1
+
+
+def test_concurrent_folders_share_one_namespace_check(tmp_path, monkeypatch):
+    database = Database(tmp_path / "hosts.db")
+    database.create_server(alias="box", hostname="box.example", username="alice", port=22)
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing.conf"))
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    instance = SSHRunner(database, ssh_binary="ssh", sftp_binary="sftp")
+
+    def fast_transport(command, **_options):
+        return subprocess.CompletedProcess(command, 0, fast_listing_document([fast_entry("report.txt")]), ""), False
+
+    monkeypatch.setattr("ssh_server_manager.ssh_runner.run_metadata_command", fast_transport)
+    monkeypatch.setattr(instance, "_sftp_resolved_path", lambda *_a, **_k: "/srv")
+    probes = []
+
+    def run(command, **_options):
+        assert any("python3 -c" in argument for argument in command)
+        probes.append(command)
+        time.sleep(0.05)
+        return subprocess.CompletedProcess(command, 0, "/srv\n", "")
+
+    monkeypatch.setattr(subprocess, "run", run)
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(instance.list_directory("box", "/srv"))) for _ in range(6)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+    # Six concurrent folders, one expensive namespace check.
+    assert len(probes) == 1
+    assert len(results) == 6
+    assert all(result["entries"][0]["name"] == "report.txt" for result in results)
