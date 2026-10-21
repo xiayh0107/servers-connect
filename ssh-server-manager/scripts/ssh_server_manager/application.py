@@ -179,6 +179,12 @@ class FileService:
     def upload(self, identifier: str, local_path: str | Path, remote_path: str, **options: Any) -> dict[str, Any]:
         return self.runner().upload(identifier, local_path, remote_path, **options)
 
+    def download_tree(self, identifier: str, remote_path: str, local_path: str | Path, **options: Any) -> dict[str, Any]:
+        return self.runner().download_tree(identifier, remote_path, local_path, **options)
+
+    def upload_tree(self, identifier: str, local_path: str | Path, remote_path: str, **options: Any) -> dict[str, Any]:
+        return self.runner().upload_tree(identifier, local_path, remote_path, **options)
+
     def list_paths(self, identifier: str) -> list[dict[str, Any]]:
         return self.database.list_server_paths(identifier)
 

@@ -237,9 +237,13 @@ Use these instead of `scp`, `rsync`, or `sftp`. They run the same SFTP path as
 the rest of the tool, so a vault password or key passphrase is injected without
 prompting; the raw tools cannot see the vault and will prompt or fail.
 
-Exactly one side is `ALIAS:PATH`. One file per invocation. `get` refuses to
-overwrite an existing local file without `--force` — treat that refusal as a
-question for the user, not an obstacle to route around.
+Exactly one side is `ALIAS:PATH`. One file per invocation, or one whole tree
+with `--recursive` (`put --recursive DIR ALIAS:PATH`,
+`get --recursive ALIAS:DIR LOCAL`), which creates the destination directory.
+`get` refuses to overwrite an existing local file without `--force` — treat that
+refusal as a question for the user, not an obstacle to route around. Recursive
+copies refuse symlinks inside the tree and stop at 4000 entries; do not loop
+around either refusal without telling the user.
 
 The browser's separate HTTP transfer interface is capped at 100 MiB per file
 (advertised as `max_web_transfer_bytes` by `/api/v1/runtime`). Its uploads
@@ -319,6 +323,35 @@ need `--overwrite`, while saved directories and tunnels are merged so an omitted
 entry never deletes local work. When a credential label is unknown on this
 machine, the host is imported without a credential and the warning says so —
 report that rather than claiming the host is fully restored.
+
+## Host locations (local GeoIP)
+
+```bash
+./scripts/serverctl geo status [--json]
+./scripts/serverctl geo resolve HOST [HOST ...] [--apply] [--overwrite] [--json]
+./scripts/serverctl geo resolve --all [--apply] [--overwrite] [--json]
+```
+
+Reads a local range file (`SSM_GEOIP_CSV`) or a local `.mmdb` when `geoip2` is
+installed. There is no online lookup and no lookup on a read path, so never
+describe a host's location as known until `geo resolve` has actually been run
+and applied. Without `--apply` nothing is stored; a lookup never replaces a
+manual `geo` value unless `--overwrite` is passed; a country here is an inference
+about address routing, not a statement about where data is stored.
+
+## MCP server
+
+```bash
+./scripts/serverctl mcp serve [--allow-remote] [--allow-exec] [--allow-command PATTERN]
+./scripts/serverctl mcp tools [--allow-remote] [--allow-exec] [--allow-command PATTERN] [--json]
+```
+
+Only for clients that cannot read this Skill. Read-only unless `--allow-remote`
+(adds `test_host`) and `--allow-exec` with at least one `--allow-command` glob
+(adds `run_command`, argv-only). There is no reveal tool and no secret in any
+result. `mcp tools` lists what a policy exposes before you wire up a client, and
+every acting call is audited under actor `mcp`. Do not start it in a terminal a
+human is using for anything else: stdout is the protocol channel.
 
 ## Audit log
 

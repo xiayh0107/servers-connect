@@ -449,3 +449,61 @@ def test_import_of_a_bad_file_exits_non_zero(tmp_path, monkeypatch, capsys):
     broken.write_text('{"format": "nope"}', encoding="utf-8")
     assert main(["import", str(broken), "--apply"]) == 2
     assert "format" in capsys.readouterr().err or True
+
+
+def test_geo_resolve_applies_a_lookup_and_keeps_manual_overrides(tmp_path, monkeypatch, capsys):
+    from ssh_server_manager import geoip
+
+    data = tmp_path / "data"
+    monkeypatch.setenv("SSM_DATA_DIR", str(data))
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing-config"))
+    database = Database(data / "manager.db")
+    database.create_server(alias="web1", hostname="web1.example", username="deploy")
+    database.create_server(alias="db1", hostname="db1.example", username="alice")
+    database.update_server("db1", geo={"country_code": "US", "city": "Ashburn", "source": "manual"})
+
+    monkeypatch.setattr(geoip, "resolve_hostname", lambda host, **kwargs: {"web1.example": ["198.51.100.7"], "db1.example": ["198.51.100.8"]}.get(host, []))
+    monkeypatch.setattr(
+        geoip,
+        "lookup",
+        lambda address: {"country_code": "DE", "city": "Frankfurt", "source": "geoip"},
+    )
+
+    assert main(["geo", "resolve", "--all", "--apply", "--json"]) == 1  # db1 conflicts
+    payload = json.loads(capsys.readouterr().out)
+    rows = {row["alias"]: row for row in payload["hosts"]}
+    assert rows["web1"]["applied"] is True
+    assert rows["db1"]["applied"] is False
+    assert "manual location override" in rows["db1"]["error"]
+    assert database.get_server("web1")["geo"]["country_code"] == "DE"
+    assert database.get_server("db1")["geo"]["country_code"] == "US"
+
+    assert main(["geo", "resolve", "--all", "--apply", "--overwrite"]) == 0
+    capsys.readouterr()
+    assert database.get_server("db1")["geo"]["source"] == "geoip"
+
+
+def test_geo_resolve_reports_an_unresolvable_host(tmp_path, monkeypatch, capsys):
+    from ssh_server_manager import geoip
+
+    data = tmp_path / "data"
+    monkeypatch.setenv("SSM_DATA_DIR", str(data))
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing-config"))
+    Database(data / "manager.db").create_server(
+        alias="web1", hostname="web1.example", username="deploy"
+    )
+    monkeypatch.setattr(geoip, "resolve_hostname", lambda host, **kwargs: [])
+    assert main(["geo", "resolve", "web1", "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["hosts"][0]["error"] == "hostname did not resolve"
+
+
+def test_geo_resolve_needs_a_target(tmp_path, monkeypatch, capsys):
+    data = tmp_path / "data"
+    monkeypatch.setenv("SSM_DATA_DIR", str(data))
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing-config"))
+    assert main(["geo", "resolve"]) == 2
+    assert "name a host" in capsys.readouterr().err

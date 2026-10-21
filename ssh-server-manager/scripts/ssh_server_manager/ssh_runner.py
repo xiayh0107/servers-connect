@@ -62,6 +62,9 @@ SFTP_OPERATION_ERROR_RE = re.compile(
     re.MULTILINE,
 )
 MAX_DIRECTORY_ENTRIES = 5000
+# One recursive copy is still one sftp batch; past this many entries the
+# command line batch becomes the wrong tool and the caller is told so.
+MAX_TREE_ENTRIES = 4000
 # Transfers get a wider wall-clock margin than the connect timeout: a large
 # file is slow for reasons that have nothing to do with reachability.
 TRANSFER_TIMEOUT_GRACE = 30
@@ -1133,6 +1136,176 @@ class SSHRunner:
             "remote_path": remote,
             "local_path": str(source),
             "bytes": size,
+            "latency_ms": round((time.monotonic() - start) * 1000),
+        }
+
+    # --- recursive trees ------------------------------------------------------------
+    #
+    # A tree is copied as one sftp batch of mkdir/put (upload) or get (download)
+    # commands, built from a walk this process performs. That is slower than
+    # sftp's own -R and deliberately so: -R's rules for creating the destination
+    # directory and for following symlinks differ between OpenSSH versions, while
+    # a walk is explicit about every path and refuses anything surprising.
+
+    @staticmethod
+    def _local_tree(root: Path, *, limit: int) -> list[tuple[Path, str]]:
+        """Walk a local directory into (path, kind) pairs, parents first."""
+        if root.is_symlink():
+            raise ValidationError(
+                f"refusing to copy a symlinked directory: {root}; resolve it or copy the target"
+            )
+        entries: list[tuple[Path, str]] = [(root, "dir")]
+        for current, directories, files in os.walk(root, followlinks=False):
+            base = Path(current)
+            for name in sorted(directories):
+                candidate = base / name
+                if candidate.is_symlink():
+                    raise ValidationError(
+                        f"refusing to follow a symlink inside the tree: {candidate}"
+                    )
+                entries.append((candidate, "dir"))
+            for name in sorted(files):
+                candidate = base / name
+                if candidate.is_symlink():
+                    raise ValidationError(
+                        f"refusing to follow a symlink inside the tree: {candidate}"
+                    )
+                entries.append((candidate, "file"))
+            if len(entries) > limit:
+                raise ValidationError(
+                    f"this tree has more than {limit} entries; copy it in parts or use "
+                    "'serverctl exec' with a remote archive step"
+                )
+        return entries
+
+    def upload_tree(
+        self,
+        identifier: str,
+        local_directory: str | Path,
+        remote_directory: str,
+        *,
+        timeout: int = 600,
+        reuse: int = 300,
+        stream: bool = False,
+    ) -> dict[str, Any]:
+        """Copy a local directory tree to a remote directory over SFTP."""
+        root = Path(local_directory)
+        if not root.is_dir():
+            raise ValidationError(f"local directory does not exist: {root}")
+        remote = validate_remote_path(remote_directory)
+        entries = self._local_tree(root, limit=MAX_TREE_ENTRIES)
+        server = self.database.get_server(identifier)
+        start = time.monotonic()
+        prefix: list[str] = []
+        if remote == "~" or remote.startswith("~/"):
+            prefix.append("@cd")
+            remote = remote[2:] if remote.startswith("~/") else "."
+        lines = list(prefix)
+        for path, kind in entries:
+            if kind != "dir":
+                continue
+            relative = path.relative_to(root).as_posix()
+            target = posixpath.join(remote, relative) if relative and relative != "." else remote
+            lines.append(f"@mkdir {self._sftp_path(target)}")
+        for path, kind in entries:
+            if kind != "file":
+                continue
+            relative = path.relative_to(root).as_posix()
+            target = posixpath.join(remote, relative)
+            lines.append(f"@put -p {self._sftp_path(str(path))} {self._sftp_path(target)}")
+        lines.append("@quit")
+        batch = "\n".join(lines) + "\n"
+        returncode, _stdout, stderr = self._run_transfer(
+            server, batch=batch, timeout=timeout, reuse=reuse, stream=stream
+        )
+        self._finish_transfer(returncode, stderr)
+        bytes_total = sum(
+            path.stat().st_size for path, kind in entries if kind == "file"
+        )
+        return {
+            "alias": server["alias"],
+            "direction": "upload",
+            "remote_path": remote,
+            "local_path": str(root),
+            "files": sum(1 for _path, kind in entries if kind == "file"),
+            "directories": sum(1 for _path, kind in entries if kind == "dir"),
+            "bytes": bytes_total,
+            "recursive": True,
+            "latency_ms": round((time.monotonic() - start) * 1000),
+        }
+
+    def download_tree(
+        self,
+        identifier: str,
+        remote_directory: str,
+        local_directory: str | Path,
+        *,
+        timeout: int = 600,
+        reuse: int = 300,
+        stream: bool = False,
+    ) -> dict[str, Any]:
+        """Copy a remote directory tree into a local directory over SFTP."""
+        remote = validate_remote_path(remote_directory)
+        if remote == "~":
+            raise ValidationError("name a remote directory to copy, not the home directory")
+        root = Path(local_directory)
+        server = self.database.get_server(identifier)
+        start = time.monotonic()
+        files: list[tuple[str, Path]] = []
+        directories = 0
+        pending = [remote]
+        seen: set[str] = set()
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            listing = self.list_directory(identifier, current, timeout=min(timeout, 60), reuse=reuse)
+            relative_base = "" if current == remote else current[len(remote) :].lstrip("/")
+            for entry in listing["entries"]:
+                name = entry["name"]
+                if name in {".", ".."}:
+                    continue
+                remote_child = posixpath.join(current, name)
+                relative = posixpath.join(relative_base, name) if relative_base else name
+                if entry["type"] == "directory":
+                    directories += 1
+                    pending.append(remote_child)
+                elif entry["type"] == "file":
+                    files.append((remote_child, root / relative))
+                else:
+                    raise ValidationError(
+                        f"refusing to copy {remote_child}: only files and directories are copied"
+                    )
+            if len(files) + directories > MAX_TREE_ENTRIES:
+                raise ValidationError(
+                    f"this tree has more than {MAX_TREE_ENTRIES} entries; copy it in parts or use "
+                    "'serverctl exec' with a remote archive step"
+                )
+        root.mkdir(parents=True, exist_ok=True)
+        for remote_path, local_path in files:
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+        lines = [f"@get -p {self._sftp_path(path)} {self._sftp_path(str(local))}" for path, local in files]
+        lines.append("@quit")
+        if files:
+            returncode, _stdout, stderr = self._run_transfer(
+                server, batch="\n".join(lines) + "\n", timeout=timeout, reuse=reuse, stream=stream
+            )
+            self._finish_transfer(returncode, stderr)
+        missing = [str(local) for _path, local in files if not local.exists()]
+        if missing:
+            raise FileOperationError(
+                f"{len(missing)} file(s) were not written, first: {missing[0]}", "unreachable"
+            )
+        return {
+            "alias": server["alias"],
+            "direction": "download",
+            "remote_path": remote,
+            "local_path": str(root),
+            "files": len(files),
+            "directories": directories,
+            "bytes": sum(local.stat().st_size for _path, local in files),
+            "recursive": True,
             "latency_ms": round((time.monotonic() - start) * 1000),
         }
 

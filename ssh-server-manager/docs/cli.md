@@ -348,6 +348,30 @@ replace an existing remote file. Default web uploads require SFTP hard-link
 support and fail safely when unavailable; web downloads refuse an unverifiable
 symlink target size. See [the web UI](web-ui.md) for the versioned file API.
 
+### Recursive transfer
+
+```
+serverctl put --recursive LOCAL_DIR ALIAS:REMOTE_DIR
+serverctl get --recursive ALIAS:REMOTE_DIR [LOCAL_DIR]
+serverctl cp --recursive ...
+```
+
+`--recursive` copies a whole tree over the same SFTP path, credentials, and
+quoting as a single file, and creates any missing destination directory.
+
+- Symlinks anywhere inside the tree are refused rather than followed. A link can
+  point outside the tree you think you are copying (a private key, a mounted
+  volume), and silently following it is the classic way to ship something you
+  never meant to. Resolve the target and copy it explicitly if that is what you
+  want.
+- One call is capped at 4000 entries. Past that the batch stops being the right
+  tool: archive remotely (`serverctl exec ALIAS -- tar czf /tmp/tree.tgz DIR`),
+  transfer the archive, and unpack it here.
+- Download refuses anything that is neither a file nor a directory (a socket, a
+  device), and upload refuses a symlinked root directory.
+- Progress and errors come from sftp itself; `--json` reports files,
+  directories, bytes, and latency instead.
+
 ## Mounting
 
 ```
@@ -564,6 +588,75 @@ roaming laptops and high-latency or lossy links where a TCP session would stall.
 - Mosh needs a UTF-8 locale; when the terminal has none, `LC_ALL=en_US.UTF-8` is
   set for the session rather than leaving mosh to fail on it.
 - Not offered on Windows.
+
+## Host locations (local GeoIP)
+
+```
+serverctl geo status [--json]
+serverctl geo resolve HOST [HOST ...] [--apply] [--overwrite] [--json]
+serverctl geo resolve --all [--apply] [--overwrite] [--json]
+```
+
+`geo resolve` turns a host's address into a country (and city when the data has
+one) using a **local** file. There is no web service call, no bundled database,
+and no lookup while reading the inventory — opening a host never resolves a name
+or reads a geo file.
+
+Point it at one of:
+
+- `SSM_GEOIP_CSV` — a CSV of ranges: `cidr,country_code,city` per line
+  (`198.51.100.0/24,DE,Frankfurt`), or `start_ip,end_ip,country_code,city`. A
+  header row, `#` comments, blank lines, a BOM, and IPv6 are all accepted.
+- `SSM_GEOIP_MMDB` — a MaxMind-style `.mmdb`, read through the optional `geoip2`
+  package (`pip install geoip2`). Nothing is downloaded; you supply the file.
+
+By default the path is `<data dir>/geoip.csv` or `<data dir>/geoip.mmdb`, so
+dropping a file there is enough. `serverctl geo status` and the `doctor` `geoip`
+row report which backend is configured and what is missing.
+
+Behaviour worth knowing:
+
+- Without `--apply` the lookup is only reported, never stored.
+- A stored lookup carries `"source": "geoip"`; a value you set yourself carries
+  `"source": "manual"`. A lookup never overwrites a manual value — that needs
+  `--overwrite`, because a human assertion should beat a guess.
+- A host that does not resolve is reported per host, and the exit code is
+  non-zero; other hosts in the same run still get their result.
+- GeoIP is a guess about routing, not about where your data lives. Say "reported
+  as", not "is in".
+
+## MCP server
+
+```
+serverctl mcp serve [--allow-remote] [--allow-exec] [--allow-command PATTERN]
+serverctl mcp tools [--allow-remote] [--allow-exec] [--allow-command PATTERN] [--json]
+```
+
+A thin Model Context Protocol server over the same core, for clients that cannot
+read an Agent Skill. Transport is MCP over stdio: one JSON-RPC 2.0 message per
+line, so nothing but protocol messages may go to stdout.
+
+| tool | needs | notes |
+| --- | --- | --- |
+| `list_hosts` | — | local metadata; filter by `query` or `tag` |
+| `host_route` | — | ProxyJump hops for one host |
+| `saved_paths` | — | the directories the user saved |
+| `host_skills` | — | bound Skills metadata, never a body |
+| `list_tunnels` | — | profiles and whether they are running |
+| `runtime_capabilities` | — | mount/mosh support and this server's policy |
+| `test_host` | `--allow-remote` | contacts the host |
+| `run_command` | `--allow-exec` + `--allow-command` | argv array, no shell |
+
+- Read-only by default: the read tools never open a connection or the vault.
+- There is no reveal tool, and no tool result contains a secret.
+- `--allow-command` takes a glob matched against the whole command line, or
+  against `argv[0]`: `--allow-command uptime` allows exactly that, and
+  `--allow-command 'systemctl status *'` allows that shape only.
+- `--allow-exec` without any `--allow-command` is refused at startup, because it
+  would enable a tool that can never succeed.
+- Acting calls are audited under actor `mcp`.
+- An unknown host key still cannot be confirmed through MCP; verify the host
+  once in a terminal with `serverctl server test ALIAS`.
 
 ## Config
 

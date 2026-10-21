@@ -16,6 +16,7 @@ from typing import Any, Sequence
 from . import __version__
 from .application import ApplicationServices, CredentialApplicationService
 from .db import ConflictError, Database, DatabaseError, NotFoundError
+from .geoip import capability as geoip_capability
 from .mosh import mosh_capability
 from .mounts import list_mounts, mount_capability
 from .mounts import mount as mount_host
@@ -150,6 +151,11 @@ def add_transfer_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--force", action="store_true", help="overwrite an existing local file")
     parser.add_argument(
         "--timeout", type=int, default=120, help="seconds to allow for the transfer (default 120)"
+    )
+    parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help="copy a whole directory tree (symlinks inside it are refused)",
     )
     add_json_option(parser)
 
@@ -349,16 +355,21 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_option(path_resolve)
 
     copy = commands.add_parser(
-        "cp", help="copy one file between this machine and a managed host"
+        "cp",
+        help="copy one file (or, with --recursive, one tree) between this machine and a managed host",
     )
     copy.add_argument("source", help="LOCAL path or ALIAS:REMOTE path")
     copy.add_argument("destination", help="LOCAL path or ALIAS:REMOTE path")
     add_transfer_options(copy)
-    get = commands.add_parser("get", help="download one file from a managed host")
+    get = commands.add_parser(
+        "get", help="download one file (or, with --recursive, one tree) from a managed host"
+    )
     get.add_argument("source", metavar="ALIAS:REMOTE", help="remote file to download")
     get.add_argument("destination", nargs="?", default=None, help="local path (default: .)")
     add_transfer_options(get)
-    put = commands.add_parser("put", help="upload one file to a managed host")
+    put = commands.add_parser(
+        "put", help="upload one file (or, with --recursive, one tree) to a managed host"
+    )
     put.add_argument("source", metavar="LOCAL", help="local file to upload")
     put.add_argument("destination", metavar="ALIAS:REMOTE", help="remote destination path")
     add_transfer_options(put)
@@ -481,6 +492,69 @@ def build_parser() -> argparse.ArgumentParser:
         "--overwrite", action="store_true", help="update hosts that already exist"
     )
     add_json_option(import_parser)
+
+    geo = commands.add_parser(
+        "geo",
+        help="report or fill host locations from a local database (never online)",
+        epilog="lookups read a local file only: SSM_GEOIP_CSV (CIDR ranges) or "
+        "SSM_GEOIP_MMDB with the optional geoip2 package. Nothing is sent anywhere, "
+        "and reading the inventory never performs a lookup.",
+    )
+    geo_commands = geo.add_subparsers(dest="geo_command", required=True)
+    geo_status = geo_commands.add_parser("status", help="show the configured local backend")
+    add_json_option(geo_status)
+    geo_resolve = geo_commands.add_parser(
+        "resolve", help="look up one or more hosts and optionally store the result"
+    )
+    geo_resolve.add_argument(
+        "servers", nargs="*", metavar="SERVER", help="alias or id"
+    )
+    geo_resolve.add_argument(
+        "--all", action="store_true", help="every host in the inventory"
+    )
+    geo_resolve.add_argument(
+        "--apply",
+        action="store_true",
+        help="store the result (a manual override is kept unless --overwrite)",
+    )
+    geo_resolve.add_argument(
+        "--overwrite", action="store_true", help="replace an existing manual override"
+    )
+    add_json_option(geo_resolve)
+
+    mcp = commands.add_parser(
+        "mcp",
+        help="serve the inventory to MCP-only agents, read-only by default",
+        epilog="the Agent Skill is still the recommended path; this wrapper is for "
+        "clients that cannot read one. It never reveals a secret.",
+    )
+    mcp_commands = mcp.add_subparsers(dest="mcp_command", required=True)
+    mcp_serve = mcp_commands.add_parser(
+        "serve", help="speak MCP over stdio (stdout carries protocol messages only)"
+    )
+    mcp_serve.add_argument(
+        "--allow-remote", action="store_true", help="enable test_host, which contacts a host"
+    )
+    mcp_serve.add_argument(
+        "--allow-exec",
+        action="store_true",
+        help="enable run_command (needs at least one --allow-command)",
+    )
+    mcp_serve.add_argument(
+        "--allow-command",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="glob over the command line (or argv[0]) that run_command may execute",
+    )
+    add_json_option(mcp_serve)
+    mcp_tools = mcp_commands.add_parser(
+        "tools", help="print the tools this policy would expose"
+    )
+    mcp_tools.add_argument("--allow-remote", action="store_true")
+    mcp_tools.add_argument("--allow-exec", action="store_true")
+    mcp_tools.add_argument("--allow-command", action="append", default=[], metavar="PATTERN")
+    add_json_option(mcp_tools)
 
     audit = commands.add_parser(
         "audit",
@@ -692,6 +766,7 @@ def run_doctor(database: Database) -> dict[str, Any]:
         "agent_skill": skill_link_status(),
         "mount": mount_capability(),
         "mosh": mosh_capability(),
+        "geoip": geoip_capability(),
     }
     try:
         checks["vault"] = {"ok": True, **get_vault().diagnose()}
@@ -894,6 +969,22 @@ def handle(args: argparse.Namespace) -> int:
             return 2
         emit(result, as_json=args.json)
         return 0
+    if args.command in {"cp", "get", "put"} and args.recursive:
+        source, destination = args.source, args.destination
+        if args.command == "get" and destination is None:
+            destination = "."
+        direction, alias, remote_path, local_path = resolve_transfer(source, destination)
+        runner = services.files
+        if direction == "download":
+            result = runner.download_tree(
+                alias, remote_path, local_path, timeout=args.timeout, stream=not args.json
+            )
+        else:
+            result = runner.upload_tree(
+                alias, local_path, remote_path, timeout=args.timeout, stream=not args.json
+            )
+        emit(result, as_json=args.json)
+        return 0
     if args.command in {"cp", "get", "put"}:
         source, destination = args.source, args.destination
         if args.command == "get":
@@ -1058,6 +1149,100 @@ def handle(args: argparse.Namespace) -> int:
         else:
             print_import_plan(preview, applied=True, result=result)
         return 0 if result["ok"] else 1
+    if args.command == "geo":
+        from . import geoip
+
+        if args.geo_command == "status":
+            emit(geoip.capability(), as_json=args.json)
+            return 0
+        if args.geo_command == "resolve":
+            if args.all:
+                targets = [host["alias"] for host in database.list_servers()]
+            else:
+                targets = list(args.servers)
+            if not targets:
+                raise ValidationError("name a host, or pass --all")
+            rows = []
+            for target in targets:
+                host = database.get_server(target)
+                existing = host.get("geo") or {}
+                address = host.get("last_resolved_ip")
+                if not address:
+                    # Resolving a name is a network call; this command is the
+                    # explicit place where that is acceptable.
+                    addresses = geoip.resolve_hostname(host["hostname"])
+                    address = addresses[0] if addresses else None
+                row: dict[str, Any] = {
+                    "alias": host["alias"],
+                    "address": address,
+                    "current": existing or None,
+                }
+                if address:
+                    try:
+                        found = geoip.lookup(address)
+                    except ValidationError as exc:
+                        row["error"] = str(exc)
+                        found = None
+                    row["lookup"] = found
+                    if args.apply and found:
+                        try:
+                            database.set_server_geo(
+                                host["id"], found, overwrite_manual=args.overwrite
+                            )
+                            row["applied"] = True
+                        except ConflictError as exc:
+                            row["error"] = str(exc)
+                            row["applied"] = False
+                else:
+                    row["error"] = "hostname did not resolve"
+                rows.append(row)
+            payload = {"ok": all("error" not in row for row in rows), "hosts": rows}
+            if args.json:
+                emit(payload, as_json=True)
+            else:
+                for row in rows:
+                    current = row.get("current") or {}
+                    found = row.get("lookup") or {}
+                    detail = ""
+                    if current:
+                        detail = f"  current={current.get('country_code')}:{current.get('source')}"
+                    if found:
+                        detail += f"  lookup={found.get('country_code')} {found.get('city') or ''}".rstrip()
+                    if row.get("applied"):
+                        detail += "  applied"
+                    if row.get("error"):
+                        detail += f"  error={row['error']}"
+                    print(f"{row['alias']:<22} {row.get('address') or '-':<18}{detail}")
+            return 0 if payload["ok"] else 1
+        return 2
+    if args.command == "mcp":
+        from . import mcp_server
+
+        policy = mcp_server.Policy(
+            allow_remote=args.allow_remote,
+            allow_exec=args.allow_exec,
+            allow_commands=args.allow_command,
+        )
+        if args.mcp_command == "tools":
+            server = mcp_server.McpServer(database, policy=policy)
+            tools = server.tools()
+            if args.json:
+                emit({"ok": True, "count": len(tools), "tools": tools}, as_json=True)
+            else:
+                for tool in tools:
+                    print(f"{tool['name']:<22} {tool['description'].splitlines()[0]}")
+            return 0
+        if args.mcp_command == "serve":
+            if args.json:
+                # stdout is the protocol channel; a JSON extra would corrupt it.
+                raise ValidationError("mcp serve does not take --json; stdout is the protocol channel")
+            if policy.allow_exec and not policy.allow_commands:
+                raise ValidationError(
+                    "--allow-exec without --allow-command enables nothing; pass at least "
+                    "one pattern, for example --allow-command 'uptime'"
+                )
+            return mcp_server.serve(database, policy=policy)
+        return 2
     if args.command == "audit":
         from . import audit as audit_module
 

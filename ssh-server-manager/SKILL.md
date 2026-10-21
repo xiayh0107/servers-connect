@@ -5,6 +5,11 @@ description: Connect to saved SSH servers and run remote commands through the bu
 
 # SSH Server Manager
 
+If this client can speak MCP but cannot read a Skill, `serverctl mcp serve`
+exposes the local inventory read-only, plus host checks and allowlisted
+commands when it is started with `--allow-remote` / `--allow-exec` +
+`--allow-command`. It never reveals a secret. Everything below still applies.
+
 ## First: route through `serverctl`, not raw ssh
 
 - The command is `serverctl` — there is no `ssh-server-manager` or `sshsm`
@@ -310,7 +315,8 @@ it. `last_resolved_ip` records a local DNS result from an explicit check; throug
 ProxyJump it need not be the remote peer's address. Saved `host_key` fingerprints
 and states (`verified`, `unknown`, `changed`, `revoked`) describe the last
 explicit check and never replace OpenSSH verification. Manual `geo` metadata is
-optional; no GeoIP lookup runs when reading inventory. Changing hostname or
+optional; no GeoIP lookup runs when reading inventory. `serverctl geo resolve`
+fills it from a local file on request, never from a web service. Changing hostname or
 port clears observations for the old endpoint while retaining manual geography.
 
 Credential summaries include only cached key metadata and a version-specific
@@ -341,8 +347,12 @@ Three tools, in the order to reach for them:
    look local — anything that walks a large tree (a repo-wide search, a build,
    an editor indexing a project) belongs in `serverctl exec` instead.
 
-Recursive transfer is deliberately unsupported. If the user needs a whole tree,
-say so and offer `serverctl exec` with a remote archive step, or a mount.
+For a whole tree, add `--recursive`: `put --recursive DIR ALIAS:PATH` and
+`get --recursive ALIAS:DIR LOCAL` copy every file and directory under the same
+SFTP path, creating the destination directory. It refuses symlinks anywhere in
+the tree (resolve them first, or copy the target) and refuses more than 4000
+entries per call — for a repository-sized tree use `serverctl exec` with a remote
+archive step or a mount instead, and do not raise the cap by looping blindly.
 
 ## Ports and tunnels
 

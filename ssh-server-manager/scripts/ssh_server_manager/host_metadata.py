@@ -98,7 +98,15 @@ def sanitize_host_key(value: dict[str, Any], *, observed_at: str) -> dict[str, A
     return {"fingerprint": fingerprint, "state": state, "observed_at": observed_at}
 
 
-def validate_geo(value: dict[str, Any] | None) -> dict[str, Any] | None:
+def validate_geo(
+    value: dict[str, Any] | None, *, allow_geoip: bool = False
+) -> dict[str, Any] | None:
+    """Normalize a geo value.
+
+    ``source`` records where the value came from. A user typing an override
+    produces ``manual``; only the local GeoIP resolver may write ``geoip``, so a
+    looked-up guess can never be mistaken for something a human asserted.
+    """
     if value is None:
         return None
     if not isinstance(value, dict) or value.keys() - {"country_code", "city", "source"}:
@@ -106,8 +114,14 @@ def validate_geo(value: dict[str, Any] | None) -> dict[str, Any] | None:
     country = value.get("country_code")
     if not isinstance(country, str) or country.upper() not in COUNTRY_CODES:
         raise ValidationError("geo country_code must be an ISO 3166-1 alpha-2 code")
-    if value.get("source", "manual") != "manual":
+    source = value.get("source", "manual")
+    if source != "manual" and not (allow_geoip and source == "geoip"):
         raise ValidationError("only manual geo overrides can be saved")
+    if allow_geoip and source == "geoip":
+        city = value.get("city")
+        if city is not None and (not isinstance(city, str) or not city.isprintable()):
+            raise ValidationError("geo city must be printable")
+        return {"country_code": country.upper(), "city": (city or None), "source": "geoip"}
     city = value.get("city")
     if city is not None:
         if not isinstance(city, str) or len(city) > 120 or not city.isprintable():

@@ -1627,6 +1627,33 @@ class Database:
             raise ConflictError(f"server alias already exists: {normalized['alias']}") from exc
         return self.get_server(identifier)
 
+    def set_server_geo(
+        self, identifier: str, geo: dict[str, Any] | None, *, overwrite_manual: bool = False
+    ) -> dict[str, Any]:
+        """Store a looked-up location, never over a value a human asserted."""
+        normalized = validate_geo(geo, allow_geoip=True)
+        with self.transaction() as connection:
+            current = self._get_server(connection, identifier)
+            existing = current.get("geo") or {}
+            if (
+                isinstance(existing, dict)
+                and existing.get("source") == "manual"
+                and not overwrite_manual
+            ):
+                raise ConflictError(
+                    f"{current['alias']} has a manual location override; "
+                    "replace it explicitly if the lookup should win"
+                )
+            connection.execute(
+                "UPDATE servers SET geo = ?, updated_at = ? WHERE id = ?",
+                (
+                    json.dumps(normalized, ensure_ascii=False) if normalized is not None else None,
+                    utc_now(),
+                    current["id"],
+                ),
+            )
+        return self.get_server(current["id"])
+
     def update_server(self, identifier: str, *, ssh_config_source: str | None = None, **changes: Any) -> dict[str, Any]:
         try:
             with self.transaction() as connection:

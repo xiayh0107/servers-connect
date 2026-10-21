@@ -35,6 +35,38 @@
   before the session starts, the start of a recording is itself audited, `--log`
   is refused together with `--mosh` and on Windows, and an environment that
   denies a pty reports that instead of leaving an empty file behind.
+- Add an optional MCP wrapper for agents that only speak MCP: `serverctl mcp
+  serve` speaks MCP over stdio, and `serverctl mcp tools` prints what a policy
+  exposes. Read-only tools (`list_hosts`, `host_route`, `saved_paths`,
+  `host_skills`, `list_tunnels`, `runtime_capabilities`) read local metadata and
+  never connect or touch the vault; `test_host` requires `--allow-remote` and
+  `run_command` requires `--allow-exec` plus a matching `--allow-command` glob
+  (globs match the whole command line or `argv[0]`), taking an argv array rather
+  than a shell string. There is no reveal tool and no tool result carries a
+  secret; `--allow-exec` without any pattern is refused at startup; acting calls
+  are recorded in the audit log under actor `mcp`; and oversized results are
+  truncated. The Agent Skill remains the recommended path.
+- Add optional local GeoIP: `serverctl geo resolve HOST...|--all [--apply]
+  [--overwrite]` resolves a host's address and reads its location from a local
+  file only — `SSM_GEOIP_CSV` (CIDR or start/end ranges, with header, comments
+  and BOM tolerated) or `SSM_GEOIP_MMDB` when the optional `geoip2` package is
+  installed. Nothing is sent to a web service, no database is bundled, and no
+  read path performs a lookup or a DNS query: opening the inventory, a host, or
+  a route stays local metadata only. A looked-up value is stored with
+  `source: geoip` and can only be written through the resolver, so it is never
+  mistaken for something a human asserted; an existing manual override is kept
+  unless `--overwrite` is given. `serverctl geo status` and a `doctor` row report
+  which backend is configured.
+- Add recursive transfer: `serverctl put --recursive DIR ALIAS:PATH`,
+  `serverctl get --recursive ALIAS:DIR [LOCAL]`, and `cp --recursive` copy a whole
+  tree over the same SFTP path and credentials as a single file, creating the
+  destination directory. A tree is copied as one batch of `mkdir`/`put` or `get`
+  commands built from an explicit walk rather than sftp's `-R`, whose rules for
+  destination creation and symlinks differ between OpenSSH versions. Symlinks
+  anywhere inside the tree are refused instead of followed (a link can reach a
+  private key or another volume), a remote link is refused on download, a
+  symlinked root directory is refused on upload, and one call stops at 4000
+  entries with a message pointing at a remote archive step.
 - Record privileged actions in a local, append-only audit log: `exec` and its
   exit status, secret `reveal` (by credential label, never by value),
   `reveal_denied`, `connect`, and tunnel `open`/`close`. `serverctl audit list

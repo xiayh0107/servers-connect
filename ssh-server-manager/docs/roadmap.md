@@ -19,8 +19,8 @@ ecosystem). Ordered by expected impact.
    actions, and per-host saved working directories (`serverctl path`) let
    people and agents recall where the work happens. Also shipped:
    `serverctl mount` for sshfs, gated behind a `doctor` capability check
-   because the FUSE layer cannot be installed for the user. Still open:
-   recursive transfer of a whole tree.
+   because the FUSE layer cannot be installed for the user. Recursive transfer
+   of a whole tree landed later as `--recursive` (unreleased).
 4. ~~**Port forwarding profiles**~~ **Done (unreleased):** saved `-L/-R/-D`
    tunnels per server (`serverctl tunnel add` / `open` / `close` / `status`),
    opened as detached background ssh processes with status and teardown.
@@ -37,9 +37,12 @@ ecosystem). Ordered by expected impact.
    profiles (never secrets or credential ids; a host carries its credential
    *label*), and `serverctl import` previews by default, applies with `--apply`,
    and merges rather than replaces.
-7. **Optional MCP wrapper** — a thin MCP server over the same core for
-   agents that only speak MCP: read-only by default, command allowlists,
-   no secret-bearing tool results. The Skill remains the recommended path.
+7. ~~**Optional MCP wrapper**~~ **Done (unreleased):** `serverctl mcp serve`
+   speaks MCP over stdio with read-only inventory tools by default; `test_host`
+   needs `--allow-remote` and `run_command` needs `--allow-exec` plus one
+   `--allow-command` glob per shape. No reveal tool, argv-only commands, and
+   acting calls are audited. Still open: serving the same tools over HTTP for
+   remote agents. The Skill remains the recommended path.
 8. ~~**Session logging for `connect`**~~ **Done (unreleased):**
    `serverctl connect ALIAS --log` records a mode-600 transcript through a pty
    proxy, stripping control sequences and masking credential-shaped values. Only
@@ -50,7 +53,14 @@ ecosystem). Ordered by expected impact.
    bootstraps over the managed config with host-key verification intact. The
    0.9.0 Hosts details already render managed and external `ProxyJump` hops from
    the backend route.
-10. **Local GeoIP and optional desktop shell** — separate follow-up work after
-    the 0.9.0 six-page Web UI. Neither is required by the browser or CLI.
+10. ~~**Local GeoIP**~~ **Done (unreleased):** `serverctl geo resolve` fills a
+    host's location from a local range file (`SSM_GEOIP_CSV`) or a local
+    `.mmdb` when the optional `geoip2` package is installed — no web service, and
+    never a lookup on a read path. A manual override is kept unless
+    `--overwrite`. **Desktop shell: not planned.** The six-page Web UI already
+    runs on loopback and can be wrapped by any browser or launcher, so a bundled
+    Electron/Tauri shell would add a second toolchain and a second update path to
+    reach the same page. That stays a non-goal, recorded here so the item is
+    closed rather than forever pending.
 
 Non-goals: cloud sync of secrets, telemetry, subscriptions, Electron.

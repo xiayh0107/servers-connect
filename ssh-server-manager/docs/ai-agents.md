@@ -14,6 +14,10 @@ alternatives.
   attacks exfiltrating SSH keys through exactly this channel, and real
   shell-injection CVEs in popular MCP SSH servers.
 
+If your client can only speak MCP, the optional wrapper in
+[As an MCP server](#as-an-mcp-server-optional) exposes the same local
+inventory — read-only by default, with no tool that can reveal a secret.
+
 Here, the boundary is structural: the model calls a deterministic CLI;
 authentication happens out-of-band through AskPass and the OS vault. The
 secret value never enters the process output the model reads. AskPass refuses
@@ -267,6 +271,44 @@ serverctl ui --credential web1
 Exit codes are meaningful (`exec` mirrors the remote command; `test` and
 `doctor` return non-zero on failure), so agents can branch without parsing
 prose.
+
+## As an MCP server (optional)
+
+The Skill is still the recommended path: an agent that can read `SKILL.md` gets
+the reasoning, the interaction rules, and every command. The MCP wrapper exists
+for clients that cannot read a Skill and only speak MCP.
+
+```bash
+# read-only: inventory, routes, saved paths, skills, tunnel profiles, capabilities
+serverctl mcp serve
+
+# allow a connectivity check that contacts a host
+serverctl mcp serve --allow-remote
+
+# allow specific commands, one glob per --allow-command
+serverctl mcp serve --allow-exec --allow-command 'uptime' --allow-command 'journalctl -u *'
+```
+
+Configure the client to run that command over stdio (stdout carries protocol
+messages only). `serverctl mcp tools` prints what a given policy would expose,
+which is the fastest way to confirm a client will see the tools you expect.
+
+What it does not do, by construction:
+
+- **No secret tools.** There is no reveal tool and no result carries a vault
+  value; read tools are built from local metadata.
+- **Structured arguments only.** `run_command` takes an argv array, never a
+  shell string, so there is no local shell parsing.
+- **Two switches, both off by default.** `test_host` needs `--allow-remote`;
+  `run_command` needs `--allow-exec` *and* a matching `--allow-command` pattern.
+  `--allow-exec` with no pattern is refused at startup rather than silently
+  enabling nothing.
+- **Audited.** Acting calls are recorded with actor `mcp` in the same local
+  audit log, so `serverctl audit list` answers "what did the agent do here".
+
+Host-key confirmation does not change: an MCP client cannot approve a host key,
+so a new host must be verified once with `serverctl server test ALIAS` in a
+human's terminal first.
 
 ## Host-specific Agent Skills
 
