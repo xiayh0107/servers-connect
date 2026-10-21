@@ -364,6 +364,66 @@ class SavedPath(BaseModel):
     last_used_at: str | None
 
 
+class Tunnel(BaseModel):
+    """One saved forwarding profile joined with this machine's live state.
+
+    ``running`` is the only trustworthy liveness signal: it is computed from the
+    process table, not from the database, so a browser reload cannot invent a
+    tunnel. ``orphan`` marks a live process whose profile was deleted.
+    """
+    id: str
+    server: str | None
+    name: str | None
+    kind: str | None
+    # A saved profile always has these; an orphaned process may predate the record
+    # that carries them, so the row stays renderable instead of failing the route.
+    bind_host: str | None = None
+    bind_port: int | None = None
+    remote_host: str | None = None
+    remote_port: int | None = None
+    notes: str = ""
+    forward: str | None = None
+    created_at: str = ""
+    updated_at: str = ""
+    running: bool
+    pid: int | None
+    started_at: str | None
+    uptime_seconds: int | None
+    orphan: bool = False
+
+
+class AuditEvent(BaseModel):
+    """One line of the local audit log.
+
+    Fields are optional because the log is append-only and each event kind fills
+    a different subset. There is deliberately no value field: the log never
+    records a secret, so this type cannot carry one to the browser either.
+    """
+    at: str
+    event: str
+    actor: str
+    alias: str | None = None
+    host: str | None = None
+    credential: str | None = None
+    slot: str | None = None
+    tunnel: str | None = None
+    forward: str | None = None
+    command: str | None = None
+    path: str | None = None
+    pid: int | None = None
+    returncode: int | None = None
+    ok: bool | None = None
+    error_code: str | None = None
+
+
+class AuditLog(BaseModel):
+    ok: bool
+    path: str
+    segments: list[str]
+    count: int
+    events: list[AuditEvent]
+
+
 class PathsReplace(RequestModel):
     paths: list[PathCreate]
 

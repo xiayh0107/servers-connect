@@ -4,6 +4,29 @@
  */
 
 export interface paths {
+    "/api/v1/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Audit Log
+         * @description The local, append-only record of privileged actions, newest first.
+         *
+         *     Read-only by design: the browser can look at history but never rewrite or
+         *     delete it, and no event contains a secret value.
+         */
+        get: operations["audit_log_api_v1_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/master/enroll": {
         parameters: {
             query?: never;
@@ -832,6 +855,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tunnels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tunnels
+         * @description Saved forwarding profiles plus whether this machine runs each one.
+         *
+         *     Reads local metadata and the process table only: opening the Ports page
+         *     must never connect to a host or touch the vault.
+         */
+        get: operations["tunnels_api_v1_tunnels_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -873,6 +919,59 @@ export interface components {
              * @default false
              */
             truncated: boolean;
+        };
+        /**
+         * AuditEvent
+         * @description One line of the local audit log.
+         *
+         *     Fields are optional because the log is append-only and each event kind fills
+         *     a different subset. There is deliberately no value field: the log never
+         *     records a secret, so this type cannot carry one to the browser either.
+         */
+        AuditEvent: {
+            /** Actor */
+            actor: string;
+            /** Alias */
+            alias?: string | null;
+            /** At */
+            at: string;
+            /** Command */
+            command?: string | null;
+            /** Credential */
+            credential?: string | null;
+            /** Error Code */
+            error_code?: string | null;
+            /** Event */
+            event: string;
+            /** Forward */
+            forward?: string | null;
+            /** Host */
+            host?: string | null;
+            /** Ok */
+            ok?: boolean | null;
+            /** Path */
+            path?: string | null;
+            /** Pid */
+            pid?: number | null;
+            /** Returncode */
+            returncode?: number | null;
+            /** Slot */
+            slot?: string | null;
+            /** Tunnel */
+            tunnel?: string | null;
+        };
+        /** AuditLog */
+        AuditLog: {
+            /** Count */
+            count: number;
+            /** Events */
+            events: components["schemas"]["AuditEvent"][];
+            /** Ok */
+            ok: boolean;
+            /** Path */
+            path: string;
+            /** Segments */
+            segments: string[];
         };
         /** AuthResult */
         AuthResult: {
@@ -2214,6 +2313,62 @@ export interface components {
             /** Remote Path */
             remote_path: string;
         };
+        /**
+         * Tunnel
+         * @description One saved forwarding profile joined with this machine's live state.
+         *
+         *     ``running`` is the only trustworthy liveness signal: it is computed from the
+         *     process table, not from the database, so a browser reload cannot invent a
+         *     tunnel. ``orphan`` marks a live process whose profile was deleted.
+         */
+        Tunnel: {
+            /** Bind Host */
+            bind_host?: string | null;
+            /** Bind Port */
+            bind_port?: number | null;
+            /**
+             * Created At
+             * @default
+             */
+            created_at: string;
+            /** Forward */
+            forward?: string | null;
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string | null;
+            /** Name */
+            name: string | null;
+            /**
+             * Notes
+             * @default
+             */
+            notes: string;
+            /**
+             * Orphan
+             * @default false
+             */
+            orphan: boolean;
+            /** Pid */
+            pid: number | null;
+            /** Remote Host */
+            remote_host?: string | null;
+            /** Remote Port */
+            remote_port?: number | null;
+            /** Running */
+            running: boolean;
+            /** Server */
+            server: string | null;
+            /** Started At */
+            started_at: string | null;
+            /**
+             * Updated At
+             * @default
+             */
+            updated_at: string;
+            /** Uptime Seconds */
+            uptime_seconds: number | null;
+        };
         /** Workspace */
         Workspace: {
             credential: components["schemas"]["Credential"] | null;
@@ -2232,6 +2387,112 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    audit_log_api_v1_audit_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                alias?: string | null;
+                event?: string[] | null;
+                since?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLog"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     master_enroll_api_v1_auth_master_enroll_post: {
         parameters: {
             query?: never;
@@ -8461,6 +8722,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Skill"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    tunnels_api_v1_tunnels_get: {
+        parameters: {
+            query?: {
+                host?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tunnel"][];
                 };
             };
             /** @description Bad Request */

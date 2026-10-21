@@ -323,6 +323,31 @@ than row offsets across filtering or reordering, and never overrides focused
 buttons/links, open dialogs or browser shortcuts. Saved diagnosis/edit row pins
 remain functional across the redesign.
 
+Ports follows the same table rhythm as Hosts for a different object: a saved
+forward plus whether *this machine* is running it. The State cell is the point of
+the page — `Running` carries the pid and uptime the server read from the process
+table, `Saved` means the profile exists and nothing holds the port, and
+`Orphaned` marks a process whose profile was deleted (the row still shows the
+forward it holds, because the running record keeps that shape). Listing is
+read-only on purpose: opening and closing stay in the terminal
+(`serverctl tunnel open|close`), so a browser reload can never start a process,
+and no button on this page mutates anything. The Listening column reports the
+one thing worth warning about: `Loopback` for a `127.0.0.1` bind, `Exposed` when
+a profile binds `0.0.0.0` (or another non-loopback address), and `on HOST` for a
+remote forward. An orphaned record written before the bind was stored shows `—`
+rather than implying either.
+
+Audit renders the local append-only log newest first, with the event chips the
+CLI's `--event` filter uses (exec/result, reveal, denied, tunnel, session, mcp).
+Rows name what happened ("Ran a command", "Secret revealed", "Reveal refused")
+and keep the technical half in monospace: the command line, or the tunnel and
+forward. The page shows the credential *label* and slot for a reveal, never a
+value — the API type has no value field at all — and a recorded command whose
+credentials were masked is marked `MASKED`. Filters are event group, host and
+range; the range becomes the `since` query parameter rather than client-side
+slicing, so a long log is never shipped to the browser in full. Like Ports, the
+page is GET-only.
+
 Credentials completes the Paper pass: the list filters with an All/Key/Password
 segmented control, inline kind chips and per-credential host counts; the detail
 shows cached key permissions (`● File found · 0600`), a 12-dot masked secret

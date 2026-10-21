@@ -1,6 +1,6 @@
 {
   "index.html": {
-    "file": "index-BVK6UQyd.js",
+    "file": "index-9Aqdi2VS.js",
     "name": "index",
     "src": "index.html",
     "isEntry": true,
@@ -9,14 +9,25 @@
       "src/pages/HostsPage.tsx",
       "src/pages/FilesPage.tsx",
       "src/pages/TagsPage.tsx",
+      "src/pages/PortsPage.tsx",
+      "src/pages/AuditPage.tsx",
       "src/pages/SkillsPage.tsx"
     ],
     "css": [
-      "index-DTs5rro7.css"
+      "index-DR1WEi6B.css"
+    ]
+  },
+  "src/pages/AuditPage.tsx": {
+    "file": "AuditPage-C2GiiHhs.js",
+    "name": "AuditPage",
+    "src": "src/pages/AuditPage.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html"
     ]
   },
   "src/pages/CredentialsPage.tsx": {
-    "file": "CredentialsPage-CHYq9Mq4.js",
+    "file": "CredentialsPage-DnrUBN3a.js",
     "name": "CredentialsPage",
     "src": "src/pages/CredentialsPage.tsx",
     "isDynamicEntry": true,
@@ -25,7 +36,7 @@
     ]
   },
   "src/pages/FilesPage.tsx": {
-    "file": "FilesPage-Dclxo648.js",
+    "file": "FilesPage-j-ksUM9j.js",
     "name": "FilesPage",
     "src": "src/pages/FilesPage.tsx",
     "isDynamicEntry": true,
@@ -37,7 +48,7 @@
     ]
   },
   "src/pages/HostsPage.tsx": {
-    "file": "HostsPage-C4o_AoyQ.js",
+    "file": "HostsPage-u0lS9PZL.js",
     "name": "HostsPage",
     "src": "src/pages/HostsPage.tsx",
     "isDynamicEntry": true,
@@ -46,8 +57,17 @@
       "src/pages/CredentialsPage.tsx"
     ]
   },
+  "src/pages/PortsPage.tsx": {
+    "file": "PortsPage-JFC9qfHs.js",
+    "name": "PortsPage",
+    "src": "src/pages/PortsPage.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html"
+    ]
+  },
   "src/pages/SkillsPage.tsx": {
-    "file": "SkillsPage-DPRw3k5b.js",
+    "file": "SkillsPage-CW1Bd5iH.js",
     "name": "SkillsPage",
     "src": "src/pages/SkillsPage.tsx",
     "isDynamicEntry": true,
@@ -56,7 +76,7 @@
     ]
   },
   "src/pages/TagsPage.tsx": {
-    "file": "TagsPage-DvgC2-AN.js",
+    "file": "TagsPage-CScmp_og.js",
     "name": "TagsPage",
     "src": "src/pages/TagsPage.tsx",
     "isDynamicEntry": true,

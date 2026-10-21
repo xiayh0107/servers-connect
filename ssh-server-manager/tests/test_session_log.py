@@ -114,15 +114,34 @@ def test_run_logged_records_output_and_returns_the_exit_code(tmp_path):
 @POSIX_ONLY
 @PTY_ONLY
 def test_run_logged_forwards_typed_input_but_does_not_record_it(tmp_path):
-    """Input is forwarded to the session; only the display reaches the file."""
+    """Input is forwarded to the session; only the display reaches the file.
+
+    The proxy selects on file descriptors, so the test gives it a real pipe with
+    a writer thread rather than a BytesIO: a stream without a descriptor would
+    forward nothing, and the child would wait on `read` forever.
+    """
+    import threading
+
     log_path = tmp_path / "session.log"
-    code = session_log.run_logged(
-        ["/bin/sh", "-c", "read line; echo \"got:$line\""],
-        environment=dict(os.environ),
-        log_path=log_path,
-        stdin=io.BytesIO(b"typed-secret\n"),
-        stdout=io.BytesIO(),
-    )
+    read_fd, write_fd = os.pipe()
+
+    def write_then_close():
+        try:
+            os.write(write_fd, b"typed-secret\n")
+        finally:
+            os.close(write_fd)
+
+    with os.fdopen(read_fd, "rb", closefd=True) as reader:
+        writer = threading.Thread(target=write_then_close, daemon=True)
+        writer.start()
+        code = session_log.run_logged(
+            ["/bin/sh", "-c", 'read line; echo "got:$line"'],
+            environment=dict(os.environ),
+            log_path=log_path,
+            stdin=reader,
+            stdout=io.BytesIO(),
+        )
+        writer.join(timeout=5)
     assert code == 0
     assert "got:typed-secret" in log_path.read_text(encoding="utf-8")
 

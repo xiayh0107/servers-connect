@@ -9,7 +9,7 @@ import threading
 from datetime import datetime, timezone
 from fastapi.responses import StreamingResponse
 
-from fastapi import APIRouter, Body, Depends, File, Form, Response, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, Query, Response, UploadFile
 
 from . import __version__
 from . import api_models as dto
@@ -182,6 +182,29 @@ def build_router(
     @router.delete("/hosts/{identifier}/paths/{path_id}", response_model=dto.SavedPath, tags=["paths"])
     def delete_path(identifier: str, path_id: str, _session=Depends(csrf_session)):
         return services.files.delete_path(identifier, path_id)
+
+    @router.get("/tunnels", response_model=list[dto.Tunnel], tags=["tunnels"])
+    def tunnels(host: str | None = None):
+        """Saved forwarding profiles plus whether this machine runs each one.
+
+        Reads local metadata and the process table only: opening the Ports page
+        must never connect to a host or touch the vault.
+        """
+        return services.tunnels.list(host)
+
+    @router.get("/audit", response_model=dto.AuditLog, tags=["audit"])
+    def audit_log(
+        limit: int = 50,
+        alias: str | None = None,
+        event: list[str] | None = Query(default=None),
+        since: str | None = None,
+    ):
+        """The local, append-only record of privileged actions, newest first.
+
+        Read-only by design: the browser can look at history but never rewrite or
+        delete it, and no event contains a secret value.
+        """
+        return services.audit.list(limit=limit, alias=alias, events=event, since=since)
 
     @router.get("/credentials", response_model=list[dto.Credential], tags=["credentials"])
     def credentials():

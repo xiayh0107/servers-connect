@@ -479,6 +479,15 @@ def summarize(database: Database, *, server_identifier: str | None = None) -> li
                 "name": record.get("name"),
                 "kind": record.get("kind"),
                 "forward": record.get("forward"),
+                # Absent in records written before these fields were kept, which
+                # is why the API type allows them to be missing.
+                "bind_host": record.get("bind_host"),
+                "bind_port": record.get("bind_port"),
+                "remote_host": record.get("remote_host"),
+                "remote_port": record.get("remote_port"),
+                "notes": record.get("notes") or "",
+                "created_at": record.get("started_at") or "",
+                "updated_at": record.get("started_at") or "",
                 "running": True,
                 "orphan": True,
                 "pid": record.get("pid"),
@@ -574,6 +583,13 @@ def open_tunnel(
         "alias": entry["server"],
         "kind": entry["kind"],
         "forward": entry["forward"],
+        # Kept so a row can still be read after its profile is deleted: without
+        # this an orphan process is only "something holds a port".
+        "bind_host": entry["bind_host"],
+        "bind_port": entry["bind_port"],
+        "remote_host": entry["remote_host"],
+        "remote_port": entry["remote_port"],
+        "notes": entry["notes"],
         "pid": process.pid,
         "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "log": str(log_path),

@@ -145,6 +145,9 @@ def run_logged(
     import termios
     import tty
 
+    # Input is forwarded from a file descriptor: select() cannot watch a stream
+    # that has none (StringIO, BytesIO), and silently forwarding nothing would
+    # leave an interactive session looking frozen.
     reader = stdin if stdin is not None else sys.stdin.buffer
     writer = stdout if stdout is not None else sys.stdout.buffer
     interactive = bool(getattr(sys.stdin, "isatty", lambda: False)())

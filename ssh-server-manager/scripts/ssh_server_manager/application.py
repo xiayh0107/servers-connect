@@ -289,6 +289,49 @@ class ConnectionService:
         return result
 
 
+class TunnelService:
+    """Read-only view of saved forwards and the processes behind them.
+
+    Opening and closing stay on the CLI for now: they are privileged actions a
+    browser would have to earn. Listing is free — it reads the database plus this
+    machine's process table and touches no host.
+    """
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def list(self, server_identifier: str | None = None) -> list[dict[str, Any]]:
+        from . import tunnels
+
+        return tunnels.summarize(self.database, server_identifier=server_identifier)
+
+
+class AuditService:
+    """Read-only access to the local audit log for the UI."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def list(
+        self,
+        *,
+        limit: int = 50,
+        alias: str | None = None,
+        events: list[str] | None = None,
+        since: str | None = None,
+    ) -> dict[str, Any]:
+        from . import audit
+
+        found = audit.read_events(limit=limit, alias=alias, events=events, since=since)
+        return {
+            "ok": True,
+            "path": str(audit.audit_path()),
+            "segments": [str(path) for path in audit.log_paths() if path.exists()],
+            "count": len(found),
+            "events": found,
+        }
+
+
 class CredentialApplicationService:
     """Lazy vault access plus the config side effects shared by all shells."""
     def __init__(self, database: Database, vault: Callable[[], VaultProtocol], render: Callable[[], Path]) -> None:
@@ -515,6 +558,8 @@ class ApplicationServices:
         self.runner = shared_runner
         self.render_config = lambda: (config_renderer or render_config)(database)
         self.hosts = HostService(database, self.render_config)
+        self.tunnels = TunnelService(database)
+        self.audit = AuditService(database)
         self.files = FileService(database, self.runner)
         self.diagnostics = DiagnosticsService(self.runner, database)
         self.connections = ConnectionService(self.runner, database)

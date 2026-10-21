@@ -705,3 +705,26 @@
 @keyframes preview-shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
 @media(prefers-reduced-motion:reduce){.preview-spinner,.preview-skeleton{animation:none}}
 @media(max-width:820px){.privacy-notice{margin-inline:var(--space-5);align-items:flex-start;flex-wrap:wrap}.privacy-notice p{flex-basis:80%}.privacy-reveal{margin-left:auto}}
+
+/* --- Ports and audit views -------------------------------------------------
+   Both reuse the table rhythm of the Hosts view: one rule per row, two-line
+   cells, and no colour except where a state actually means good or bad. */
+.cell-stack{display:flex;flex-direction:column;gap:var(--space-1);min-width:0}
+.cell-title{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.cell-title strong{display:inline;margin:0}
+.table-empty{padding:var(--space-6) var(--space-4);margin:0}
+.danger-text{color:var(--color-danger)}
+.inline-select{display:flex;align-items:center;gap:var(--space-2)}
+.inline-select select{padding:var(--space-1) var(--space-2);font-size:var(--text-sm)}
+.ports-table td,.audit-table td{height:58px}
+.ports-table td>.cell-stack>small,.audit-table td>.cell-stack>small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ports-table .mono,.audit-table .mono{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.audit-table td:last-child,.ports-table td:last-child{text-align:right}
+.event-chip{display:inline-flex;align-items:center;height:19px;padding:0 var(--space-2);border-radius:var(--radius-sm);background:var(--color-control);color:var(--color-muted);font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0}
+.event-chip.exec{background:var(--color-accent-soft);color:var(--color-accent)}
+.event-chip.denied{background:var(--color-danger-soft);color:var(--color-danger)}
+.event-chip.reveal{background:var(--color-warning-soft);color:var(--color-warning)}
+.event-chip.tunnel{background:color-mix(in srgb,var(--color-tag-blue) 14%,transparent);color:var(--color-tag-blue)}
+.event-chip.session{background:var(--color-success-soft);color:var(--color-success)}
+.audit-detail{display:flex;align-items:center;gap:var(--space-3);min-width:0}
+.audit-detail>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

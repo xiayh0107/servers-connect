@@ -559,3 +559,109 @@ def test_file_metadata_probe_is_a_separate_csrf_protected_request(backend, monke
         {"path": "", "entries": []},
     ):
         assert client.post("/api/v1/hosts/box/files/metadata", headers=headers, json=bad).status_code == 422
+
+
+def test_tunnels_endpoint_joins_saved_profiles_with_live_state(backend):
+    """The Ports page must be able to answer "is this forward up?" locally."""
+    client, app, database, vault = backend
+    login(client)
+    database.create_server(alias="db1", hostname="db1.example.invalid", username="alice")
+    profile = database.create_tunnel(
+        "db1", name="db1-local", kind="local", forward="15432:localhost:5432", notes="primary"
+    )
+
+    response = client.get("/api/v1/tunnels")
+    assert response.status_code == 200
+    rows = response.json()
+    assert [row["name"] for row in rows] == ["db1-local"]
+    row = rows[0]
+    assert row["id"] == profile["id"]
+    assert row["forward"] == "127.0.0.1:15432:localhost:5432"
+    # Nothing was opened, so the page must say so rather than guess.
+    assert row["running"] is False
+    assert row["pid"] is None
+    assert row["orphan"] is False
+
+    filtered = client.get("/api/v1/tunnels", params={"host": "db1"}).json()
+    assert [row["name"] for row in filtered] == ["db1-local"]
+    assert client.get("/api/v1/tunnels", params={"host": "nope"}).status_code == 404
+
+
+def test_tunnels_endpoint_reports_an_orphaned_process(backend):
+    """A deleted profile can leave a process holding a port; say so."""
+    client, app, database, vault = backend
+    login(client)
+    database.create_server(alias="db1", hostname="db1.example.invalid", username="alice")
+    database.create_tunnel("db1", name="old", kind="local", forward="6379:localhost:6379")
+
+    from ssh_server_manager import tunnels as tunnel_module
+
+    record = {
+        "id": "gone", "name": "old", "alias": "db1", "kind": "local",
+        "forward": "127.0.0.1:6379:localhost:6379", "pid": 4242,
+        "started_at": "2026-10-20T10:00:00+00:00",
+    }
+    import os
+    os.makedirs(tunnel_module.runtime_dir(), exist_ok=True)
+    tunnel_module._write_state({"gone": record})
+    # Pretend the process is alive and still ours so the route reports it.
+    original = tunnel_module._record_is_running
+    tunnel_module._record_is_running = lambda item: True
+    try:
+        rows = client.get("/api/v1/tunnels").json()
+    finally:
+        tunnel_module._record_is_running = original
+        tunnel_module._write_state({})
+    orphan = next(row for row in rows if row.get("orphan"))
+    assert orphan["name"] == "old"
+    assert orphan["pid"] == 4242
+    assert orphan["running"] is True
+
+
+def test_audit_endpoint_reads_the_local_log_and_never_returns_a_value(backend, tmp_path):
+    client, app, database, vault = backend
+    login(client)
+    from ssh_server_manager import audit
+
+    audit.record("exec", actor="cli", alias="box", command=["systemctl", "is-active", "nginx"], returncode=0)
+    audit.record("reveal", actor="web", credential="prod root", slot="password")
+    audit.record("reveal_denied", actor="web", credential="prod root")
+    audit.record("exec", actor="cli", alias="box", command=["psql", "--password=hunter2", "-c", "select 1"])
+
+    response = client.get("/api/v1/audit", params={"limit": 10})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True
+    assert body["count"] == 4
+    # Newest first, and the reveal is described by label, never by value.
+    assert [event["event"] for event in body["events"]][:2] == ["exec", "reveal_denied"]
+    reveal = next(event for event in body["events"] if event["event"] == "reveal")
+    assert reveal["credential"] == "prod root"
+    assert reveal["slot"] == "password"
+    assert "value" not in reveal
+    # A credential inside a recorded command is masked before it is stored.
+    masked = next(event for event in body["events"] if event.get("command"))
+    assert "hunter2" not in response.text
+
+    filtered = client.get("/api/v1/audit", params={"event": ["reveal", "reveal_denied"]}).json()
+    assert filtered["count"] == 2
+    assert {event["event"] for event in filtered["events"]} == {"reveal", "reveal_denied"}
+
+    by_alias = client.get("/api/v1/audit", params={"alias": "box"}).json()
+    assert by_alias["count"] == 2
+
+
+def test_audit_endpoint_handles_an_empty_log(backend):
+    client, app, database, vault = backend
+    login(client)
+    body = client.get("/api/v1/audit").json()
+    assert body == {"ok": True, "path": body["path"], "segments": [], "count": 0, "events": []}
+
+
+def test_new_views_are_read_only(backend):
+    """Neither surface may mutate anything: both are GET-only on purpose."""
+    client, app, database, vault = backend
+    login(client)
+    for path in ("/api/v1/tunnels", "/api/v1/audit"):
+        for method in (client.post, client.patch, client.delete):
+            assert method(path).status_code == 405, (method.__name__, path)

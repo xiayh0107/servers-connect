@@ -73,6 +73,23 @@
   A profile write now *preserves* an unchanged looked-up value without letting it
   mint a new one, `serverctl import` applies a location through the resolver's own
   entry point, and a manual override in the file still wins on import.
+- Add the Web UI for the two surfaces that only had a CLI: a **Ports** page and
+  an **Audit** page. Both are GET-only, so neither can start, stop, or rewrite
+  anything from a browser. `GET /api/v1/tunnels` joins saved forwarding profiles
+  with the live process table (running, pid, uptime, and an `orphan` flag for a
+  process whose profile was deleted); a running record now also keeps the bind
+  shape so an orphaned row can still show the forward it holds, and the DTO
+  allows those fields to be absent for records written before that. `GET
+  /api/v1/audit` serves the append-only log newest-first with `limit`, `alias`,
+  `event` and `since` filters; the response type has no value field, so a reveal
+  can only ever appear as a credential label and slot. The Ports page marks a
+  wildcard bind `Exposed` and a loopback bind `Loopback`, and shows an orphaned
+  process as such instead of hiding it. The Audit page groups events into the
+  same kinds as the CLI filter, names each in plain words, marks a masked command
+  `MASKED`, and turns the range control into a `since` query instead of slicing a
+  long log in the browser. Both pages are lazy chunks: Ports adds 2.2 KiB gzip and
+  Audit 2.6 KiB, leaving the initial load at 86.6 of 150 KiB and the total at
+  135.8 of 250 KiB.
 - Rotate the audit log instead of letting it grow forever: once the live file
   reaches 5 MiB (`SSM_AUDIT_MAX_BYTES`) it becomes `audit.log.1`, older segments
   shift up, and three are kept. `serverctl audit rotate [--force]` does the same

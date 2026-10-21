@@ -41,6 +41,8 @@ const paths: Record<string, ReactNode> = {
   clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
   key: <><circle cx="8" cy="9" r="4"/><path d="M11 12l8 8M15 16l3-3M17 18l3-3"/></>,
   pulse: <path d="M3 12h4l2-6 4 12 2-6h6"/>,
+  ports: <><path d="M4 8.5h13.5l-3.2-3.2"/><path d="M20 15.5H6.5l3.2 3.2"/></>,
+  audit: <><path d="M5.5 3.5h9l4.5 4.5v12.5h-13.5z"/><path d="M13.5 3.5v5h5"/><path d="M8.8 14.2l2 2 4-4.2"/></>,
 };
 export function Icon({name, size = 16}: {name: string; size?: number}) {
   return <svg aria-hidden="true" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{paths[name] || paths.file}</svg>;
