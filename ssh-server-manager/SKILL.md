@@ -337,11 +337,11 @@ Three tools, in the order to reach for them:
 1. `serverctl path resolve` tells you where the user works on a host. Saved
    directories are metadata the user wrote — they are not proof a path still
    exists, so treat a resolve result as a starting point, not a guarantee.
-2. `serverctl get` / `put` / `cp` move one file at a time over the same SFTP
-   path and vault credentials as everything else. Exactly one side is
-   `ALIAS:PATH`; host-to-host copies are refused. `get` will not overwrite an
-   existing local file without `--force`, and that refusal is a question for
-   the user, not something to force past.
+2. `serverctl get` / `put` / `cp` move one file over the same SFTP path and
+   vault credentials as everything else, and `--recursive` moves a whole tree.
+   Exactly one side is `ALIAS:PATH`; host-to-host copies are refused. `get` will
+   not overwrite an existing local file without `--force`, and that refusal is a
+   question for the user, not something to force past.
 3. `serverctl mount` is for editing a handful of files in a local editor. It
    depends on a FUSE stack that is often absent, and it makes remote latency
    look local — anything that walks a large tree (a repo-wide search, a build,

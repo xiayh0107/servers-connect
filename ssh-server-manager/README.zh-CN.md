@@ -66,7 +66,13 @@ cd servers-connect/ssh-server-manager
 - **连接测试** —— `server test` 报告延迟和分类错误码（认证失败 / 主机密钥不受信 / 超时 / DNS 失败等），并记录历史。
 - **远程执行** —— `serverctl exec 别名 -- 命令 参数`；`--shell` 跑管道和复合命令，`--stdin`/`--stdin-binary` 流式传输文件，`--reuse N` 复用连接（macOS/Linux），`--json` 输出机器可读结果。
 - **本地 Web UI** —— 可新建、重命名、删除标签，搜索并批量分配主机，也可按项目/场景筛选；Hosts、Files、Tags、Skills、Credentials 与主机详情均使用真实 API，支持系统、亮色、暗色、高对比主题和可选强调色。连接检查与系统诊断分开操作，展示历史观察及最后成功时间；Files 支持标签页、常用目录、服务端过滤、明确覆盖和容量限制；私钥可显式检查与验证，凭据可独立测试、预览引用并明确解绑删除。查看秘密前需通行密钥或主密码重新认证，15 秒后自动清除；后台运行的界面可用 `serverctl ui --status` / `--stop` 查看和关闭，无需手工记 PID。
-- **诊断** —— `serverctl doctor` 检查 ssh 与 sftp 可用性、OpenSSH 版本、保险库后端安全性、数据库与配置路径、Python 依赖。
+- **端口转发** —— 每台主机保存一条转发（`serverctl tunnel add db1-local --server db1 --local 15432:localhost:5432`），以脱离终端的 `ssh -N` 打开（`tunnel open`），并支持 `status` 与 `close`。默认只绑定 `127.0.0.1`，`status` 依据真实进程判断转发是否存活。
+- **审计日志** —— 本地只追加、权限 600 的记录，覆盖远程命令与秘密查看（`serverctl audit list --json`）。5 MiB 自动轮转，掩码命令行里的凭据形状参数，从不保存秘密值本身。
+- **可移植清单** —— `serverctl export` 输出确定性的 JSON（主机、常用目录、转发配置），可用于 git 或迁移到另一台机器；`serverctl import` 先预览再合并。不含秘密，也不含凭据 ID。
+- **Agent 集成** —— 主机绑定的 Agent Skill，外加可选的 MCP 服务（`serverctl mcp serve`）：默认只读，须以 `--allow-remote` 或 `--allow-exec --allow-command 模式` 启动才可执行，且永远不会泄露秘密。
+- **Mosh 与会话记录** —— `serverctl connect 别名 --mosh` 适合漫游网络；`connect --log` 记录可选、已脱敏的会话文本。
+- **本地 GeoIP** —— `serverctl geo resolve --all --apply` 用本地网段文件补充主机地理位置；不访问任何在线服务，读取清单时也从不查询。
+- **诊断** —— `serverctl doctor` 检查 ssh 与 sftp 可用性、OpenSSH 版本、挂载后端、mosh 与 GeoIP 支持、保险库后端安全性、数据库与配置路径、Python 依赖。
 
 ## 平台支持
 

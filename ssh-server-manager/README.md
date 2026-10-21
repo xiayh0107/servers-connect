@@ -102,9 +102,9 @@ browser with a one-time tokenized URL.
   "where does this fleet keep its application" in one read, with no connection,
   grouping hosts that share a layout.
 - **File transfer** — `serverctl get web1:/srv/app/config.yml .` and
-  `serverctl put ./config.yml web1:/srv/app/` move single files over the same
-  SFTP path and vault credentials, so no password prompt appears where `scp`
-  and `rsync` would ask for one they cannot supply.
+  `serverctl put ./config.yml web1:/srv/app/` move files over the same SFTP path
+  and vault credentials, and `--recursive` copies a whole tree, so no password
+  prompt appears where `scp` and `rsync` would ask for one they cannot supply.
 - **Local mounting** — `serverctl mount web1:/srv/app` exposes a remote
   directory to Finder, Explorer, and your editor through sshfs. Needs a FUSE
   layer that `serverctl doctor` checks for; see
@@ -118,9 +118,27 @@ browser with a one-time tokenized URL.
   successful observation. Reveal a stored secret for 15 seconds after passkey
   or master-password re-authentication. The session shows its actual expiry. Inspect or shut down a background instance with
   `serverctl ui --status` / `--stop` — no pid bookkeeping.
+- **Port forwarding** — save a forward per host (`serverctl tunnel add db1-local
+  --server db1 --local 15432:localhost:5432`) and open it as a detached `ssh -N`
+  (`tunnel open`), with `status` and `close`. Binds to `127.0.0.1` unless you say
+  otherwise, and `status` proves a forward is live against the real process.
+- **Audit log** — a local, append-only, mode-600 record of remote commands and
+  secret reveals (`serverctl audit list --json`). It rotates itself at 5 MiB,
+  masks credential-shaped arguments, and never stores a secret value.
+- **Portable inventory** — `serverctl export` writes a deterministic JSON
+  document of hosts, saved paths, and tunnels for git or another machine;
+  `serverctl import` previews, then merges. Never secrets or credential ids.
+- **Agent integration** — a host-bound Agent Skill, plus an optional MCP server
+  (`serverctl mcp serve`) that is read-only unless started with `--allow-remote`
+  or `--allow-exec --allow-command PATTERN`, and never reveals a secret.
+- **Mosh and session transcripts** — `serverctl connect ALIAS --mosh` for
+  roaming links, and `connect --log` for an opt-in, redacted transcript.
+- **Local GeoIP** — `serverctl geo resolve --all --apply` fills host locations
+  from a local range file; no web service, and never a lookup when reading the
+  inventory.
 - **Diagnostics** — `serverctl doctor` checks ssh availability and version,
-  SFTP availability, mount backend availability, vault backend safety, database
-  and config paths, and Python dependencies.
+  SFTP availability, mount backend availability, mosh and GeoIP support, vault
+  backend safety, database and config paths, and Python dependencies.
 
 ## Platform support
 
@@ -130,6 +148,9 @@ browser with a one-time tokenized URL.
 | Credential vault | Keychain | Secret Service (gnome-keyring / KWallet / KeePassXC) | Credential Locker |
 | Secret reveal re-auth | Touch ID passkey or master password | passkey or master password | Windows Hello passkey or master password |
 | Connection reuse (`--reuse`) | ✅ | ✅ | — (OpenSSH ControlMaster needs Unix sockets; a warning is printed) |
+| Background tunnels (`serverctl tunnel`) | ✅ | ✅ | ✅ |
+| Mosh (`connect --mosh`) | ✅ | ✅ | — (the Windows client is not offered; use `connect`) |
+| Session transcripts (`connect --log`) | ✅ | ✅ | — (needs a POSIX pty; the command says so) |
 
 Details and headless-server notes: [docs/platforms.md](docs/platforms.md).
 CI runs the full test suite on all three platforms.

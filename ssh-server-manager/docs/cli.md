@@ -337,8 +337,7 @@ vault.
   `--force`.
 - Without `--json` the transfer streams sftp's own progress meter. With
   `--json` it is captured and reported as bytes and duration.
-- One file at a time. Recursive transfers are not supported; use `serverctl
-  mount` or a remote archive through `serverctl exec` for a whole tree.
+- One file per invocation, or a whole tree with `--recursive` (see below).
 
 Browser transfers use a separate 100 MiB limit, advertised by
 `/api/v1/runtime`. HTTP uploads refuse existing destinations by default;

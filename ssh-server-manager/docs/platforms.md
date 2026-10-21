@@ -9,6 +9,10 @@ CI runs the full test suite on macOS, Ubuntu, and Windows on every push.
 - **Passkey reveal**: Touch ID via Safari/Chrome WebAuthn.
 - **OpenSSH**: preinstalled (`/usr/bin/ssh`).
 - Connection reuse (`--reuse`) fully supported.
+- **Tunnels, mosh, and session transcripts**: all available. A tunnel keeps its
+  liveness marker under the runtime directory (`/tmp/ssm-<uid>`), which must stay
+  short: OpenSSH rejects a `ControlPath` of 104 characters or more, and
+  `serverctl` names `SSM_RUNTIME_DIR` if an override makes it too deep.
 
 ## Linux
 
@@ -27,7 +31,11 @@ CI runs the full test suite on macOS, Ubuntu, and Windows on every push.
 - **Passkey reveal**: requires a WebAuthn-capable browser + authenticator;
   otherwise enroll the master password.
 - Connection reuse fully supported. Runtime sockets live in `/tmp/ssm-<uid>`
-  (kept short because OpenSSH limits `ControlPath` length).
+  (kept short because OpenSSH limits `ControlPath` length — the same limit
+  applies to a tunnel's liveness marker).
+- **Tunnels, mosh, and session transcripts**: all available. Session logs are
+  written under the data directory; on a headless server they are the reason to
+  have `SSM_DATA_DIR` somewhere durable.
 
 ## Windows
 
@@ -43,6 +51,13 @@ CI runs the full test suite on macOS, Ubuntu, and Windows on every push.
   `exec` authenticates independently (vault auth is non-interactive, so
   this costs latency, not typing).
 - **Passkey reveal**: Windows Hello via Edge/Chrome.
+- **Tunnels**: supported (a detached `ssh -N`, terminated with the Win32 API
+  rather than a Unix signal).
+- **Mosh**: not offered on Windows; `connect --mosh` says so instead of
+  falling back to ssh.
+- **Session transcripts (`connect --log`)**: not available — there is no pty in
+  the standard library on Windows, and `--log` refuses rather than recording
+  nothing.
 - Use `scripts\serverctl.cmd` from a source checkout; plain `serverctl`
   after pipx/uv install.
 
@@ -56,5 +71,11 @@ CI runs the full test suite on macOS, Ubuntu, and Windows on every push.
 | Linux | `$XDG_DATA_HOME/ssh-server-manager/manager.db` | `~/.ssh/ssh-server-manager.conf` |
 | Windows | `%LOCALAPPDATA%\ssh-server-manager\manager.db` | `~\.ssh\ssh-server-manager.conf` |
 
+Beside the database live the audit log (`audit.log`, plus rotated
+segments), session transcripts (`sessions/`), and an optional local GeoIP file
+(`geoip.csv` / `geoip.mmdb`). Running tunnels record their pids in the runtime
+directory, not in the database.
+
 Overrides for testing/isolation: `SSM_DATA_DIR`, `SSM_RUNTIME_DIR`,
-`SSM_ORIGINAL_SSH_CONFIG`, `SSM_MANAGED_SSH_CONFIG`.
+`SSM_ORIGINAL_SSH_CONFIG`, `SSM_MANAGED_SSH_CONFIG`, `SSM_GEOIP_CSV`,
+`SSM_GEOIP_MMDB`, `SSM_AUDIT_MAX_BYTES`.
