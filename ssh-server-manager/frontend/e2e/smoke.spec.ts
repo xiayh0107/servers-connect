@@ -105,8 +105,20 @@ async function mockApi(page: Page, empty = false, unobserved = false) {
           owner: 'deploy', group: 'deploy', hidden: false, uid: 1001, gid: 1001, link_target: null,
           ...value, path: `${path === '/' ? '' : path}/${value.name}`,
         }));
+        // SFTP-listing shape: the UI paints this and then asks for precise
+        // metadata, exactly as it does against a real host.
         return reply({alias: current.alias, path, parent: path === '/' ? null : path.slice(0, path.lastIndexOf('/')) || '/',
-          entries, total: seedEntries.length, matching_total: entries.length, truncated: false, unparsed: 0, latency_ms: 24, connection_checked_at: observed});
+          entries, total: seedEntries.length, matching_total: entries.length, truncated: false, unparsed: 0, latency_ms: 24,
+          enrichment_ms: null, total_ms: 24, enriched: false, connection_checked_at: observed});
+      }
+      if (current && method === 'POST' && parts[2] === 'files' && parts[3] === 'metadata') {
+        // The optional second round trip: precise fields per name, which the
+        // SFTP listing deliberately cannot carry.
+        const body = request.postDataJSON() as {path: string; entries: {name: string}[]};
+        const extras = Object.fromEntries(body.entries.map(entry => [entry.name, {
+          uid: 1001, gid: 1001, owner: 'deploy', group: 'deploy', modified_at: observed, link_target: null,
+        }]));
+        return reply({path: body.path, entries: extras});
       }
       if (current && parts[2] === 'paths') {
         if (method === 'GET') return reply(paths);
@@ -483,9 +495,12 @@ test(`key dialogs at ${width}px contain keyboard focus and close with Escape`, a
       await expect(dialog.getByRole('radio', {name: /Private key file/})).toBeChecked();
       await dialog.getByRole('textbox', {name: 'Label'}).fill('ci-runner');
     });
-  expect(state.requests.filter(value => value.method !== 'GET')).toHaveLength(2);
-  expect(state.requests.filter(value => value.method !== 'GET')[0].path).toMatch(/\/upload$/);
-  expect(state.requests.filter(value => value.method !== 'GET')[1].path).toMatch(/\/test$/);
+  // Deliberate writes only. The precise-metadata probe is a read that happens
+  // to use POST, so it is excluded rather than silently counted as an action.
+  const actions = state.requests.filter(value => value.method !== 'GET' && !value.path.endsWith('/files/metadata'));
+  expect(actions).toHaveLength(2);
+  expect(actions[0].path).toMatch(/\/upload$/);
+  expect(actions[1].path).toMatch(/\/test$/);
   assertClean(state);
 });
 }
@@ -495,11 +510,15 @@ test('linked remote paths, filtering and explicit overwrite preserve the origina
   const directory = '/srv/space #&?中';
   await page.goto(`/assets/#/files/${encodeURIComponent(hosts[0].id)}?path=${encodeURIComponent(directory)}`);
   await expect(page.getByRole('table', {name: 'Remote files'})).toBeVisible();
-  expect(new URL(`http://fixture${state.requests.find(value => value.path.includes('/files'))!.path}`).searchParams.get('path')).toBe(directory);
+  // A record keeps "pathname?query", so match the endpoint, not the whole path.
+  const isListing = (value: string) => new URL(`http://fixture${value}`).pathname.endsWith('/files');
+  const listings = state.requests.filter(value => isListing(value.path));
+  expect(new URL(`http://fixture${listings[0]!.path}`).searchParams.get('path')).toBe(directory);
   await page.getByRole('textbox', {name: 'Filter this folder'}).fill('README');
   await expect(page.getByRole('button', {name: 'README.md', exact: true})).toBeVisible();
   await expect(page.getByRole('button', {name: 'app.py', exact: true})).toHaveCount(0);
-  expect(new URL(`http://fixture${state.requests.filter(value => value.path.includes('/files')).at(-1)!.path}`).searchParams.get('name_filter')).toBe('README');
+  // The filter request is a listing, not the precise-metadata probe.
+  expect(new URL(`http://fixture${state.requests.filter(value => isListing(value.path)).at(-1)!.path}`).searchParams.get('name_filter')).toBe('README');
   await page.getByLabel('Upload file').setInputFiles({name: 'report.txt', mimeType: 'text/plain', buffer: Buffer.from('browser-smoke')});
   const conflict = page.getByRole('dialog', {name: 'File already exists'});
   await expect(conflict).toBeVisible();
@@ -576,7 +595,12 @@ test('dialog Back and Forward never replay transfers and rapid reopening stays o
   await expect(switcher).toBeVisible();
   await page.goBack(); await expect(switcher).toHaveCount(0);
   await page.goForward(); await expect(switcher).toBeVisible();
-  expect(state.requests.filter(value => value.method !== 'GET')).toHaveLength(0);
+  // History navigation issues no action. The precise-metadata probe is a read
+  // that happens to use POST; it is counted separately so that this stays a
+  // real assertion rather than an allowlist that hides a replayed transfer.
+  const actions = () => state.requests.filter(value => value.method !== 'GET' && !value.path.endsWith('/files/metadata'));
+  expect(actions()).toHaveLength(0);
+  expect(state.requests.filter(value => value.path.endsWith('/files/metadata')).length).toBeLessThanOrEqual(1);
   await switcher.getByRole('button', {name: 'Close', exact: true}).click();
   await page.getByRole('button', {name: 'New file tab'}).click();
   const newTab = page.getByRole('dialog', {name: 'Open a file tab'});
