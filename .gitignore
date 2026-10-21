@@ -19,3 +19,6 @@ node_modules/
 ssh-server-manager/frontend/dist/
 ssh-server-manager/frontend/test-results/
 ssh-server-manager/frontend/playwright-report/
+
+# transient tool caches (gh log downloads when XDG_CACHE_HOME is redirected)
+.gh-cache/
