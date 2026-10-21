@@ -73,6 +73,16 @@
   A profile write now *preserves* an unchanged looked-up value without letting it
   mint a new one, `serverctl import` applies a location through the resolver's own
   entry point, and a manual override in the file still wins on import.
+- Add an MCP HTTP transport for clients that cannot spawn a process:
+  `serverctl mcp serve --http [--port N] [--token-file PATH]`. It is the same
+  server, policy and audit trail as stdio — only the transport differs — and it
+  is deliberately narrow: it binds `127.0.0.1` and refuses a non-loopback `Host`,
+  requires `Authorization: Bearer` on every request (a per-launch token printed
+  once to stderr, or written to a mode-600 file with `--token-file`), refuses any
+  request carrying an `Origin` header so a browser page cannot drive it even with
+  a stolen token, accepts only `POST /mcp`, and answers a notification with `202`
+  and no body. Verified live: 401 without the token, 403 from a browser origin,
+  and `lsof` showing a loopback-only listener.
 - Add the Web UI for the two surfaces that only had a CLI: a **Ports** page and
   an **Audit** page. Both are GET-only, so neither can start, stop, or rewrite
   anything from a browser. `GET /api/v1/tunnels` joins saved forwarding profiles

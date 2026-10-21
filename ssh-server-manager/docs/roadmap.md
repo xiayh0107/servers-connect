@@ -66,22 +66,25 @@ ecosystem). Ordered by expected impact.
     reach the same page. That stays a non-goal, recorded here so the item is
     closed rather than forever pending.
 
-## Deliberately not planned
+## Decisions (owner, 2026-10-21)
 
-Recorded so these stay decisions rather than indefinitely pending work.
+Recorded so these stay decisions with a date and an owner, rather than an
+inherited default. Earlier revisions of this file listed the first two as "not
+planned" on the maintainer's engineering judgement; the owner has since decided
+otherwise and they are now in scope.
 
-- **MCP over HTTP for remote agents.** The MCP wrapper speaks stdio because the
-  inventory, the vault and the audit log all belong to one OS account on one
-  machine. An HTTP listener reachable by another machine is the opposite of that
-  boundary, and the loopback Web UI already covers same-machine use.
-- **Tunnel and audit surfaces in the Web UI.** Both have complete CLI surfaces
-  (`serverctl tunnel`, `serverctl audit`), which is what agents and scripts use.
-  Adding them to the six-page UI means new pages inside the 150/250 KiB gzip
-  budgets for information a person rarely needs interactively — a tunnel is
-  opened and a log is read far more often from a shell. Revisit if real use shows
-  people opening tunnels from the browser.
-- **winget manifest and a bundled desktop shell.** Covered above: winget needs a
-  Windows installer this repo does not build, and a desktop shell would add a
-  second toolchain to reach a page a browser already serves.
+- **Web UI for ports and audit — done (unreleased).** Read-only first: both
+  views are GET-only, so a browser cannot start a trace or rewrite history. The
+  budget concern that motivated the earlier "not planned" note did not hold: the
+  pages are lazy chunks and cost 2.2 and 2.6 KiB gzip.
+- **MCP over HTTP — in scope.** The stdio server stays the default; an HTTP
+  listener is added for agents that cannot spawn a process, and it must stay
+  loopback-only with a bearer token and the same allowlist policy as stdio.
+- **winget — not planned.** winget installs a Windows installer, not a Python
+  package; a manifest would promise an install path nothing in this repo builds.
+  The supported Windows install is `install.ps1` or `pipx`.
+- **A bundled desktop shell — not planned.** The six-page UI already runs on
+  loopback and any browser can wrap it; a second toolchain would exist only to
+  reach the same page. (Electron remains a non-goal.)
 
 Non-goals: cloud sync of secrets, telemetry, subscriptions, Electron.

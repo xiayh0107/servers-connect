@@ -14,8 +14,13 @@ still useful, and it is bounded by three rules:
 * **Every acting call is audited** under actor `mcp`, so a human can see what an
   agent did through this interface exactly as they can for the CLI.
 
-Transport is the MCP stdio binding: one JSON-RPC 2.0 message per line on stdin,
-one per line on stdout, logs on stderr only.
+Two transports share that policy and the same message handler. The stdio binding
+is the default: one JSON-RPC 2.0 message per line on stdin, one per line on
+stdout, logs on stderr only. `serve_http` exists for clients that cannot spawn a
+process, and it is deliberately narrow: a loopback-only listener, a bearer token
+required on every request, and any request carrying an `Origin` header refused —
+a browser page therefore cannot drive it even if it learns the token, because
+nothing about this server should be reachable from a web origin.
 """
 
 from __future__ import annotations
@@ -507,4 +512,138 @@ def serve(
         if response is not None:
             writer.write(json.dumps(response, ensure_ascii=False) + "\n")
             writer.flush()
+    return 0
+
+
+# --- HTTP transport -----------------------------------------------------------------
+
+
+def _constant_time_equal(left: str, right: str) -> bool:
+    import hmac
+
+    return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+
+
+def _is_loopback_host(header: str) -> bool:
+    value = header.strip().lower()
+    if value.startswith("["):
+        host = value[1: value.find("]")] if "]" in value else value
+    else:
+        host = value.rsplit(":", 1)[0] if ":" in value else value
+    return host in {"127.0.0.1", "localhost", "::1"}
+
+
+def make_http_server(
+    database: Database,
+    *,
+    policy: Policy | None = None,
+    token: str,
+    port: int = 0,
+    bind: str = "127.0.0.1",
+) -> "ThreadingHTTPServer":
+    """Build (but do not start) the loopback MCP listener.
+
+    Kept separate from `serve_http` so a test can bind port 0, read the chosen
+    port, and drive the real handler without racing a foreground accept loop.
+    """
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    if not _is_loopback_host(f"{bind}:0"):
+        raise ValidationError("the MCP HTTP listener must bind loopback (127.0.0.1)")
+    if not token:
+        raise ValidationError("the MCP HTTP listener needs a bearer token")
+    server = McpServer(database, policy=policy)
+
+    class Handler(BaseHTTPRequestHandler):
+        server_version = f"{SERVER_NAME}/__version__"
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *args: Any) -> None:  # noqa: D401 - silence stderr spam
+            return
+
+        def _reply(self, status: int, payload: dict[str, Any] | None = None) -> None:
+            body = b"" if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            if payload is not None:
+                self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+
+        def _refuse(self, status: int, message: str) -> None:
+            self._reply(status, {"jsonrpc": "2.0", "id": None, "error": {"code": -32000, "message": message}})
+
+        def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+            if self.path.split("?")[0] not in {"/mcp", "/"}:
+                self._refuse(404, "not found")
+                return
+            # A browser page always sends Origin; nothing about this server should
+            # be reachable from one, even with a stolen token.
+            if self.headers.get("Origin"):
+                self._refuse(403, "browser origins are not allowed")
+                return
+            if not _is_loopback_host(self.headers.get("Host", "")):
+                self._refuse(403, "loopback host required")
+                return
+            authorization = self.headers.get("Authorization", "")
+            scheme, _, presented = authorization.partition(" ")
+            if scheme.lower() != "bearer" or not _constant_time_equal(presented, token):
+                self._reply(401, {"error": "unauthorized"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                self._refuse(400, "invalid content length")
+                return
+            if length <= 0 or length > 1024 * 1024:
+                self._refuse(413 if length > 0 else 400, "invalid body size")
+                return
+            raw = self.rfile.read(length)
+            try:
+                message = json.loads(raw)
+            except ValueError:
+                self._reply(200, _error(None, -32700, "parse error"))
+                return
+            if isinstance(message, list):
+                responses = [item for item in (server.handle_message(entry) for entry in message if isinstance(entry, dict)) if item]
+                self._reply(200, responses) if responses else self._reply(202)
+                return
+            if not isinstance(message, dict):
+                self._reply(200, _error(None, -32600, "invalid request"))
+                return
+            response = server.handle_message(message)
+            if response is None:
+                self._reply(202)
+                return
+            self._reply(200, response)
+
+        def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+            # No SSE or browse surface: this endpoint does work, it does not stream.
+            self._refuse(405, "POST only")
+
+    return ThreadingHTTPServer((bind, port), Handler)
+
+
+def serve_http(
+    database: Database,
+    *,
+    policy: Policy | None = None,
+    token: str,
+    port: int = 0,
+    bind: str = "127.0.0.1",
+    on_ready: Callable[[str], None] | None = None,
+) -> int:
+    """Serve MCP over loopback HTTP until interrupted."""
+    server = make_http_server(database, policy=policy, token=token, port=port, bind=bind)
+    host, chosen = server.server_address[0], server.server_address[1]
+    if on_ready is not None:
+        on_ready(f"http://{host}:{chosen}/mcp")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        server.server_close()
     return 0

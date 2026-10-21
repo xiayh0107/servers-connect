@@ -631,6 +631,7 @@ Behaviour worth knowing:
 
 ```
 serverctl mcp serve [--allow-remote] [--allow-exec] [--allow-command PATTERN]
+                    [--http] [--port N] [--token-file PATH]
 serverctl mcp tools [--allow-remote] [--allow-exec] [--allow-command PATTERN] [--json]
 ```
 
@@ -659,6 +660,37 @@ line, so nothing but protocol messages may go to stdout.
 - Acting calls are audited under actor `mcp`.
 - An unknown host key still cannot be confirmed through MCP; verify the host
   once in a terminal with `serverctl server test ALIAS`.
+
+### MCP over HTTP
+
+`serverctl mcp serve --http` adds a loopback HTTP endpoint for clients that
+cannot spawn a process. It is the same server, the same policy and the same audit
+trail as the stdio binding — only the transport differs.
+
+```
+serverctl mcp serve --http --token-file ~/.cache/mcp-token \
+  --allow-exec --allow-command 'uptime'
+# MCP endpoint: http://127.0.0.1:PORT/mcp
+```
+
+What it refuses, by construction:
+
+- **Anything but loopback.** It binds `127.0.0.1` and refuses a request whose
+  `Host` header is not a loopback name; there is no address to configure away.
+- **Browser origins.** Any request carrying an `Origin` header is refused with
+  `403`, so a web page cannot drive the server even if the token leaks into it.
+- **A missing or wrong token.** Every request needs
+  `Authorization: Bearer <token>`. The token is generated per launch and printed
+  once to stderr; `--token-file` writes it to a mode-600 file instead, which is
+  what a client config should read. Treat the printed copy as a disclosure.
+- **Everything but POST on `/mcp`.** There is no browse surface and no streaming
+  endpoint; a notification gets `202` with no body.
+
+The token is a cacheable, local-file secret, not an authorization system: it
+decides *whether* a client may talk to this listener, while `--allow-remote` and
+`--allow-exec` decide *what* it may ask for. Keep both narrow, and remember that
+an HTTP client can hold the token in its config — prefer stdio where the client
+can spawn a process.
 
 ## Config
 

@@ -547,6 +547,19 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATTERN",
         help="glob over the command line (or argv[0]) that run_command may execute",
     )
+    mcp_serve.add_argument(
+        "--http",
+        action="store_true",
+        help="listen on loopback HTTP instead of stdio, for clients that cannot spawn a process",
+    )
+    mcp_serve.add_argument(
+        "--port", type=int, default=0, help="loopback port for --http (0 chooses a free one)"
+    )
+    mcp_serve.add_argument(
+        "--token-file",
+        type=Path,
+        help="write the bearer token to this mode-600 file instead of only printing it",
+    )
     add_json_option(mcp_serve)
     mcp_tools = mcp_commands.add_parser(
         "tools", help="print the tools this policy would expose"
@@ -1249,7 +1262,36 @@ def handle(args: argparse.Namespace) -> int:
                     "--allow-exec without --allow-command enables nothing; pass at least "
                     "one pattern, for example --allow-command 'uptime'"
                 )
-            return mcp_server.serve(database, policy=policy)
+            if not args.http:
+                if args.port or args.token_file:
+                    raise ValidationError("--port and --token-file only apply with --http")
+                return mcp_server.serve(database, policy=policy)
+
+            import secrets
+
+            token = secrets.token_urlsafe(32)
+            if args.token_file:
+                path = args.token_file.expanduser()
+                descriptor = os.open(str(path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    handle.write(token + "\n")
+                destination = f"and written to {path}"
+            else:
+                destination = "print it once more with --token-file"
+            print(
+                f"Bearer token: {token}\n"
+                f"This listener is loopback-only and refuses browser origins. "
+                f"Reading the token from this output is a disclosure: pass it directly, "
+                f"{destination}.",
+                file=sys.stderr,
+            )
+
+            def announce(url: str) -> None:
+                print(f"MCP endpoint: {url}", file=sys.stderr)
+
+            return mcp_server.serve_http(
+                database, policy=policy, token=token, port=args.port, on_ready=announce
+            )
         return 2
     if args.command == "audit":
         from . import audit as audit_module

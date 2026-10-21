@@ -15,6 +15,7 @@ import pytest
 
 from ssh_server_manager import mcp_server
 from ssh_server_manager.db import Database
+from ssh_server_manager.validation import ValidationError
 
 
 @pytest.fixture()
@@ -269,3 +270,151 @@ def test_oversized_results_are_truncated(database, monkeypatch):
     server = mcp_server.McpServer(database)
     response = call(server, "tools/call", {"name": "list_hosts", "arguments": {}})
     assert response["result"]["content"][0]["text"].endswith("… truncated")
+
+
+# --- HTTP transport ---------------------------------------------------------------
+
+
+def http_server(database, *, policy=None, token="fixture-token"):
+    """A real listener on an ephemeral loopback port, driven by urllib."""
+    return mcp_server.make_http_server(database, policy=policy, token=token, port=0)
+
+
+def post(server, body, *, token="fixture-token", headers=None, path="/mcp"):
+    import urllib.error
+    import urllib.request
+
+    host, port = server.server_address[0], server.server_address[1]
+    request = urllib.request.Request(
+        f"http://{host}:{port}{path}",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json", **({"Authorization": f"Bearer {token}"} if token else {}), **(headers or {})},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            raw = response.read()
+            return response.status, (json.loads(raw) if raw else None)
+    except urllib.error.HTTPError as exc:
+        raw = exc.read()
+        return exc.code, (json.loads(raw) if raw else None)
+
+
+def test_http_requires_a_bearer_token(database):
+    import threading
+
+    server = http_server(database)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        ping = {"jsonrpc": "2.0", "id": 1, "method": "ping"}
+        assert post(server, ping, token=None)[0] == 401
+        assert post(server, ping, token="wrong")[0] == 401
+        status, body = post(server, ping)
+        assert status == 200 and body["result"] == {}
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_refuses_a_browser_origin_even_with_the_token(database):
+    """A web page must not be able to drive this listener, token or not."""
+    import threading
+
+    server = http_server(database)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, _body = post(
+            server,
+            {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+            headers={"Origin": "https://evil.example"},
+        )
+        assert status == 403
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_refuses_a_non_loopback_host_header(database):
+    import threading
+
+    server = http_server(database)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, _body = post(
+            server, {"jsonrpc": "2.0", "id": 1, "method": "ping"}, headers={"Host": "example.com"}
+        )
+        assert status == 403
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_is_post_only_and_has_no_browse_surface(database):
+    import threading
+    import urllib.request
+    import urllib.error
+
+    server = http_server(database)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        request = urllib.request.Request(f"http://{host}:{port}/mcp", headers={"Authorization": "Bearer fixture-token"})
+        try:
+            urllib.request.urlopen(request, timeout=10)
+            raise AssertionError("GET should not succeed")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 405
+        # An unknown path is not a resource either.
+        status, _body = post(server, {"jsonrpc": "2.0", "id": 1, "method": "ping"}, path="/etc/passwd")
+        assert status == 404
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_shares_the_stdio_policy(database):
+    """The allowlist is one decision, not one per transport."""
+    import threading
+
+    server = http_server(database)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, body = post(server, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        names = {tool["name"] for tool in body["result"]["tools"]}
+        assert status == 200
+        # Read-only by default, exactly as over stdio.
+        assert names == {tool["name"] for tool in mcp_server.READ_TOOLS}
+        status, body = post(server, {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "test_host", "arguments": {"host": "box"}}})
+        assert "unknown or disabled tool" in body["error"]["message"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_answers_a_notification_with_no_body(database):
+    import threading
+
+    server = http_server(database)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, body = post(server, {"jsonrpc": "2.0", "method": "notifications/initialized"})
+        assert (status, body) == (202, None)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_refuses_to_bind_anything_but_loopback(database):
+    with pytest.raises(ValidationError, match="must bind loopback"):
+        mcp_server.make_http_server(database, token="t", bind="0.0.0.0")
+
+
+def test_http_requires_a_token_to_exist(database):
+    with pytest.raises(ValidationError, match="bearer token"):
+        mcp_server.make_http_server(database, token="")
