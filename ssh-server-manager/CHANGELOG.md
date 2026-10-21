@@ -67,6 +67,12 @@
   private key or another volume), a remote link is refused on download, a
   symlinked root directory is refused on upload, and one call stops at 4000
   entries with a message pointing at a remote archive step.
+- Keep a looked-up host location usable. A `geo` value with source `geoip`
+  used to make every later profile write fail (editing notes re-validated the
+  stored value against the manual-only rule) and made an export fail on import.
+  A profile write now *preserves* an unchanged looked-up value without letting it
+  mint a new one, `serverctl import` applies a location through the resolver's own
+  entry point, and a manual override in the file still wins on import.
 - Rotate the audit log instead of letting it grow forever: once the live file
   reaches 5 MiB (`SSM_AUDIT_MAX_BYTES`) it becomes `audit.log.1`, older segments
   shift up, and three are kept. `serverctl audit rotate [--force]` does the same

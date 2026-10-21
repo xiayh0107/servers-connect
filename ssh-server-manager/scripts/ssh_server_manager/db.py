@@ -1537,7 +1537,7 @@ class Database:
             raise NotFoundError(f"server not found: {identifier}")
         return self._server_dict(row)
 
-    def _validate_server_payload(self, payload: dict[str, Any], *, current_id: str | None = None, connection: sqlite3.Connection | None = None) -> dict[str, Any]:
+    def _validate_server_payload(self, payload: dict[str, Any], *, current_id: str | None = None, connection: sqlite3.Connection | None = None, current_geo: dict[str, Any] | None = None) -> dict[str, Any]:
         alias = validate_alias(str(payload["alias"]))
         credential_id = payload.get("credential_id") or None
         if credential_id:
@@ -1552,10 +1552,37 @@ class Database:
             "tags": validate_server_tags(payload.get("tags", [])),
             "notes": validate_server_note(payload.get("notes", "")),
             "source": str(payload.get("source", "managed")),
-            "geo": validate_geo(payload.get("geo")),
+            "geo": self._normalize_payload_geo(payload.get("geo"), current_geo),
         }
         self._validate_proxy_graph(normalized, current_id=current_id, connection=connection)
         return normalized
+
+    @staticmethod
+    def _normalize_payload_geo(
+        value: dict[str, Any] | None, current: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Validate a geo value arriving through a profile write.
+
+        A location a human asserts arrives as ``manual`` and is validated as such.
+        A ``geoip`` value may only be *preserved*: an edit to an unrelated field on
+        a host whose location came from a local lookup must not fail just because
+        the stored value is not manual, and must not let a profile write mint a new
+        looked-up value either. Changing a looked-up value goes through
+        ``set_server_geo``.
+        """
+        if value is None:
+            return None
+        if (
+            current is not None
+            and isinstance(current, dict)
+            and current.get("source") == "geoip"
+            and isinstance(value, dict)
+            and value.get("source") == "geoip"
+            and value.get("country_code") == current.get("country_code")
+            and value.get("city") == current.get("city")
+        ):
+            return value
+        return validate_geo(value)
 
     def _validate_proxy_graph(self, candidate: dict[str, Any], *, current_id: str | None, connection: sqlite3.Connection | None = None) -> None:
         servers = self._list_servers(connection) if connection is not None else self.list_servers()
@@ -1659,7 +1686,12 @@ class Database:
             with self.transaction() as connection:
                 current = self._get_server(connection, identifier)
                 payload = {**current, **changes}
-                normalized = self._validate_server_payload(payload, current_id=current["id"], connection=connection)
+                normalized = self._validate_server_payload(
+                    payload,
+                    current_id=current["id"],
+                    connection=connection,
+                    current_geo=current.get("geo"),
+                )
                 connection.execute(
                     """
                     UPDATE servers SET alias = ?, hostname = ?, port = ?, username = ?, credential_id = ?,

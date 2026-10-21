@@ -388,3 +388,57 @@ def test_apply_collects_errors_instead_of_stopping(database):
     assert result["ok"] is False
     assert [item["alias"] for item in result["errors"]] == ["bad"]
     assert [host["alias"] for host in database.list_servers()] == ["good"]
+
+
+def test_a_looked_up_location_round_trips(database):
+    """A resolver-filled geo value must survive export/import.
+
+    The profile write path only accepts *manual* locations, so an export of a
+    host whose location came from a local lookup used to fail on import. geo now
+    travels through the resolver's own entry point instead.
+    """
+    database.create_server(alias="web1", hostname="198.51.100.5", username="deploy")
+    database.set_server_geo(
+        "web1", {"country_code": "DE", "city": "Frankfurt", "source": "geoip"}
+    )
+    document = portable.export_document(database)
+    assert document["hosts"][0]["geo"] == {
+        "country_code": "DE",
+        "city": "Frankfurt",
+        "source": "geoip",
+    }
+
+    fresh = Database(database.path.parent / "other.db")
+    result = portable.apply(document, fresh)
+    assert result["ok"] is True, result["errors"]
+    assert fresh.get_server("web1")["geo"]["source"] == "geoip"
+    assert fresh.get_server("web1")["geo"]["city"] == "Frankfurt"
+
+
+def test_a_manual_location_overwrites_a_looked_up_one_on_import(database):
+    database.create_server(alias="web1", hostname="web1.example", username="deploy")
+    database.set_server_geo("web1", {"country_code": "DE", "source": "geoip"})
+    document = portable.load_document_text(
+        json.dumps(
+            {
+                "format": portable.FORMAT,
+                "version": 1,
+                "hosts": [
+                    {
+                        "alias": "web1",
+                        "hostname": "web1.example",
+                        "username": "deploy",
+                        "geo": {"country_code": "US", "city": "Ashburn", "source": "manual"},
+                    }
+                ],
+            }
+        )
+    )
+    plan = portable.preview(document, database)
+    assert plan["hosts"][0]["action"] == "update"
+    portable.apply(document, database, overwrite=True)
+    assert database.get_server("web1")["geo"] == {
+        "country_code": "US",
+        "city": "Ashburn",
+        "source": "manual",
+    }

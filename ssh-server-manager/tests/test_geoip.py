@@ -156,3 +156,25 @@ def test_reading_the_inventory_never_looks_a_host_up(database, monkeypatch):
     database.create_server(alias="web1", hostname="web1.example", username="deploy")
     hosts = database.list_servers()
     assert hosts[0]["geo"] is None
+
+
+def test_editing_an_unrelated_field_keeps_a_looked_up_location(database):
+    """A stored geoip value must not make every later edit fail.
+
+    update_server re-validates the whole row, so the stored value is preserved as
+    it is rather than re-checked against the manual-only rule.
+    """
+    database.create_server(alias="web1", hostname="web1.example", username="deploy")
+    database.set_server_geo("web1", {"country_code": "DE", "city": "Frankfurt", "source": "geoip"})
+
+    updated = database.update_server("web1", notes="primary web node", tags=["prod"])
+
+    assert updated["notes"] == "primary web node"
+    assert updated["tags"] == ["prod"]
+    assert updated["geo"] == {"country_code": "DE", "city": "Frankfurt", "source": "geoip"}
+
+
+def test_a_profile_write_cannot_mint_a_new_looked_up_value(database):
+    database.create_server(alias="web1", hostname="web1.example", username="deploy")
+    with pytest.raises(ValidationError, match="only manual"):
+        database.update_server("web1", geo={"country_code": "JP", "source": "geoip"})

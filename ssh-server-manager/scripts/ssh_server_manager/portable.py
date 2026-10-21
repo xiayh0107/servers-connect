@@ -205,26 +205,36 @@ def _host_payload(entry: dict[str, Any], credential_id: str | None) -> dict[str,
     for field in ("port", "proxy_jumps", "tags", "notes", "source"):
         if field in entry and entry[field] is not None:
             payload[field] = list(entry[field]) if field in {"proxy_jumps", "tags"} else entry[field]
-    if entry.get("geo") is not None:
-        payload["geo"] = entry["geo"]
+    # geo is deliberately not part of the profile payload: a stored location can
+    # carry source "geoip", which the ordinary profile write path refuses (only a
+    # human may assert a manual location through it). It is applied afterwards
+    # through the resolver's own entry point, so an export round-trips without
+    # weakening that rule.
     if credential_id is not None:
         payload["credential_id"] = credential_id
     return payload
 
 
-def _compare(current: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+def _compare(current: dict[str, Any], payload: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
     """What actually differs between the stored host and the file's host."""
     changes: dict[str, Any] = {}
     for field, value in payload.items():
-        if field in {"alias", "geo", "credential_id"}:
+        if field in {"alias", "credential_id"}:
             continue
         if current.get(field) != value:
             changes[field] = value
-    if "geo" in payload and current.get("geo") != payload["geo"]:
-        changes["geo"] = payload["geo"]
     if "credential_id" in payload and current.get("credential_id") != payload["credential_id"]:
         changes["credential_id"] = payload["credential_id"]
+    if entry.get("geo") is not None and current.get("geo") != entry["geo"]:
+        changes["geo"] = entry["geo"]
     return changes
+
+
+def _apply_geo(database: Database, alias: str, geo: dict[str, Any] | None) -> None:
+    """Store a location through the resolver path, which understands both sources."""
+    if geo is None:
+        return
+    database.set_server_geo(alias, geo, overwrite_manual=True)
 
 
 def preview(document: dict[str, Any], database: Database) -> dict[str, Any]:
@@ -260,7 +270,7 @@ def preview(document: dict[str, Any], database: Database) -> dict[str, Any]:
         if current is None:
             actions.append({"alias": alias, "action": "create", "host": payload})
         else:
-            changes = _compare(current, payload)
+            changes = _compare(current, payload, entry)
             if not changes:
                 actions.append({"alias": alias, "action": "unchanged"})
             else:
@@ -268,7 +278,10 @@ def preview(document: dict[str, Any], database: Database) -> dict[str, Any]:
                     {
                         "alias": alias,
                         "action": "update",
-                        "changes": changes,
+                        # geo is written separately, so it must not travel in the
+                        # column update where it would be refused.
+                        "changes": {key: value for key, value in changes.items() if key != "geo"},
+                        "geo": entry.get("geo"),
                         "host": payload,
                         "host_id": current["id"],
                     }
@@ -323,11 +336,13 @@ def apply(
             if action["action"] == "create":
                 database.create_server(**action["host"])
                 created.append(database.get_server(alias)["alias"])
+                _apply_geo(database, alias, entry.get("geo"))
             elif action["action"] == "update":
                 if not overwrite:
                     skipped.append(alias)
                     continue
                 database.update_server(action["host_id"], **action["changes"])
+                _apply_geo(database, alias, entry.get("geo"))
                 updated.append(alias)
             else:
                 unchanged.append(alias)
