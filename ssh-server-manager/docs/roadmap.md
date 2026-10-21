@@ -7,7 +7,12 @@ ecosystem). Ordered by expected impact.
 1. ~~**Published packages** — PyPI release~~ **Done (0.2.0):**
    `pipx install ssh-server-manager` is live on PyPI, and the
    Trusted-Publishing workflow (`.github/workflows/publish.yml`) automates
-   future releases. Still open: a Homebrew tap and winget manifest.
+   future releases. A Homebrew tap is now prepared rather than open: the formula
+   template and `scripts/prepare_packaging` render it from the real sdist
+   (`docs/packaging.md`), and publishing it is a copy into a tap the maintainer
+   hosts. **winget is not planned**: it installs a Windows installer, not a
+   Python package, so a manifest would promise an install path nothing in this
+   repo builds.
 2. ~~**Host-bound Agent Skills**~~ **Done (0.6.0):** the local registry
    attaches one Skill to one or many saved hosts and resolves only the guidance
    in scope for the target hosts. The first version is deliberately local and
@@ -30,8 +35,9 @@ ecosystem). Ordered by expected impact.
    appends one JSON object per event to a mode-600 `audit.log` under the private
    data directory: `exec` and `exec_result`, `reveal` and `reveal_denied`,
    `connect`, `tunnel_open` and `tunnel_close`. Credentials in a recorded command
-   line are masked and a reveal is recorded by label, never by value. Still open:
-   rotating the log and filtering it from the Web UI.
+   line are masked and a reveal is recorded by label, never by value. The log
+   rotates itself (5 MiB, three segments, and reads span every segment). Still
+   open: filtering the log from the Web UI.
 6. ~~**Git-friendly export**~~ **Done (unreleased):** `serverctl export` writes
    a deterministic JSON document of hosts, saved directories and forwarding
    profiles (never secrets or credential ids; a host carries its credential

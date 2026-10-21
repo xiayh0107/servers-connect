@@ -67,6 +67,20 @@
   private key or another volume), a remote link is refused on download, a
   symlinked root directory is refused on upload, and one call stops at 4000
   entries with a message pointing at a remote archive step.
+- Rotate the audit log instead of letting it grow forever: once the live file
+  reaches 5 MiB (`SSM_AUDIT_MAX_BYTES`) it becomes `audit.log.1`, older segments
+  shift up, and three are kept. `serverctl audit rotate [--force]` does the same
+  on demand, `audit list` and `audit path --json` report the segments in play,
+  and reading spans every segment so rotating never hides history. A rotation that
+  fails (a read-only data directory) warns once and the event is still appended.
+- Prepare Homebrew distribution instead of leaving it as prose: 
+  `packaging/homebrew/ssh-server-manager.rb.in` is the formula template and
+  `scripts/prepare_packaging SDIST` renders it from the artifact that was built,
+  filling the version and the sdist's real sha256 and refusing an sdist whose
+  version disagrees with `__version__` or whose archive lacks
+  `ssh_server_manager-<version>/`. `docs/packaging.md` documents the tap flow
+  (`brew update-python-resources` fills the dependency resources) and records why
+  winget is not planned: it installs a Windows installer, not a Python package.
 - Record privileged actions in a local, append-only audit log: `exec` and its
   exit status, secret `reveal` (by credential label, never by value),
   `reveal_denied`, `connect`, and tunnel `open`/`close`. `serverctl audit list

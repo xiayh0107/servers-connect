@@ -135,3 +135,56 @@ def test_a_write_failure_warns_once_and_does_not_raise(isolated_data_dir, monkey
     assert audit.record("exec", alias="web1", command=["b"]) is None
     captured = capsys.readouterr()
     assert captured.err.count("could not append to the audit log") == 1
+
+
+# --- rotation ---------------------------------------------------------------------
+
+
+def test_rotation_shifts_segments_and_keeps_every_event_readable(isolated_data_dir, monkeypatch):
+    monkeypatch.setenv("SSM_AUDIT_MAX_BYTES", "400")
+    for index in range(12):
+        audit.record("exec", alias="web1", command=[f"cmd{index}"])
+    files = sorted(path.name for path in audit.audit_path().parent.iterdir())
+    assert "audit.log" in files
+    assert "audit.log.1" in files
+    # Rotated segments are still read, so history is not lost by rotating.
+    events = audit.read_events(limit=50)
+    assert len(events) >= 5
+    assert events[0]["command"] == "cmd11"
+    # Rotation runs before the append, so the live file may pass the limit by at
+    # most the event that triggered it -- it never grows unbounded.
+    assert audit.audit_path().stat().st_size <= 400 + 200
+
+
+def test_rotation_is_bounded_to_the_configured_segments(isolated_data_dir, monkeypatch):
+    monkeypatch.setenv("SSM_AUDIT_MAX_BYTES", "200")
+    for index in range(60):
+        audit.record("exec", alias="web1", command=[f"cmd{index}"])
+    names = sorted(path.name for path in audit.audit_path().parent.iterdir())
+    assert names == sorted(
+        ["audit.log"]
+        + [f"audit.log.{index}" for index in range(1, audit.ROTATED_SEGMENTS + 1)]
+    )
+
+
+def test_explicit_rotation_can_be_forced(isolated_data_dir):
+    audit.record("exec", alias="web1", command=["a"])
+    result = audit.rotate(force=True)
+    assert result["rotated"] is True
+    assert (isolated_data_dir / "audit.log.1").exists()
+    assert not audit.audit_path().exists()
+    # Nothing to rotate is reported, not treated as a failure.
+    assert audit.rotate()["rotated"] is False
+
+
+def test_a_failed_rotation_does_not_lose_the_event(isolated_data_dir, monkeypatch, capsys):
+    audit.record("exec", alias="web1", command=["before"])
+
+    def explode(*args, **kwargs):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(audit.os, "replace", explode)
+    monkeypatch.setenv("SSM_AUDIT_MAX_BYTES", "1")
+    assert audit.record("exec", alias="web1", command=["after"]) is not None
+    assert "could not rotate the audit log" in capsys.readouterr().err
+    assert [event["command"] for event in audit.read_events(limit=2)] == ["after", "before"]

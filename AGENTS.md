@@ -127,8 +127,11 @@ hand-edit it there. Then:
 2. Run the full test suite; build with
    `.venv/bin/python -m build --outdir dist .` and smoke-test the wheel in a
    clean venv (`serverctl --version`).
-3. Commit, push, tag `vX.Y.Z`, and `gh release create vX.Y.Z` with the wheel
+3. Render the packaging files from that sdist:
+   `scripts/prepare_packaging dist/ssh_server_manager-X.Y.Z.tar.gz` (see
+   `docs/packaging.md`; never hand-edit the formula's hash).
+4. Commit, push, tag `vX.Y.Z`, and `gh release create vX.Y.Z` with the wheel
    and sdist attached (`dist/` is not tracked by git).
-4. Publishing the GitHub Release triggers `publish.yml`, which uploads to
+5. Publishing the GitHub Release triggers `publish.yml`, which uploads to
    PyPI via Trusted Publishing (OIDC, environment `pypi`, `skip-existing`
    enabled). No local credentials are involved; twine is a manual fallback.

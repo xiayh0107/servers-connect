@@ -1,0 +1,34 @@
+# Homebrew formula for ssh-server-manager.
+#
+# Rendered by `scripts/prepare_packaging` from a built sdist; do not edit the
+# version or sha256 by hand. Publish it to a tap:
+#
+#   brew tap-new YOURUSER/ssh-server-manager
+#   cp ssh-server-manager.rb "$(brew --repository YOURUSER/ssh-server-manager)/Formula/"
+#   brew update-python-resources YOURUSER/ssh-server-manager/ssh-server-manager
+#   git -C "$(brew --repository YOURUSER/ssh-server-manager)" add -A && git commit -m "ssh-server-manager ${VERSION}"
+#
+# `brew update-python-resources` fills the resource blocks: they pin every
+# dependency's sdist hash, and resolving them needs network access, so they are
+# generated in the tap rather than committed from here.
+class SshServerManager < Formula
+  include Language::Python::Virtualenv
+
+  desc "Manage SSH hosts and credentials for humans and AI agents"
+  homepage "https://github.com/xiayh0107/servers-connect"
+  url "https://files.pythonhosted.org/packages/source/s/ssh-server-manager/ssh_server_manager-${VERSION}.tar.gz"
+  sha256 "${SDIST_SHA256}"
+  license "MIT"
+
+  depends_on "python@3.13"
+
+  def install
+    virtualenv_install_with_resources
+  end
+
+  test do
+    assert_match "serverctl ${VERSION}", shell_output("#{bin}/serverctl --version")
+    # doctor exits non-zero when a dependency is missing; --version must not.
+    system bin/"serverctl", "doctor", "--json"
+  end
+end

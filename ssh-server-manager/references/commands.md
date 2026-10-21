@@ -358,6 +358,7 @@ human is using for anything else: stdout is the protocol channel.
 ```bash
 ./scripts/serverctl audit list [--limit N] [--alias ALIAS] [--event KIND] [--since ISO] [--json]
 ./scripts/serverctl audit path [--json]
+./scripts/serverctl audit rotate [--force] [--json]
 ```
 
 The log is local, append-only, and mode 600. It records `exec` and
@@ -367,6 +368,10 @@ before claiming an action left no trace. It is evidence of *attempts and
 outcomes*, not proof of state: `exec_result` records the exit status the tool
 saw, and a log that cannot be written is reported once on stderr rather than
 blocking the command.
+
+The file rotates itself at 5 MiB into `audit.log.1`, keeping three segments, and
+every read spans all of them — so a rotated log still answers "what happened"
+without asking the user to merge files.
 
 The log never contains a secret. A reveal is recorded by credential label and
 slot; credentials typed into a command line are masked before the event is

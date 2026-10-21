@@ -576,6 +576,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_json_option(audit_list)
     audit_path_command = audit_commands.add_parser("path", help="print where the log lives")
     add_json_option(audit_path_command)
+    audit_rotate = audit_commands.add_parser(
+        "rotate",
+        help="shift the live log into a rotated segment (also happens automatically)",
+        epilog="rotation is automatic once the file passes its size limit; this command "
+        "forces it, for example before archiving the segments.",
+    )
+    audit_rotate.add_argument("--force", action="store_true", help="rotate regardless of size")
+    add_json_option(audit_rotate)
 
     credential = commands.add_parser("credential", help="manage reusable credentials")
     credential_commands = credential.add_subparsers(dest="credential_command", required=True)
@@ -1249,6 +1257,13 @@ def handle(args: argparse.Namespace) -> int:
         if args.audit_command == "path":
             emit({"path": str(audit_module.audit_path())}, as_json=args.json)
             return 0
+        if args.audit_command == "rotate":
+            result = audit_module.rotate(force=args.force)
+            result["segments_on_disk"] = [
+                str(path) for path in audit_module.log_paths() if path.exists()
+            ]
+            emit(result, as_json=args.json)
+            return 0
         if args.audit_command == "list":
             events = audit_module.read_events(
                 limit=args.limit,
@@ -1259,6 +1274,7 @@ def handle(args: argparse.Namespace) -> int:
             payload = {
                 "ok": True,
                 "path": str(audit_module.audit_path()),
+                "segments": [str(path) for path in audit_module.log_paths() if path.exists()],
                 "count": len(events),
                 "events": events,
             }

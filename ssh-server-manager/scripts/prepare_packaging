@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+"""Render the packaging files from a built sdist.
+
+Kept out of the release checklist's manual steps on purpose: the formula's
+version and the sdist's hash have to match the artifact that was actually
+uploaded, and a hand-edited hash is the kind of mistake that only shows up for
+the person who cannot install the tool.
+
+Usage:
+    scripts/prepare_packaging dist/ssh_server_manager-0.9.0.tar.gz
+    scripts/prepare_packaging --output dist/packaging dist/*.tar.gz
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import re
+import sys
+import tarfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+TEMPLATE_DIRECTORY = ROOT / "packaging"
+SDIST_RE = re.compile(r"^ssh_server_manager-(?P<version>[0-9][^-]*)\.tar\.gz$")
+
+
+def package_version() -> str:
+    marker = ROOT / "scripts" / "ssh_server_manager" / "__init__.py"
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', marker.read_text(encoding="utf-8"))
+    if match is None:
+        raise SystemExit(f"cannot read __version__ from {marker}")
+    return match.group(1)
+
+
+def sdist_version(path: Path) -> str:
+    match = SDIST_RE.match(path.name)
+    if match is None:
+        raise SystemExit(
+            f"{path.name} is not an sdist named ssh_server_manager-<version>.tar.gz"
+        )
+    return match.group("version")
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_sdist(path: Path, version: str) -> None:
+    """A mislabelled sdist would publish a formula that installs something else."""
+    try:
+        with tarfile.open(path, "r:gz") as archive:
+            names = archive.getnames()
+    except (tarfile.TarError, OSError) as exc:
+        raise SystemExit(f"{path} is not a readable sdist: {exc}") from exc
+    expected_root = f"ssh_server_manager-{version}"
+    if not any(name == expected_root or name.startswith(expected_root + "/") for name in names):
+        raise SystemExit(f"{path} does not contain {expected_root}/")
+
+
+def render(template: Path, replacements: dict[str, str]) -> str:
+    text = template.read_text(encoding="utf-8")
+    for key, value in replacements.items():
+        text = text.replace(f"${{{key}}}", value)
+    leftover = sorted(set(re.findall(r"\$\{([A-Z0-9_]+)\}", text)))
+    if leftover:
+        raise SystemExit(f"{template.name} has unfilled placeholders: {', '.join(leftover)}")
+    return text
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("sdist", type=Path, help="the built ssh_server_manager-*.tar.gz")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=ROOT / "dist" / "packaging",
+        help="where to write the rendered files (default: dist/packaging)",
+    )
+    arguments = parser.parse_args(argv)
+
+    sdist = arguments.sdist.expanduser()
+    if not sdist.is_file():
+        raise SystemExit(f"sdist does not exist: {sdist}")
+    version = sdist_version(sdist)
+    declared = package_version()
+    if version != declared:
+        raise SystemExit(
+            f"{sdist.name} is version {version} but the package declares {declared}; "
+            "build the sdist from the tree you are packaging"
+        )
+    verify_sdist(sdist, version)
+    digest = sha256_of(sdist)
+
+    replacements = {"VERSION": version, "SDIST_SHA256": digest}
+    written: list[Path] = []
+    for template in sorted(TEMPLATE_DIRECTORY.rglob("*.in")):
+        target = arguments.output / template.relative_to(TEMPLATE_DIRECTORY).with_suffix("")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(render(template, replacements), encoding="utf-8")
+        written.append(target)
+
+    for path in written:
+        print(path)
+    print(f"version={version} sha256={digest}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

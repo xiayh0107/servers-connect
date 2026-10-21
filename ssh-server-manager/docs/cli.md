@@ -500,6 +500,7 @@ Import semantics:
 ```
 serverctl audit list [--limit N] [--alias ALIAS] [--event KIND] [--since TIMESTAMP] [--json]
 serverctl audit path [--json]
+serverctl audit rotate [--force] [--json]
 ```
 
 Privileged actions are recorded locally, whether the command came from your
@@ -523,8 +524,10 @@ shell or from an agent:
   similar shapes).
 - If the file cannot be written, the command still runs and a single warning
   names the problem — the audit log must never be the reason work cannot happen.
-- There is no rotation yet: the file grows by one line per event, so `--limit`
-  and `--since` are the way to read a long history.
+- The log rotates itself: once the live file reaches 5 MiB (`SSM_AUDIT_MAX_BYTES`)
+  it becomes `audit.log.1`, older segments shift up, and three are kept. Reading
+  always spans every segment, so rotating never hides history. `audit rotate
+  [--force]` does the same on demand.
 
 ## Connect and execute
 

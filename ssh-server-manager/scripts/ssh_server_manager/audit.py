@@ -34,6 +34,11 @@ from .paths import ensure_private_dir, data_dir
 AUDIT_FILE = "audit.log"
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 10_000
+# Rotation keeps the log append-only in spirit while bounding its size: the live
+# file becomes .1, older segments shift up, and the oldest is dropped. Reading
+# always includes every segment, so rotating never hides history.
+ROTATED_SEGMENTS = 3
+DEFAULT_MAX_BYTES = 5 * 1024 * 1024
 # A line longer than this is not something this module wrote; refuse to extend it.
 MAX_EVENT_BYTES = 16 * 1024
 
@@ -60,6 +65,52 @@ _warned = False
 
 def audit_path() -> Path:
     return data_dir() / AUDIT_FILE
+
+
+def max_bytes() -> int:
+    override = os.environ.get("SSM_AUDIT_MAX_BYTES")
+    if override:
+        try:
+            value = int(override)
+        except ValueError:
+            return DEFAULT_MAX_BYTES
+        if value > 0:
+            return value
+    return DEFAULT_MAX_BYTES
+
+
+def log_paths() -> list[Path]:
+    """Every segment, oldest first, ending with the live file."""
+    base = data_dir()
+    rotated = [base / f"{AUDIT_FILE}.{index}" for index in range(ROTATED_SEGMENTS, 0, -1)]
+    return [*rotated, base / AUDIT_FILE]
+
+
+def rotate(*, force: bool = False) -> dict[str, Any]:
+    """Shift the live file into .1 when it is over the limit."""
+    path = audit_path()
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return {"rotated": False, "reason": "no log yet", "max_bytes": max_bytes()}
+    limit = max_bytes()
+    if not force and size < limit:
+        return {"rotated": False, "reason": "under the limit", "bytes": size, "max_bytes": limit}
+    base = data_dir()
+    try:
+        oldest = base / f"{AUDIT_FILE}.{ROTATED_SEGMENTS}"
+        if oldest.exists():
+            oldest.unlink()
+        for index in range(ROTATED_SEGMENTS - 1, 0, -1):
+            source = base / f"{AUDIT_FILE}.{index}"
+            if source.exists():
+                os.replace(source, base / f"{AUDIT_FILE}.{index + 1}")
+        os.replace(path, base / f"{AUDIT_FILE}.1")
+    except OSError as exc:
+        # A rotation that fails must not stop the event being written.
+        _warn_once(f"could not rotate the audit log: {exc}")
+        return {"rotated": False, "reason": str(exc), "bytes": size, "max_bytes": limit}
+    return {"rotated": True, "bytes": size, "max_bytes": limit, "segments": ROTATED_SEGMENTS}
 
 
 def _warn_once(message: str) -> None:
@@ -128,6 +179,13 @@ def record(event: str, *, actor: str = "cli", **fields: Any) -> dict[str, Any] |
         ).encode("utf-8")
     try:
         directory = ensure_private_dir(data_dir())
+        # Rotate before appending, never after: an event must land in the live
+        # file, not in the segment that is about to be renamed away.
+        try:
+            if (directory / AUDIT_FILE).stat().st_size >= max_bytes():
+                rotate()
+        except OSError:
+            pass
         descriptor = os.open(
             str(directory / AUDIT_FILE), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600
         )
@@ -149,12 +207,15 @@ def read_events(
     since: str | None = None,
 ) -> list[dict[str, Any]]:
     """Read the log newest-first, skipping lines that are not valid events."""
-    try:
-        text = audit_path().read_text(encoding="utf-8", errors="replace")
-    except FileNotFoundError:
-        return []
-    except OSError as exc:
-        raise OSError(f"cannot read the audit log at {audit_path()}: {exc}") from exc
+    chunks: list[str] = []
+    for path in log_paths():
+        try:
+            chunks.append(path.read_text(encoding="utf-8", errors="replace"))
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise OSError(f"cannot read the audit log at {path}: {exc}") from exc
+    text = "".join(chunks)
     wanted = {str(item).casefold() for item in events} if events else None
     alias_key = alias.casefold() if alias else None
     collected: list[dict[str, Any]] = []
