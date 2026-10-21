@@ -371,10 +371,141 @@ every other connection.
 - `--read-only` is worth using whenever you only need to read; it removes the
   possibility of an editor writing to production by accident.
 
+## Port forwarding
+
+```
+serverctl tunnel list [--server ALIAS] [--json]
+serverctl tunnel show NAME|ID|ALIAS:NAME [--json]
+serverctl tunnel add NAME --server ALIAS (--local SPEC | --remote SPEC | --dynamic SPEC)
+    [--note TEXT] [--json]
+serverctl tunnel edit NAME [--name NEW] [--server ALIAS] [--note TEXT]
+    [--spec SPEC] [--kind KIND] [--json]
+serverctl tunnel open NAME [--timeout SECONDS] [--foreground] [--json]
+serverctl tunnel close NAME [--json]
+serverctl tunnel status [--server ALIAS] [--json]
+serverctl tunnel remove NAME [--yes] [--json]
+```
+
+A tunnel is a saved forwarding profile plus, when you ask for it, one detached
+`ssh -N` process that realises the profile. Saving and opening are separate
+steps: `add` records the intent without contacting the host, `open` starts it,
+`close` stops it.
+
+```
+serverctl tunnel add db1-local --server db1 --local 15432:localhost:5432
+serverctl tunnel open db1-local        # opened db1-local (...) for db1 (pid 41902)
+serverctl tunnel status                # db1-local  db1  local  127.0.0.1:15432:localhost:5432  running pid=41902
+serverctl tunnel close db1-local
+```
+
+- `SPEC` is OpenSSH's own spelling, and the host half resolves on the remote
+  side: `--local 15432:localhost:5432` sends this machine's port 15432 to
+  `localhost:5432` *as the target host sees it*. `--remote` publishes a port on
+  the host back here; `--dynamic` opens a SOCKS proxy.
+- The listening address defaults to `127.0.0.1`. Anything else is deliberate:
+  `--local 0.0.0.0:15432:localhost:5432` exposes the forward to your network.
+  Because that is a real exposure, it is never implied.
+- Names are unique across all hosts, so `tunnel open db1-local` needs no alias;
+  `ALIAS:NAME` also works.
+- `open` waits a few seconds for ssh to authenticate. An unknown host key, a
+  refused bind, or a bad credential fails here with ssh's own message rather
+  than leaving a silent half-open tunnel; the command's exit code is non-zero.
+- Opening an already-open profile reports `already_open` with the original pid
+  instead of starting a duplicate. Closing a profile that is not running is a
+  no-op, so teardown scripts can be re-run.
+- `--foreground` holds the terminal until Ctrl+C, which is handy when you want
+  the connection's messages in front of you.
+- `status` reports saved profiles joined with live processes: `running: true`
+  means this machine has the forward, and `orphan: true` marks a process whose
+  profile was deleted. Runtime records live in the private runtime directory and
+  are pruned when the process is gone, so tunnels never look open after a
+  reboot or in a database copied from another machine.
+- Host-key verification is enforced (`StrictHostKeyChecking=yes`) and never
+  relaxed for a tunnel. Authenticate with `serverctl server test ALIAS` first
+  when a host is new, because a background forward has no terminal in which to
+  confirm a key.
+- Removing a host stops its tunnels before deleting the profiles.
+
+## Export and import
+
+```
+serverctl export [--output PATH] [--json]
+serverctl import [FILE|-] [--apply] [--overwrite] [--json]
+```
+
+`export` writes the inventory as a deterministic JSON document: hosts sorted by
+alias, a fixed key order, no timestamps. Exporting the same inventory twice
+produces identical bytes, so a commit in git shows what actually changed.
+
+```
+serverctl export --output inventory.json
+serverctl import inventory.json              # preview: what would change
+serverctl import inventory.json --apply      # write it
+serverctl export | ssh other-host serverctl import --apply   # or pipe it
+```
+
+What travels: alias, hostname, port, username, `ProxyJump` hops, tags, notes,
+manual geography, saved working directories, and forwarding profiles.
+
+What never travels:
+
+- **Secrets.** They live in this machine's OS keychain and are not in the file.
+- **Credential ids.** A host carries its credential *label*; the id names a row
+  in one database. On import the label is matched against the credentials this
+  machine already has — an unknown label produces a warning and the host is
+  imported without a credential, never with an invented one.
+- **Remote observations.** Facts, last check results, resolved IPs, and host
+  keys describe one machine's view of one moment, so they are not exported.
+
+Import semantics:
+
+- Nothing is written unless `--apply` is given; the preview lists `create`,
+  `update` (with the differing field names), and `unchanged` per host.
+- An existing host is left alone unless `--overwrite`.
+- Saved directories and forwarding profiles are **merged**, not replaced: a file
+  that omits one never deletes what exists here.
+- A bad entry is reported and the rest of the file still applies; the exit code
+  is non-zero when anything failed.
+- Unknown fields, a different `format`, or a newer `version` are refused, so a
+  typo cannot be silently ignored.
+- The written file is mode 600 — it names your hosts and users, even though it
+  holds no secrets. Widen it yourself if your repository is public.
+
+## Audit log
+
+```
+serverctl audit list [--limit N] [--alias ALIAS] [--event KIND] [--since TIMESTAMP] [--json]
+serverctl audit path [--json]
+```
+
+Privileged actions are recorded locally, whether the command came from your
+shell or from an agent:
+
+| event | when |
+| --- | --- |
+| `exec` / `exec_result` | a remote command was attempted, and what it returned |
+| `reveal` / `reveal_denied` | a stored secret was handed out, or a reveal was refused |
+| `connect` | an interactive session was opened |
+| `tunnel_open` / `tunnel_close` | a saved forward was started or stopped |
+
+- `serverctl audit list` prints the newest events first;
+  `--alias`, `--event`, `--since`, and `--limit` narrow it. `--json` returns
+  `{"ok", "path", "count", "events"}` for scripts and agents.
+- The log lives beside the database as `audit.log` (mode 600, one JSON object
+  per line). `audit path` prints the exact file.
+- It never stores a secret value. A reveal is recorded by credential label and
+  slot; credentials inside a recorded command line are masked before the line is
+  written (`--password=X`, `MYSQL_PWD=X`, `Authorization: Bearer ...`, and
+  similar shapes).
+- If the file cannot be written, the command still runs and a single warning
+  names the problem — the audit log must never be the reason work cannot happen.
+- There is no rotation yet: the file grows by one line per event, so `--limit`
+  and `--since` are the way to read a long history.
+
 ## Connect and execute
 
 ```
-serverctl connect ALIAS [--timeout SECONDS]
+serverctl connect ALIAS [--timeout SECONDS] [--mosh] [--log] [--log-path FILE]
 serverctl exec ALIAS [--shell] [--stdin | --stdin-binary]
     [--timeout SECONDS] [--reuse SECONDS] [--json] -- COMMAND [ARG ...]
 ```
@@ -399,6 +530,40 @@ serverctl exec ALIAS [--shell] [--stdin | --stdin-binary]
   warning is printed and the option is ignored.
 - Exit code mirrors the remote command's return code. `--json` adds
   `stdout`, `stderr` (redacted), `latency_ms`, and `error_code`.
+
+### Session transcripts
+
+`serverctl connect ALIAS --log` records the session to a mode-600 file under
+`sessions/` in the data directory, named `<timestamp>-<alias>.log`;
+`--log-path FILE` chooses the file. A warning naming the destination is printed
+before the session starts.
+
+- Only the terminal's **output** stream is recorded. A password typed at a
+  prompt with echo turned off is never echoed, so it never reaches the file —
+  while the commands you type do, because the remote terminal echoes them.
+- Terminal control sequences are stripped (so the file reads and diffs cleanly)
+  and credential-shaped values in a line are masked. That masking is best
+  effort: treat a transcript as containing whatever the session displayed.
+- It needs a POSIX pty. On Windows, and in environments that deny a pty, the
+  command says so instead of recording nothing.
+- `--log` cannot be combined with `--mosh`; record the terminal separately.
+- Starting a recording is itself written to the audit log.
+
+### Mosh sessions
+
+`serverctl connect ALIAS --mosh` runs a mosh session instead of plain ssh, for
+roaming laptops and high-latency or lossy links where a TCP session would stall.
+
+- It needs the `mosh` client on this machine and `mosh-server` on the host.
+  `serverctl doctor` has a `mosh` row that names what is missing; the command
+  fails rather than quietly falling back to ssh, because silently changing the
+  transport is not what "connect with mosh" asked for.
+- Mosh is not a second authentication path. It bootstraps through the managed
+  ssh config with the same askpass environment, so a vault password or key
+  passphrase works unchanged, and `StrictHostKeyChecking=yes` stays on.
+- Mosh needs a UTF-8 locale; when the terminal has none, `LC_ALL=en_US.UTF-8` is
+  set for the session rather than leaving mosh to fail on it.
+- Not offered on Windows.
 
 ## Config
 

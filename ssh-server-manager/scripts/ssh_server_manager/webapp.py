@@ -639,7 +639,7 @@ def create_app(database: Database, *, launch_token: str, port: int, launch_url_f
         expires = session.reveal_grants.pop(credential_id, 0)
         if expires < time.time():
             raise AuthenticationError("reauthentication is required")
-        result = services.credentials.reveal(credential_id)
+        result = services.credentials.reveal(credential_id, actor="web")
         return JSONResponse(result, headers={"Cache-Control": "no-store"})
 
     from .api_v1 import build_router

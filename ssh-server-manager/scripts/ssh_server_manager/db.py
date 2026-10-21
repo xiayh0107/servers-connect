@@ -13,14 +13,22 @@ from typing import Any, Iterator
 from .host_metadata import address_scope, observation_time, sanitize_facts, sanitize_host_key, validate_geo, validate_resolved_ip
 from .paths import database_path, ensure_private_dir
 from .validation import (
+    DEFAULT_TUNNEL_BIND_HOST,
     ValidationError,
+    format_forward_spec,
+    parse_forward_spec,
+    tunnel_name_key,
     validate_alias,
+    validate_bind_host,
     validate_hostname,
     validate_key_path,
     validate_kind,
     validate_label,
     validate_port,
     validate_proxy_jumps,
+    validate_tunnel_kind,
+    validate_tunnel_name,
+    validate_tunnel_note,
     skill_name_key,
     validate_skill_description,
     validate_skill_path,
@@ -35,7 +43,7 @@ from .validation import (
 )
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 SERVER_CONTEXTS_SETTING = "server_contexts"
 SSH_CONFIG_SOURCES_SETTING = "ssh_config_import_sources"
 
@@ -324,6 +332,35 @@ class Database:
                     );
                     PRAGMA user_version = 7;
                 """)
+                version = 7
+            if version == 7:
+                # Port-forwarding profiles store the parsed halves of an -L/-R/-D
+                # spelling rather than the raw string, so a stored profile cannot
+                # carry shell syntax into the command that implements it. The label
+                # is unique database-wide: "serverctl tunnel open db1-local" names
+                # one tunnel without also naming a host.
+                self._execute_schema(connection, """
+                    CREATE TABLE IF NOT EXISTS server_tunnels (
+                        id TEXT PRIMARY KEY,
+                        server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+                        label TEXT NOT NULL,
+                        label_key TEXT NOT NULL,
+                        kind TEXT NOT NULL CHECK(kind IN ('local', 'remote', 'dynamic')),
+                        bind_host TEXT NOT NULL,
+                        bind_port INTEGER NOT NULL CHECK(bind_port BETWEEN 0 AND 65535),
+                        remote_host TEXT,
+                        remote_port INTEGER CHECK(remote_port BETWEEN 1 AND 65535),
+                        notes TEXT NOT NULL DEFAULT '',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        CHECK((kind = 'dynamic' AND remote_host IS NULL AND remote_port IS NULL)
+                              OR (kind != 'dynamic' AND remote_host IS NOT NULL AND remote_port IS NOT NULL))
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_server_tunnels_label ON server_tunnels(label_key);
+                    CREATE INDEX IF NOT EXISTS idx_server_tunnels_server ON server_tunnels(server_id);
+                    PRAGMA user_version = 8;
+                """)
+                version = 8
         if is_new and os.name != "nt":
             self.path.chmod(stat.S_IRUSR | stat.S_IWUSR)
 
@@ -1221,6 +1258,264 @@ class Database:
                 for path, aliases in sorted(applies_to.items(), key=lambda item: item[0])
             ]
         return {"ok": True, "hosts": hosts, "paths": paths}
+
+    # --- saved port-forwarding profiles ---------------------------------------------
+    #
+    # A tunnel profile is a saved -L/-R/-D spelling plus the host it reports to.
+    # Runtime state (pid, log) deliberately lives outside the database in the
+    # private runtime directory: it describes this machine's processes, not the
+    # inventory, and a copied or versioned database must never claim a tunnel is
+    # running somewhere it is not.
+
+    @staticmethod
+    def _tunnel_dict(row: sqlite3.Row, alias: str) -> dict[str, Any]:
+        entry = {
+            "id": row["id"],
+            "server": alias,
+            "name": row["label"],
+            "kind": row["kind"],
+            "bind_host": row["bind_host"],
+            "bind_port": row["bind_port"],
+            "remote_host": row["remote_host"],
+            "remote_port": row["remote_port"],
+            "notes": row["notes"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        entry["forward"] = format_forward_spec(entry)
+        return entry
+
+    def _find_tunnel_row(self, connection: sqlite3.Connection, identifier: str) -> tuple[sqlite3.Row, str]:
+        text = str(identifier).strip()
+        row = connection.execute(
+            """
+            SELECT t.*, s.alias AS alias
+            FROM server_tunnels t JOIN servers s ON s.id = t.server_id
+            WHERE t.id = ?
+            """,
+            (text,),
+        ).fetchone()
+        if row:
+            return row, row["alias"]
+        alias, separator, label = text.partition(":")
+        if separator and label:
+            try:
+                key = tunnel_name_key(label)
+            except ValidationError:
+                key = ""
+            if key:
+                row = connection.execute(
+                    """
+                    SELECT t.*, s.alias AS alias
+                    FROM server_tunnels t JOIN servers s ON s.id = t.server_id
+                    WHERE s.alias = ? COLLATE NOCASE AND t.label_key = ?
+                    """,
+                    (alias.strip(), key),
+                ).fetchone()
+                if row:
+                    return row, row["alias"]
+        try:
+            key = tunnel_name_key(text)
+        except ValidationError as exc:
+            raise NotFoundError(f"tunnel not found: {identifier}") from exc
+        row = connection.execute(
+            """
+            SELECT t.*, s.alias AS alias
+            FROM server_tunnels t JOIN servers s ON s.id = t.server_id
+            WHERE t.label_key = ?
+            """,
+            (key,),
+        ).fetchone()
+        if not row:
+            raise NotFoundError(f"tunnel not found: {identifier}")
+        return row, row["alias"]
+
+    def _tunnel_duplicate(self, connection: sqlite3.Connection, entry: dict[str, Any], *, exclude_id: str | None = None) -> None:
+        """Refuse a second profile on the same host that would bind the same port."""
+        row = connection.execute(
+            """
+            SELECT label FROM server_tunnels
+            WHERE server_id = ? AND kind = ? AND bind_host = ? AND bind_port = ?
+              AND IFNULL(remote_host, '') = IFNULL(?, '')
+              AND IFNULL(remote_port, 0) = IFNULL(?, 0)
+              AND id != ?
+            """,
+            (
+                entry["server_id"], entry["kind"], entry["bind_host"], entry["bind_port"],
+                entry["remote_host"], entry["remote_port"], exclude_id or "",
+            ),
+        ).fetchone()
+        if row:
+            raise ConflictError(
+                f"tunnel '{row['label']}' already forwards that specification for this host"
+                f" ({format_forward_spec(entry)})"
+            )
+
+    def list_tunnels(self, server_identifier: str | None = None) -> list[dict[str, Any]]:
+        with closing(self.connect()) as connection, connection:
+            if server_identifier is not None:
+                server = self._find_server_row(connection, str(server_identifier))
+                rows = connection.execute(
+                    """
+                    SELECT t.*, s.alias AS alias
+                    FROM server_tunnels t JOIN servers s ON s.id = t.server_id
+                    WHERE t.server_id = ?
+                    ORDER BY t.label COLLATE NOCASE
+                    """,
+                    (server["id"],),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT t.*, s.alias AS alias
+                    FROM server_tunnels t JOIN servers s ON s.id = t.server_id
+                    ORDER BY s.alias COLLATE NOCASE, t.label COLLATE NOCASE
+                    """
+                ).fetchall()
+            return [self._tunnel_dict(row, row["alias"]) for row in rows]
+
+    def get_tunnel(self, identifier: str) -> dict[str, Any]:
+        with closing(self.connect()) as connection, connection:
+            row, alias = self._find_tunnel_row(connection, identifier)
+            return self._tunnel_dict(row, alias)
+
+    def create_tunnel(
+        self,
+        server_identifier: str,
+        *,
+        name: str,
+        kind: str = "local",
+        forward: str | None = None,
+        bind_host: str | None = None,
+        bind_port: int | str | None = None,
+        remote_host: str | None = None,
+        remote_port: int | str | None = None,
+        notes: str | None = None,
+        tunnel_id: str | None = None,
+    ) -> dict[str, Any]:
+        label = validate_tunnel_name(name)
+        kind = validate_tunnel_kind(kind)
+        if forward is not None:
+            spec = parse_forward_spec(forward, kind)
+        elif bind_port is None:
+            raise ValidationError(
+                "a tunnel needs a forwarding specification (FORWARD) or a bind port"
+            )
+        elif kind == "dynamic":
+            # Explicit fields are accepted so a UI can post structured data without
+            # re-assembling a spelling the backend would parse again.
+            spec = {
+                "kind": kind,
+                "bind_host": validate_bind_host(bind_host or DEFAULT_TUNNEL_BIND_HOST),
+                "bind_port": validate_port(bind_port, allow_zero=True),
+                "remote_host": None,
+                "remote_port": None,
+            }
+        else:
+            if remote_host is None or remote_port is None:
+                raise ValidationError(
+                    f"a {kind} tunnel needs both a remote host and a remote port"
+                )
+            spec = {
+                "kind": kind,
+                "bind_host": validate_bind_host(bind_host or DEFAULT_TUNNEL_BIND_HOST),
+                "bind_port": validate_port(bind_port, allow_zero=True),
+                "remote_host": validate_hostname(remote_host),
+                "remote_port": validate_port(remote_port),
+            }
+        identifier = tunnel_id or str(uuid.uuid4())
+        now = utc_now()
+        try:
+            with self.transaction() as connection:
+                server = self._find_server_row(connection, str(server_identifier))
+                entry = {"server_id": server["id"], **spec}
+                self._tunnel_duplicate(connection, entry)
+                connection.execute(
+                    """
+                    INSERT INTO server_tunnels
+                    (id, server_id, label, label_key, kind, bind_host, bind_port,
+                     remote_host, remote_port, notes, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        identifier, server["id"], label, tunnel_name_key(label), spec["kind"],
+                        spec["bind_host"], spec["bind_port"], spec["remote_host"],
+                        spec["remote_port"], validate_tunnel_note(notes), now, now,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ConflictError(f"a tunnel named '{label}' already exists") from exc
+        return self.get_tunnel(identifier)
+
+    def update_tunnel(
+        self,
+        identifier: str,
+        *,
+        name: str | None = None,
+        kind: str | None = None,
+        forward: str | None = None,
+        bind_host: str | None = None,
+        bind_port: int | str | None = None,
+        remote_host: str | None = None,
+        remote_port: int | str | None = None,
+        notes: str | None = None,
+        server_identifier: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            with self.transaction() as connection:
+                current_row, current_alias = self._find_tunnel_row(connection, identifier)
+                current = self._tunnel_dict(current_row, current_alias)
+                label = validate_tunnel_name(name if name is not None else current["name"])
+                target = current_row["server_id"]
+                if server_identifier is not None:
+                    target = self._find_server_row(connection, str(server_identifier))["id"]
+                kind_value = kind if kind is not None else current["kind"]
+                spec = parse_forward_spec(
+                    forward if forward is not None else self._forward_source(current, kind_value),
+                    kind_value,
+                )
+                if bind_host is not None or bind_port is not None or remote_host is not None or remote_port is not None:
+                    merged = {
+                        **spec,
+                        "bind_host": bind_host if bind_host is not None else spec["bind_host"],
+                        "bind_port": bind_port if bind_port is not None else spec["bind_port"],
+                        "remote_host": remote_host if remote_host is not None else spec["remote_host"],
+                        "remote_port": remote_port if remote_port is not None else spec["remote_port"],
+                    }
+                    spec = parse_forward_spec(format_forward_spec(merged), kind_value)
+                entry = {"server_id": target, **spec}
+                self._tunnel_duplicate(connection, entry, exclude_id=current["id"])
+                connection.execute(
+                    """
+                    UPDATE server_tunnels
+                    SET server_id = ?, label = ?, label_key = ?, kind = ?, bind_host = ?,
+                        bind_port = ?, remote_host = ?, remote_port = ?, notes = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        target, label, tunnel_name_key(label), spec["kind"], spec["bind_host"],
+                        spec["bind_port"], spec["remote_host"], spec["remote_port"],
+                        validate_tunnel_note(notes if notes is not None else current["notes"]),
+                        utc_now(), current["id"],
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ConflictError(f"a tunnel named '{label}' already exists") from exc
+        return self.get_tunnel(current["id"])
+
+    @staticmethod
+    def _forward_source(entry: dict[str, Any], kind: str) -> str:
+        """Reuse a stored specification only when the forwarding kind is unchanged."""
+        if kind != entry["kind"]:
+            raise ValidationError("changing the forwarding kind needs a new FORWARD specification")
+        return format_forward_spec(entry)
+
+    def delete_tunnel(self, identifier: str) -> dict[str, Any]:
+        with self.transaction() as connection:
+            row, alias = self._find_tunnel_row(connection, identifier)
+            entry = self._tunnel_dict(row, alias)
+            connection.execute("DELETE FROM server_tunnels WHERE id = ?", (entry["id"],))
+        return entry
 
     def list_servers(self) -> list[dict[str, Any]]:
         with closing(self.connect()) as connection, connection:

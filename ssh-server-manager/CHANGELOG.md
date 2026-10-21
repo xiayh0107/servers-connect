@@ -2,6 +2,68 @@
 
 ## Unreleased
 
+- Add `serverctl export` / `serverctl import` for moving the inventory between
+  machines and versioning it in git. The export is a deterministic JSON document
+  (hosts sorted by alias, fixed key order, no timestamps) of host profiles, their
+  saved working directories and their forwarding profiles. Secrets, credential
+  identifiers and everything observed remotely (facts, last check results,
+  resolved IPs, host keys) are left behind: a host carries its credential
+  *label*, and an import attaches it only when that label already exists locally,
+  reporting a warning instead of inventing one. `import` previews by default and
+  writes only with `--apply`; an existing host is left alone unless
+  `--overwrite` (the plan names the fields that differ), and saved directories and
+  tunnels are merged rather than replaced so a file that omits something cannot
+  delete work that exists here. Documents are validated strictly — unknown
+  fields, a wrong format, or a future version are refused — and a malformed entry
+  is reported while the rest still applies.
+- Support mosh as an opt-in transport: `serverctl connect ALIAS --mosh` runs a
+  mosh session that bootstraps through the managed ssh config with the same
+  askpass environment and `StrictHostKeyChecking=yes`, so it is not a second
+  authentication path and host-key verification is not relaxed. mosh needs a
+  UTF-8 locale, so one is supplied when the terminal has none. `serverctl doctor`
+  gained a `mosh` row that names the missing client instead of failing later at
+  connect time, and the command fails rather than falling back to ssh when the
+  user asked for mosh. Not offered on Windows.
+- Add opt-in session transcripts: `serverctl connect ALIAS --log` (or
+  `--log-path FILE`) runs the session through a pty proxy and records it to a
+  mode-600 file under `sessions/` in the data directory, named for the host and
+  start time. Only the terminal's *output* stream is recorded, so a password
+  typed at a no-echo prompt never reaches the file while echoed commands do;
+  terminal control sequences are stripped so the transcript can be read and
+  diffed, and credential-shaped values (`--password=X`, `MYSQL_PWD=X`, bearer
+  headers) are masked as best effort. A warning naming the destination is printed
+  before the session starts, the start of a recording is itself audited, `--log`
+  is refused together with `--mosh` and on Windows, and an environment that
+  denies a pty reports that instead of leaving an empty file behind.
+- Record privileged actions in a local, append-only audit log: `exec` and its
+  exit status, secret `reveal` (by credential label, never by value),
+  `reveal_denied`, `connect`, and tunnel `open`/`close`. `serverctl audit list
+  [--alias ALIAS] [--event KIND] [--since TIMESTAMP] [--limit N] [--json]` reads
+  it newest-first and `audit path` names the file. The log is one JSON object per
+  line, appended with a single `O_APPEND` write to a mode-600 file in the private
+  data directory, so a normal database update can never rewrite history and
+  concurrent CLI calls cannot interleave lines. Command lines are redacted before
+  they are stored (`--password=X`, `--password X`, `MYSQL_PWD=X`,
+  `Authorization: Bearer ...`, `--api-key`, `--passphrase`, ...) and fields named
+  like secrets are replaced by `***`, so the log never becomes a second place a
+  secret lives. A failed write warns once and never blocks the audited action;
+  torn or foreign lines are skipped when reading instead of hiding the rest.
+- Add saved port-forwarding profiles: `serverctl tunnel add`, `open`, `close`,
+  `status`, `list`, `show`, `edit`, and `remove`. A profile stores the parsed
+  halves of an OpenSSH `-L`/`-R`/`-D` spelling (never a command string), is unique
+  by name across the inventory so `tunnel open db1-local` needs no alias, and
+  defaults to a `127.0.0.1` bind because listening on every interface is an
+  exposure rather than a convenience. `open` starts one detached `ssh -N` with
+  `ExitOnForwardFailure=yes` and `StrictHostKeyChecking=yes`, waits for ssh to
+  authenticate so an unknown host key or taken port fails with ssh's own message
+  instead of a silent half-open tunnel, and returns the pid; re-opening reports
+  `already_open`, and closing a stopped profile is a no-op. Running state lives in
+  a mode-600 record in the private runtime directory rather than the database, and
+  is pruned as soon as the process is gone, so a copied database never claims a
+  tunnel is up. Liveness is a pid *and* the process's command line carrying that
+  tunnel's marker (read natively from `/proc` or `sysctl`, with `ps` as a fallback),
+  so a recycled pid can never be mistaken for a tunnel or killed by `close`.
+  Deleting a host stops its tunnels first. Database schema 8 adds `server_tunnels`.
 - Cut remote directory browsing to a single round trip. A listing now runs
   `os.scandir` through one managed `ssh` exec and returns the display fields
   together with precise owner names, UTC timestamps and symlink targets, instead

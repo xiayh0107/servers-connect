@@ -15,7 +15,8 @@ from threading import BoundedSemaphore, Event, Lock
 import uuid
 from typing import Any
 
-from .db import ConflictError, Database, NotFoundError
+from . import audit
+from .db import ConflictError, Database, DatabaseError, NotFoundError
 from .credential_lock import credential_lock
 from .credential_keys import read_snapshot, load_snapshot
 from .importer import apply_import, preview_import
@@ -245,14 +246,41 @@ class DiagnosticsService:
 
 
 class ConnectionService:
-    def __init__(self, runner: Callable[[], SSHRunner]) -> None:
+    def __init__(self, runner: Callable[[], SSHRunner], database: Database | None = None) -> None:
         self.runner = runner
+        self.database = database
 
-    def connect(self, identifier: str, *, timeout: int = 12) -> int:
+    def _host_alias(self, identifier: str) -> str | None:
+        if self.database is None:
+            return None
+        try:
+            return self.database.get_server(identifier)["alias"]
+        except DatabaseError:
+            return None
+
+    def connect(self, identifier: str, *, timeout: int = 12, actor: str = "cli") -> int:
+        audit.record("connect", actor=actor, alias=self._host_alias(identifier), host=identifier)
         return self.runner().connect(identifier, timeout=timeout)
 
-    def execute(self, identifier: str, command: list[str], **options: Any) -> dict[str, Any]:
-        return self.runner().execute(identifier, command, **options)
+    def execute(
+        self, identifier: str, command: list[str], *, actor: str = "cli", **options: Any
+    ) -> dict[str, Any]:
+        alias = self._host_alias(identifier)
+        # Recorded before the command runs, so a command that hangs or is killed
+        # still leaves the record of what was attempted; the outcome is appended
+        # separately when there is one.
+        audit.record("exec", actor=actor, alias=alias, host=identifier, command=list(command))
+        result = self.runner().execute(identifier, command, **options)
+        audit.record(
+            "exec_result",
+            actor=actor,
+            alias=alias,
+            host=identifier,
+            returncode=result.get("returncode"),
+            ok=result.get("ok"),
+            error_code=result.get("error_code"),
+        )
+        return result
 
 
 class CredentialApplicationService:
@@ -408,13 +436,18 @@ class CredentialApplicationService:
     def tests(self, identifier: str) -> list[dict[str, Any]]:
         return self.database.list_credential_tests(identifier)
 
-    def reveal(self, identifier: str) -> dict[str, Any]:
+    def reveal(self, identifier: str, *, actor: str = "cli") -> dict[str, Any]:
         # Authorization belongs to the calling shell. HTTP must consume a
         # short-lived, credential-specific grant before calling this method.
+        credential = self.database.get_credential(identifier)
         try:
-            return self._service().reveal(identifier)
+            revealed = self._service().reveal(identifier)
         except ValueError as exc:
+            audit.record("reveal_denied", actor=actor, credential=credential["label"])
             raise ValidationError(str(exc)) from exc
+        # The value never reaches the log: only that this secret was handed out.
+        audit.record("reveal", actor=actor, credential=credential["label"], slot=revealed["slot"])
+        return revealed
 
 
 class ContextService:
@@ -478,7 +511,7 @@ class ApplicationServices:
         self.hosts = HostService(database, self.render_config)
         self.files = FileService(database, self.runner)
         self.diagnostics = DiagnosticsService(self.runner, database)
-        self.connections = ConnectionService(self.runner)
+        self.connections = ConnectionService(self.runner, database)
         self.credentials = CredentialApplicationService(database, vault_factory or get_vault, self.render_config)
         self.skills = SkillService(database)
         self.contexts = ContextService(database)

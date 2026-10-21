@@ -264,16 +264,99 @@ SSHFS-Win with WinFsp. Check the `mount` row of `serverctl doctor` before
 offering it, and report the missing component instead of retrying. Prefer
 `--read-only` unless the user asked to write.
 
+## Port forwarding
+
+```bash
+./scripts/serverctl tunnel list [--server ALIAS] [--json]
+./scripts/serverctl tunnel show NAME|ID|ALIAS:NAME [--json]
+./scripts/serverctl tunnel add NAME --server ALIAS (--local SPEC | --remote SPEC | --dynamic SPEC) [--note TEXT] [--json]
+./scripts/serverctl tunnel edit NAME [--name NEW] [--server ALIAS] [--note TEXT] [--spec SPEC] [--kind KIND] [--json]
+./scripts/serverctl tunnel open NAME [--timeout SECONDS] [--foreground] [--json]
+./scripts/serverctl tunnel close NAME [--json]
+./scripts/serverctl tunnel status [--server ALIAS] [--json]
+./scripts/serverctl tunnel remove NAME [--yes] [--json]
+```
+
+Tunnels are saved as profiles and opened explicitly: `tunnel add` writes
+metadata and contacts nothing, `tunnel open` starts one detached `ssh -N` and
+returns its pid, `tunnel close` stops it. Never start a forward by running
+`ssh -L` yourself; the profile is what keeps the saved shape and the running
+process identical, and the running process is what `status` can prove.
+
+`SPEC` uses OpenSSH's own spelling: `PORT:HOST:PORT` or
+`BIND:PORT:HOST:PORT`, and `PORT` or `BIND:PORT` for `--dynamic`. The host half
+resolves *on the remote side*, so `--local 15432:localhost:5432` reaches the
+target host's own `localhost:5432`. The listening side defaults to `127.0.0.1`;
+pass a bind address only when the user asks for a forward other machines should
+reach, because that is a remote-access hole rather than a convenience.
+
+Profile names are unique across all hosts, so `tunnel open db1-local` is
+unambiguous, and `ALIAS:NAME` is accepted where it helps a human read the
+command. `open` on a running profile reports `already_open` instead of starting
+a second process, and `close` on a saved profile that is not running is a no-op,
+so a teardown sequence can be repeated safely.
+
+`tunnel status` joins saved profiles with this machine's live processes. Treat
+`running: true` as fact. A running row with `orphan: true` means the profile was
+deleted while its process survived: close it with `tunnel close` under that
+row's name before telling anyone the port is free. Runtime records live in the
+private runtime directory and are pruned as soon as the process is gone, so a
+copied database never claims a tunnel is up. Background tunnels belong to this
+machine; after a reboot, re-open the ones the user still needs.
+
+## Export and import
+
+```bash
+./scripts/serverctl export [--output PATH] [--json]
+./scripts/serverctl import [FILE|-] [--apply] [--overwrite] [--json]
+```
+
+Use these instead of hand-editing the database or copying `manager.db` between
+machines. The export is deterministic (sorted hosts, fixed key order, no
+timestamps), holds no secrets, and carries a host's credential only as its
+label. `import` previews by default and writes with `--apply`; existing hosts
+need `--overwrite`, while saved directories and tunnels are merged so an omitted
+entry never deletes local work. When a credential label is unknown on this
+machine, the host is imported without a credential and the warning says so —
+report that rather than claiming the host is fully restored.
+
+## Audit log
+
+```bash
+./scripts/serverctl audit list [--limit N] [--alias ALIAS] [--event KIND] [--since ISO] [--json]
+./scripts/serverctl audit path [--json]
+```
+
+The log is local, append-only, and mode 600. It records `exec` and
+`exec_result`, `reveal` and `reveal_denied`, `connect`, `tunnel_open`, and
+`tunnel_close`. Read it when the user asks what has been run on a host, or
+before claiming an action left no trace. It is evidence of *attempts and
+outcomes*, not proof of state: `exec_result` records the exit status the tool
+saw, and a log that cannot be written is reported once on stderr rather than
+blocking the command.
+
+The log never contains a secret. A reveal is recorded by credential label and
+slot; credentials typed into a command line are masked before the event is
+written. Do not copy log lines into a summary if they still look like they
+carry a value; report the event and label instead.
+
 ## Connections
 
 ```bash
-./scripts/serverctl connect ALIAS
+./scripts/serverctl connect ALIAS [--mosh] [--log | --log-path FILE]
 ./scripts/serverctl exec ALIAS [--stdin|--stdin-binary] [--reuse SECONDS] [--shell] [--json] -- COMMAND [ARG ...]
 ./scripts/serverctl config render [--json]
 ```
 
+`--log` records the session to a mode-600 transcript; only the display stream
+is recorded, so no-echo password prompts stay out of the file. Read it with
+the user's consent — a transcript is session content, not tool metadata.
+
 `connect` opens an interactive shell and is meant for a human terminal, not
-for agent tool calls (see SKILL.md). Without a TTY it fails fast with exit
+for agent tool calls (see SKILL.md). `--mosh` uses the mosh client instead,
+which needs mosh-server on the host and a local `mosh` (the `mosh` row of
+`serverctl doctor` reports it); it bootstraps over the same managed ssh config
+and keeps host-key verification, and it fails rather than falling back to ssh. Without a TTY it fails fast with exit
 code `2` and a pointer to `exec`.
 
 With the normal OpenSSH `ask` policy, an unknown host key is shown in the

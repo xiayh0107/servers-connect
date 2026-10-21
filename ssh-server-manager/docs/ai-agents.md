@@ -247,6 +247,17 @@ serverctl exec web1 --reuse 300 --json -- uptime
 serverctl ui --status --json
 serverctl ui --stop --json
 
+# a port forward the agent starts and finishes with the task
+serverctl tunnel add db1-local --server db1 --local 15432:localhost:5432 --json
+serverctl tunnel open db1-local --json     # returns the pid, or fails with ssh's reason
+serverctl tunnel status --json             # what this machine is actually running
+serverctl tunnel close db1-local --json    # closing a stopped profile is a no-op
+
+# move an inventory between machines without copying the database
+serverctl export --output inventory.json
+serverctl import inventory.json              # preview the plan
+serverctl import inventory.json --apply      # create/update hosts, paths, tunnels
+
 # first-time onboarding: create the profile, then land the human on its
 # credential form (launch in the background; the URL keeps its one-time token)
 serverctl server add web1 --hostname web1.example.com --username deploy --json

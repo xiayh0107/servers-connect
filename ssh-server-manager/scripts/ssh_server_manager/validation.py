@@ -4,12 +4,17 @@ import ipaddress
 import os
 import re
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 
 
 ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$")
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 KINDS = {"password", "key", "agent"}
+TUNNEL_KINDS = ("local", "remote", "dynamic")
+# Bind to loopback unless the user says otherwise: a forwarding socket that
+# silently listens on every interface is a remote-access hole, not a convenience.
+DEFAULT_TUNNEL_BIND_HOST = "127.0.0.1"
+WILDCARD_BIND_HOSTS = {"*", "0.0.0.0", "::", "localhost"}
 MAX_REMOTE_PATH_LENGTH = 4096
 MAX_SKILL_DESCRIPTION_LENGTH = 4096
 MAX_SERVER_TAGS = 20
@@ -17,6 +22,8 @@ MAX_SERVER_TAG_LENGTH = 40
 MAX_SERVER_NOTE_LENGTH = 10_000
 MAX_PATH_LABEL_LENGTH = 60
 MAX_PATH_NOTE_LENGTH = 500
+MAX_TUNNEL_NAME_LENGTH = 60
+MAX_TUNNEL_NOTE_LENGTH = 500
 NOTE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 CASE_INSENSITIVE_SKILL_FILENAMES = os.name == "nt"
 
@@ -45,11 +52,15 @@ def validate_hostname(value: str) -> str:
     return value
 
 
-def validate_port(value: int | str) -> int:
+def validate_port(value: int | str, *, allow_zero: bool = False) -> int:
     try:
         port = int(value)
     except (TypeError, ValueError) as exc:
         raise ValidationError("port must be an integer") from exc
+    if allow_zero and port == 0:
+        # OpenSSH reads a local port of 0 as "pick a free port for me", which is
+        # only meaningful for the listening half of a forwarding.
+        return 0
     if not 1 <= port <= 65535:
         raise ValidationError("port must be between 1 and 65535")
     return port
@@ -298,3 +309,131 @@ def validate_proxy_jumps(alias: str, jumps: Iterable[str]) -> list[str]:
             normalized.append(item)
             seen.add(key)
     return normalized
+
+
+# --- saved port forwarding --------------------------------------------------------
+#
+# A profile stores the same spelling OpenSSH accepts on -L/-R/-D so the saved form
+# and the command that implements it cannot drift apart. Parsing happens once, at
+# write time: nothing later has to re-validate a string that reaches a command line.
+
+
+def validate_tunnel_name(value: str) -> str:
+    name = str(value).strip()
+    if not name or len(name) > MAX_TUNNEL_NAME_LENGTH or not name.isprintable():
+        raise ValidationError(
+            f"tunnel name must be 1-{MAX_TUNNEL_NAME_LENGTH} printable characters"
+        )
+    if any(character in name for character in (":", "/", "\\")):
+        raise ValidationError("tunnel name must not contain ':', '/' or '\\'")
+    return name
+
+
+def tunnel_name_key(value: str) -> str:
+    """Return the persisted, Unicode-aware key used for tunnel identity."""
+    return validate_tunnel_name(value).casefold()
+
+
+def validate_tunnel_kind(value: str) -> str:
+    kind = str(value).strip().casefold()
+    if kind not in TUNNEL_KINDS:
+        raise ValidationError(f"tunnel kind must be one of {', '.join(TUNNEL_KINDS)}")
+    return kind
+
+
+def validate_tunnel_note(value: str | None) -> str:
+    note = "" if value is None else str(value).strip()
+    if len(note) > MAX_TUNNEL_NOTE_LENGTH:
+        raise ValidationError(f"tunnel note must be at most {MAX_TUNNEL_NOTE_LENGTH} characters")
+    if NOTE_CONTROL_RE.search(note):
+        raise ValidationError("tunnel note must not contain control characters")
+    return note
+
+
+def validate_bind_host(value: str) -> str:
+    text = str(value).strip()
+    if text in WILDCARD_BIND_HOSTS:
+        return text
+    return validate_hostname(text)
+
+
+def _forward_tokens(text: str) -> list[str]:
+    """Split an OpenSSH forwarding spelling on ':' but keep '[IPv6]' whole."""
+    tokens: list[str] = []
+    current = ""
+    index = 0
+    while index < len(text):
+        character = text[index]
+        if character == "[":
+            end = text.find("]", index + 1)
+            if end < 0 or current:
+                raise ValidationError(
+                    "write an IPv6 forwarding address in brackets, for example [::1]:8080:db:5432"
+                )
+            current = text[index + 1 : end]
+            index = end + 1
+            if index < len(text) and text[index] != ":":
+                raise ValidationError("expected ':' immediately after a bracketed address")
+            continue
+        if character == ":":
+            tokens.append(current)
+            current = ""
+        else:
+            current += character
+        index += 1
+    tokens.append(current)
+    if any(not token for token in tokens):
+        raise ValidationError("forwarding specification has an empty field")
+    return tokens
+
+
+def parse_forward_spec(value: str, kind: str) -> dict[str, Any]:
+    """Parse the -L/-R/-D spelling into the fields a profile stores."""
+    kind = validate_tunnel_kind(kind)
+    text = str(value).strip()
+    if not text:
+        raise ValidationError("forwarding specification must not be empty")
+    if CONTROL_RE.search(text) or any(character.isspace() for character in text):
+        raise ValidationError("forwarding specification must not contain whitespace")
+    tokens = _forward_tokens(text)
+    if kind == "dynamic":
+        if len(tokens) == 1:
+            bind_host, bind_port = DEFAULT_TUNNEL_BIND_HOST, tokens[0]
+        elif len(tokens) == 2:
+            bind_host, bind_port = tokens[0], tokens[1]
+        else:
+            raise ValidationError("a dynamic (-D) tunnel takes PORT or BIND_HOST:PORT")
+        return {
+            "kind": kind,
+            "bind_host": validate_bind_host(bind_host),
+            "bind_port": validate_port(bind_port, allow_zero=True),
+            "remote_host": None,
+            "remote_port": None,
+        }
+    if len(tokens) == 3:
+        bind_host = DEFAULT_TUNNEL_BIND_HOST
+        bind_port, remote_host, remote_port = tokens
+    elif len(tokens) == 4:
+        bind_host, bind_port, remote_host, remote_port = tokens
+    else:
+        raise ValidationError(
+            f"a {kind} tunnel takes PORT:HOST:PORT or BIND_HOST:PORT:HOST:PORT"
+        )
+    return {
+        "kind": kind,
+        "bind_host": validate_bind_host(bind_host),
+        "bind_port": validate_port(bind_port, allow_zero=True),
+        "remote_host": validate_hostname(remote_host),
+        "remote_port": validate_port(remote_port),
+    }
+
+
+def format_forward_spec(entry: Mapping[str, Any]) -> str:
+    """Render stored forwarding fields back into the spelling ssh accepts."""
+    bind_host = str(entry["bind_host"])
+    bind = f"[{bind_host}]" if ":" in bind_host else bind_host
+    if entry.get("kind") == "dynamic":
+        return f"{bind}:{entry['bind_port']}"
+    remote_host = str(entry["remote_host"])
+    remote = f"[{remote_host}]" if ":" in remote_host else remote_host
+    return f"{bind}:{entry['bind_port']}:{remote}:{entry['remote_port']}"

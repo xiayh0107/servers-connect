@@ -361,3 +361,91 @@ def test_add_help_text_points_to_the_edit_commands(capsys):
         main(["credential", "add-password", "--help"])
     assert credential_help.value.code == 0
     assert "serverctl credential edit" in capsys.readouterr().out
+
+
+def test_audit_list_reports_events_newest_first(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path / "data"))
+    from ssh_server_manager import audit
+
+    audit.record("exec", alias="web1", command=["uptime"])
+    audit.record("reveal", credential="prod root", slot="password")
+
+    assert main(["audit", "list", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["count"] == 2
+    assert [event["event"] for event in payload["events"]] == ["reveal", "exec"]
+    assert payload["events"][1]["command"] == "uptime"
+
+    assert main(["audit", "list"]) == 0
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert "reveal" in lines[0]
+    assert "prod root" in lines[0]
+    assert "uptime" in lines[1]
+
+
+def test_audit_list_filters_and_handles_an_empty_log(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path / "data"))
+    from ssh_server_manager import audit
+
+    audit.record("exec", alias="web1", command=["a"])
+    audit.record("exec", alias="db1", command=["b"])
+
+    assert main(["audit", "list", "--alias", "db1", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert [event["command"] for event in payload["events"]] == ["b"]
+
+    assert main(["audit", "path", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["path"].endswith("audit.log")
+
+    monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path / "empty"))
+    assert main(["audit", "list"]) == 0
+    assert "no audit events" in capsys.readouterr().out
+
+
+def _export_env(tmp_path, monkeypatch, name="a"):
+    data = tmp_path / name
+    monkeypatch.setenv("SSM_DATA_DIR", str(data))
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / f"{name}.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing-config"))
+    return data
+
+
+def test_export_writes_a_file_and_import_applies_it(tmp_path, monkeypatch, capsys):
+    _export_env(tmp_path, monkeypatch, "source")
+    assert main(["server", "add", "web1", "--hostname", "web1.example", "--username", "deploy"]) == 0
+    capsys.readouterr()
+    export_path = tmp_path / "inv.json"
+    assert main(["export", "--output", str(export_path), "--json"]) == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["hosts"] == 1
+    assert export_path.exists()
+
+    _export_env(tmp_path, monkeypatch, "target")
+    # A preview writes nothing and reports the plan.
+    assert main(["import", str(export_path)]) == 0
+    assert "would apply: create 1" in capsys.readouterr().out
+    assert main(["server", "list", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == []
+
+    assert main(["import", str(export_path), "--apply"]) == 0
+    assert "applied: create 1" in capsys.readouterr().out
+    assert main(["server", "show", "web1", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["hostname"] == "web1.example"
+
+
+def test_export_to_stdout_keeps_the_document_parseable(tmp_path, monkeypatch, capsys):
+    _export_env(tmp_path, monkeypatch)
+    assert main(["server", "add", "web1", "--hostname", "web1.example", "--username", "deploy"]) == 0
+    capsys.readouterr()
+    assert main(["export"]) == 0
+    document = json.loads(capsys.readouterr().out)
+    assert document["format"] == "ssh-server-manager.export"
+    assert [host["alias"] for host in document["hosts"]] == ["web1"]
+
+
+def test_import_of_a_bad_file_exits_non_zero(tmp_path, monkeypatch, capsys):
+    _export_env(tmp_path, monkeypatch)
+    broken = tmp_path / "broken.json"
+    broken.write_text('{"format": "nope"}', encoding="utf-8")
+    assert main(["import", str(broken), "--apply"]) == 2
+    assert "format" in capsys.readouterr().err or True

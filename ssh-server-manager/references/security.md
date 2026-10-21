@@ -26,6 +26,8 @@
 - Require normal OpenSSH known-host validation. Never silently accept or discard host keys.
 - Only interactive CLI `connect` may delegate a first-use OpenSSH host-key confirmation to the human's controlling terminal. Require explicit terminal input; fail closed without that terminal. Do not enable this path for agent calls, Web checks, transfers, or independent credential probes, and preserve stricter configured SSH trust policies.
 - Redact password-like prompts, vault values, launch tokens, session cookies, and CSRF tokens from diagnostics.
+- Record session transcripts only when explicitly requested, to a mode-600 file, and record the display stream only: a password typed at a no-echo prompt is never echoed, so it stays out. Strip terminal control sequences and mask credential-shaped values as best effort, warn about the destination before the session starts, audit the start of a recording, and never write a transcript into a repository, an issue, or a chat reply without the user asking.
+- Keep the audit log append-only and secret-free. Open it with `O_APPEND`, mode 600, and one small write per event; record reveals by credential label and slot, never by value; redact credential-shaped arguments before a command line is written; and treat a write failure as an advisory warning, not as an error that blocks the audited action.
 - Treat same-user local code as inside the OS account trust boundary. The UI authentication layer is an additional disclosure gate, not a replacement for OS account security.
 - Host-skill registration is not content pinning, signing, or sandboxing. Skill
   files remain same-user local code; agents must re-resolve when the target

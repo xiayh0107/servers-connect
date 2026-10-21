@@ -21,19 +21,35 @@ ecosystem). Ordered by expected impact.
    `serverctl mount` for sshfs, gated behind a `doctor` capability check
    because the FUSE layer cannot be installed for the user. Still open:
    recursive transfer of a whole tree.
-4. **Port forwarding profiles** — saved `-L/-R/-D` tunnels per server
-   (`serverctl tunnel open db1-local`), with status and teardown.
-5. **Audit log** — local, append-only record of secret reveals and
-   agent-invoked `exec` commands; `serverctl audit list --json`.
-6. **Git-friendly export** — `serverctl export` of host metadata (never
-   secrets) for versioning and moving between machines; paired `import`.
+4. ~~**Port forwarding profiles**~~ **Done (unreleased):** saved `-L/-R/-D`
+   tunnels per server (`serverctl tunnel add` / `open` / `close` / `status`),
+   opened as detached background ssh processes with status and teardown.
+   Runtime state lives in the private runtime directory, not the database. Still
+   open: tunnel management in the Web UI.
+5. ~~**Audit log**~~ **Done (unreleased):** `serverctl audit list [--json]`
+   appends one JSON object per event to a mode-600 `audit.log` under the private
+   data directory: `exec` and `exec_result`, `reveal` and `reveal_denied`,
+   `connect`, `tunnel_open` and `tunnel_close`. Credentials in a recorded command
+   line are masked and a reveal is recorded by label, never by value. Still open:
+   rotating the log and filtering it from the Web UI.
+6. ~~**Git-friendly export**~~ **Done (unreleased):** `serverctl export` writes
+   a deterministic JSON document of hosts, saved directories and forwarding
+   profiles (never secrets or credential ids; a host carries its credential
+   *label*), and `serverctl import` previews by default, applies with `--apply`,
+   and merges rather than replaces.
 7. **Optional MCP wrapper** — a thin MCP server over the same core for
    agents that only speak MCP: read-only by default, command allowlists,
    no secret-bearing tool results. The Skill remains the recommended path.
-8. **Session logging for `connect`** — opt-in local transcript with
-   secret redaction.
-9. **Mosh support** — detect availability. The 0.9.0 Hosts details already
-   render managed and external `ProxyJump` hops from the backend route.
+8. ~~**Session logging for `connect`**~~ **Done (unreleased):**
+   `serverctl connect ALIAS --log` records a mode-600 transcript through a pty
+   proxy, stripping control sequences and masking credential-shaped values. Only
+   the display stream is recorded, so a password typed at a no-echo prompt never
+   reaches the file. POSIX only.
+9. ~~**Mosh support**~~ **Done (unreleased):** `serverctl doctor` reports a
+   `mosh` capability row and `serverctl connect ALIAS --mosh` runs a session that
+   bootstraps over the managed config with host-key verification intact. The
+   0.9.0 Hosts details already render managed and external `ProxyJump` hops from
+   the backend route.
 10. **Local GeoIP and optional desktop shell** — separate follow-up work after
     the 0.9.0 six-page Web UI. Neither is required by the browser or CLI.
 

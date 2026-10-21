@@ -16,6 +16,7 @@ from typing import Any, Sequence
 from . import __version__
 from .application import ApplicationServices, CredentialApplicationService
 from .db import ConflictError, Database, DatabaseError, NotFoundError
+from .mosh import mosh_capability
 from .mounts import list_mounts, mount_capability
 from .mounts import mount as mount_host
 from .mounts import unmount as unmount_path
@@ -56,6 +57,15 @@ def format_item(item: Any) -> str:
         jumps = ",".join(item.get("proxy_jumps", [])) or "-"
         tags = ",".join(item.get("tags", [])) or "-"
         return f"{item['alias']:<22} {item['username']}@{item['hostname']}:{item['port']}  auth={credential}  jump={jumps}  tags={tags}"
+    if "name" in item and "forward" in item:
+        kind = item.get("kind", "local")
+        aliases = item.get("server") or item.get("alias") or "-"
+        if item.get("running"):
+            state = f"running pid={item.get('pid')}"
+        else:
+            state = "saved"
+        orphan = "  orphan" if item.get("orphan") else ""
+        return f"{item['name']:<28} {aliases:<16} {kind:<8} {item['forward']}  {state}{orphan}"
     if "kind" in item:
         detail = item.get("key_path") or ("stored" if item.get("has_secret") else "not stored")
         return f"{item['label']:<22} {item['kind']:<8} {detail}"
@@ -69,6 +79,67 @@ def format_item(item: Any) -> str:
         suffix = f"  status={status}" if status else ""
         return f"{item['name']:<28} {item['path']}  servers={servers}{suffix}"
     return json.dumps(item, ensure_ascii=False)
+
+
+def tunnel_label(item: dict[str, Any]) -> str:
+    forward = item.get("forward")
+    return f"{item.get('name')} ({forward})" if forward else str(item.get("name"))
+
+
+def emit_tunnel_line(message: str, payload: dict[str, Any], *, as_json: bool = False) -> None:
+    """One line for a person, the whole record for a machine."""
+    if as_json:
+        emit(payload, as_json=True)
+    else:
+        print(message)
+
+
+def print_import_plan(
+    plan: dict[str, Any], *, applied: bool, result: dict[str, Any] | None = None
+) -> None:
+    verb = "applied" if applied else "would apply"
+    counts = plan.get("counts", {})
+    summary = ", ".join(f"{key} {value}" for key, value in sorted(counts.items())) or "nothing"
+    print(f"{verb}: {summary}")
+    for action in plan.get("hosts", []):
+        name = action["alias"]
+        kind = action["action"]
+        if kind == "update":
+            fields = ", ".join(sorted(action.get("changes", {})))
+            print(f"  update  {name}  ({fields})")
+        elif kind == "create":
+            print(f"  create  {name}")
+        else:
+            print(f"  {kind:<7} {name}")
+    for warning in plan.get("warnings", []):
+        print(f"warning: {warning['alias']}: {warning['message']}", file=sys.stderr)
+    if result:
+        for problem in result.get("errors", []):
+            print(f"error: {problem['alias']}: {problem['message']}", file=sys.stderr)
+        if result.get("skipped"):
+            print(
+                "skipped (already here; re-run with --overwrite to update): "
+                + ", ".join(result["skipped"]),
+                file=sys.stderr,
+            )
+
+
+def format_audit_event(entry: dict[str, Any]) -> str:
+    when = str(entry.get("at") or "")[:19].replace("T", " ")
+    kind = str(entry.get("event") or "?")
+    alias = entry.get("alias") or entry.get("credential") or entry.get("host") or "-"
+    detail = ""
+    if entry.get("command") is not None:
+        command = entry["command"]
+        detail = command if isinstance(command, str) else " ".join(str(item) for item in command)
+    elif entry.get("returncode") is not None:
+        detail = f"returncode={entry.get('returncode')}"
+    elif entry.get("slot"):
+        detail = f"slot={entry['slot']}"
+    elif entry.get("error_code"):
+        detail = f"error={entry['error_code']}"
+    actor = entry.get("actor") or "cli"
+    return f"{when}  {kind:<14} {actor:<4} {alias:<18} {detail}".rstrip()
 
 
 def add_json_option(parser: argparse.ArgumentParser) -> None:
@@ -307,6 +378,131 @@ def build_parser() -> argparse.ArgumentParser:
     unmount.add_argument("target", metavar="ALIAS|MOUNTPOINT")
     add_json_option(unmount)
 
+    tunnel = commands.add_parser(
+        "tunnel",
+        help="save and open port forwards (-L/-R/-D) for a host",
+        epilog="the forward the tunnel points at is resolved on the remote side, so "
+        "'--local 15432:localhost:5432' means: on this machine, port 15432 reaches "
+        "the host's own localhost:5432.",
+    )
+    tunnel_commands = tunnel.add_subparsers(dest="tunnel_command", required=True)
+    tunnel_list = tunnel_commands.add_parser("list", help="list saved forwarding profiles")
+    tunnel_list.add_argument("--server", help="only profiles for this host")
+    add_json_option(tunnel_list)
+    tunnel_show = tunnel_commands.add_parser("show", help="show one forwarding profile")
+    tunnel_show.add_argument("tunnel", help="profile name, id, or ALIAS:NAME")
+    add_json_option(tunnel_show)
+    tunnel_add = tunnel_commands.add_parser(
+        "add",
+        help="save a forwarding profile for a host",
+        epilog="bind addresses default to 127.0.0.1; pass an address only when the "
+        "forward really should be reachable from other machines.",
+    )
+    tunnel_add.add_argument("name", help="profile name, unique across all hosts")
+    tunnel_add.add_argument("--server", required=True, help="host alias or id the forward belongs to")
+    tunnel_kind = tunnel_add.add_mutually_exclusive_group(required=True)
+    tunnel_kind.add_argument(
+        "--local",
+        metavar="SPEC",
+        help="local forward, PORT:HOST:PORT or BIND:PORT:HOST:PORT",
+    )
+    tunnel_kind.add_argument(
+        "--remote",
+        metavar="SPEC",
+        help="remote forward, PORT:HOST:PORT or BIND:PORT:HOST:PORT",
+    )
+    tunnel_kind.add_argument("--dynamic", metavar="SPEC", help="SOCKS proxy, PORT or BIND:PORT")
+    tunnel_add.add_argument("--note", default=None, help="optional reminder of what the forward is for")
+    add_json_option(tunnel_add)
+    tunnel_edit = tunnel_commands.add_parser("edit", help="change a saved forwarding profile")
+    tunnel_edit.add_argument("tunnel", help="profile name, id, or ALIAS:NAME")
+    tunnel_edit.add_argument("--name", help="new profile name")
+    tunnel_edit.add_argument("--server", help="move the profile to another host")
+    tunnel_edit.add_argument("--note")
+    tunnel_edit.add_argument(
+        "--spec",
+        help="new forwarding specification, interpreted with the profile's current kind",
+    )
+    tunnel_edit.add_argument("--kind", help="change the forwarding kind; needs --spec")
+    add_json_option(tunnel_edit)
+    tunnel_open = tunnel_commands.add_parser(
+        "open",
+        help="start a saved forward in the background",
+        epilog="background opens are detached from this terminal; "
+        "use 'serverctl tunnel close NAME' or --foreground to stop it.",
+    )
+    tunnel_open.add_argument("tunnel", help="profile name, id, or ALIAS:NAME")
+    tunnel_open.add_argument("--timeout", type=int, default=20, help="connection timeout in seconds")
+    tunnel_open.add_argument(
+        "--foreground",
+        action="store_true",
+        help="hold the terminal until Ctrl+C instead of detaching",
+    )
+    add_json_option(tunnel_open)
+    tunnel_close = tunnel_commands.add_parser("close", help="stop a running tunnel")
+    tunnel_close.add_argument("tunnel", help="profile name, id, or ALIAS:NAME")
+    add_json_option(tunnel_close)
+    tunnel_status = tunnel_commands.add_parser(
+        "status", help="report which saved forwards this machine is running"
+    )
+    tunnel_status.add_argument("--server", help="only profiles for this host")
+    add_json_option(tunnel_status)
+    tunnel_remove = tunnel_commands.add_parser(
+        "remove", help="forget a forwarding profile, stopping it first if it is open"
+    )
+    tunnel_remove.add_argument("tunnel", help="profile name, id, or ALIAS:NAME")
+    tunnel_remove.add_argument("--yes", action="store_true")
+    add_json_option(tunnel_remove)
+
+    export_parser = commands.add_parser(
+        "export",
+        help="write host metadata to a JSON file for versioning or another machine",
+        epilog="secrets, credential identifiers and remote observations are never "
+        "exported: a host carries its credential *label*, and the secret stays in "
+        "this machine's keychain.",
+    )
+    export_parser.add_argument(
+        "--output", type=Path, help="write to this file (default: standard output)"
+    )
+    add_json_option(export_parser)
+
+    import_parser = commands.add_parser(
+        "import",
+        help="read a serverctl export file into this machine's inventory",
+        epilog="prints what would change unless --apply is given; existing hosts are "
+        "left alone unless --overwrite, and saved directories and tunnels are merged "
+        "rather than replaced.",
+    )
+    import_parser.add_argument(
+        "source", nargs="?", default="-", help="export file, or - for standard input"
+    )
+    import_parser.add_argument("--apply", action="store_true", help="write the changes")
+    import_parser.add_argument(
+        "--overwrite", action="store_true", help="update hosts that already exist"
+    )
+    add_json_option(import_parser)
+
+    audit = commands.add_parser(
+        "audit",
+        help="read the local, append-only record of reveals and remote commands",
+        epilog="the log never contains a secret value: a reveal is recorded by "
+        "credential label, and credentials inside a command line are masked.",
+    )
+    audit_commands = audit.add_subparsers(dest="audit_command", required=True)
+    audit_list = audit_commands.add_parser("list", help="show recorded events, newest first")
+    audit_list.add_argument("--limit", type=int, default=50, help="how many events (default 50)")
+    audit_list.add_argument("--alias", help="only events for this host")
+    audit_list.add_argument(
+        "--event",
+        action="append",
+        default=[],
+        help="only these event kinds (exec, exec_result, reveal, reveal_denied, connect, tunnel_open, tunnel_close)",
+    )
+    audit_list.add_argument("--since", help="only events at or after this ISO-8601 timestamp")
+    add_json_option(audit_list)
+    audit_path_command = audit_commands.add_parser("path", help="print where the log lives")
+    add_json_option(audit_path_command)
+
     credential = commands.add_parser("credential", help="manage reusable credentials")
     credential_commands = credential.add_subparsers(dest="credential_command", required=True)
     credential_list = credential_commands.add_parser("list")
@@ -340,9 +536,29 @@ def build_parser() -> argparse.ArgumentParser:
     remove_credential.add_argument("--yes", action="store_true")
     add_json_option(remove_credential)
 
-    connect = commands.add_parser("connect", help="open an SSH session")
+    connect = commands.add_parser(
+        "connect",
+        help="open an SSH session",
+        epilog="--mosh needs the mosh client installed and mosh-server on the host; "
+        "it uses the same managed config and host-key verification as connect.",
+    )
     connect.add_argument("alias")
     connect.add_argument("--timeout", type=int, default=12)
+    connect.add_argument(
+        "--mosh",
+        action="store_true",
+        help="open a mosh session instead of plain ssh (needs a local mosh client)",
+    )
+    connect.add_argument(
+        "--log",
+        action="store_true",
+        help="record the session to a mode-600 transcript under the data directory",
+    )
+    connect.add_argument(
+        "--log-path",
+        type=Path,
+        help="record the session to this file (implies --log)",
+    )
 
     execute = commands.add_parser("exec", help="execute a remote command")
     execute.add_argument("alias")
@@ -475,6 +691,7 @@ def run_doctor(database: Database) -> dict[str, Any]:
         "managed_config": {"ok": True, "path": str(managed_ssh_config_path())},
         "agent_skill": skill_link_status(),
         "mount": mount_capability(),
+        "mosh": mosh_capability(),
     }
     try:
         checks["vault"] = {"ok": True, **get_vault().diagnose()}
@@ -587,6 +804,11 @@ def handle(args: argparse.Namespace) -> int:
         elif args.server_command == "remove":
             if not confirm(f"Remove server {args.alias}?", args.yes):
                 raise DatabaseError("removal cancelled; use --yes for non-interactive removal")
+            from . import tunnels
+
+            # Stop this host's forwards first: deleting the profiles first would
+            # leave the ssh processes holding their ports with nothing to close them.
+            tunnels.close_for_server(database, args.alias)
             result = services.hosts.delete(args.alias)
             emit(result, as_json=args.json)
         elif args.server_command == "import":
@@ -723,6 +945,147 @@ def handle(args: argparse.Namespace) -> int:
     if args.command == "unmount":
         emit(unmount_path(args.target), as_json=args.json)
         return 0
+    if args.command == "tunnel":
+        from . import tunnels
+
+        if args.tunnel_command == "list":
+            emit(database.list_tunnels(args.server), as_json=args.json)
+            return 0
+        if args.tunnel_command == "show":
+            emit(database.get_tunnel(args.tunnel), as_json=args.json)
+            return 0
+        if args.tunnel_command == "add":
+            kind, forward = "local", None
+            for candidate in ("local", "remote", "dynamic"):
+                value = getattr(args, candidate, None)
+                if value is not None:
+                    kind, forward = candidate, value
+            profile = database.create_tunnel(
+                args.server, name=args.name, kind=kind, forward=forward, notes=args.note
+            )
+            emit_tunnel_line(
+                f"saved {tunnel_label(profile)} for {profile['server']}", profile, as_json=args.json
+            )
+            return 0
+        if args.tunnel_command == "edit":
+            profile = database.update_tunnel(
+                args.tunnel,
+                name=args.name,
+                kind=args.kind,
+                forward=args.spec,
+                notes=args.note,
+                server_identifier=args.server,
+            )
+            emit_tunnel_line(
+                f"updated {tunnel_label(profile)} for {profile['server']}", profile, as_json=args.json
+            )
+            return 0
+        if args.tunnel_command == "open":
+            result = tunnels.open_tunnel(
+                database, args.tunnel, timeout=args.timeout, foreground=args.foreground
+            )
+            if args.foreground:
+                return 0
+            if result.get("already_open"):
+                message = f"{tunnel_label(result)} is already open (pid {result.get('pid')})"
+            else:
+                message = f"opened {tunnel_label(result)} for {result['server']} (pid {result.get('pid')})"
+            emit_tunnel_line(message, result, as_json=args.json)
+            return 0
+        if args.tunnel_command == "close":
+            result = tunnels.close_tunnel(database, args.tunnel)
+            if result.get("already_stopped"):
+                message = f"{result.get('name')} was not running"
+            else:
+                message = f"closed {tunnel_label(result)} (pid {result.get('pid')})"
+            emit_tunnel_line(message, result, as_json=args.json)
+            return 0
+        if args.tunnel_command == "status":
+            emit(tunnels.summarize(database, server_identifier=args.server), as_json=args.json)
+            return 0
+        if args.tunnel_command == "remove":
+            profile = database.get_tunnel(args.tunnel)
+            if not confirm(f"Remove tunnel {profile['name']}?", args.yes):
+                raise DatabaseError("removal cancelled; use --yes for non-interactive removal")
+            try:
+                tunnels.close_tunnel(database, profile["id"])
+            except ValidationError:
+                pass  # Not running: nothing to stop before forgetting the profile.
+            removed = database.delete_tunnel(profile["id"])
+            emit_tunnel_line(
+                f"removed {tunnel_label(removed)} for {removed['server']}",
+                removed,
+                as_json=args.json,
+            )
+            return 0
+        return 2
+    if args.command == "export":
+        from . import portable
+
+        document = portable.export_document(database)
+        if args.output is None:
+            if args.json:
+                emit(document, as_json=True)
+            else:
+                sys.stdout.write(portable.dump_document(document))
+            return 0
+        path = portable.write_document(document, args.output)
+        emit({"ok": True, "path": str(path), "hosts": len(document["hosts"])}, as_json=args.json)
+        return 0
+    if args.command == "import":
+        from . import portable
+
+        if args.source == "-":
+            text = sys.stdin.read()
+            if not text.strip():
+                raise ValidationError("no export document on standard input")
+            try:
+                document = portable.load_document_text(text)
+            except ValidationError:
+                raise
+        else:
+            document = portable.load_document(args.source)
+        preview = portable.preview(document, database)
+        if not args.apply:
+            if args.json:
+                emit(preview, as_json=True)
+            else:
+                print_import_plan(preview, applied=False)
+            return 0 if not preview.get("errors") else 1
+        result = portable.apply(document, database, overwrite=args.overwrite)
+        if args.json:
+            emit(result, as_json=True)
+        else:
+            print_import_plan(preview, applied=True, result=result)
+        return 0 if result["ok"] else 1
+    if args.command == "audit":
+        from . import audit as audit_module
+
+        if args.audit_command == "path":
+            emit({"path": str(audit_module.audit_path())}, as_json=args.json)
+            return 0
+        if args.audit_command == "list":
+            events = audit_module.read_events(
+                limit=args.limit,
+                alias=args.alias,
+                events=args.event or None,
+                since=args.since,
+            )
+            payload = {
+                "ok": True,
+                "path": str(audit_module.audit_path()),
+                "count": len(events),
+                "events": events,
+            }
+            if args.json:
+                emit(payload, as_json=True)
+            else:
+                for entry in events:
+                    print(format_audit_event(entry))
+                if not events:
+                    print(f"no audit events at {payload['path']}")
+            return 0
+        return 2
     if args.command == "credential":
         if args.credential_command == "list":
             emit(services.credentials.list(), as_json=args.json)
@@ -760,12 +1123,37 @@ def handle(args: argparse.Namespace) -> int:
         emit(result, as_json=args.json)
         return 0
     if args.command == "connect":
+        # Flag contradictions are reported before the TTY check: an agent that
+        # passes both gets an answer about the flags, not about its terminal.
+        if args.mosh and (args.log or args.log_path):
+            raise ValidationError(
+                "--log cannot be combined with --mosh; record the separate terminal instead"
+            )
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             raise SSHError(
                 "connect opens an interactive shell and requires a terminal (TTY); "
                 "run this command directly in your own terminal, or use "
                 "'serverctl exec ALIAS -- COMMAND' to run commands non-interactively"
             )
+        if args.mosh:
+            from . import mosh
+
+            return mosh.connect(database, args.alias, timeout=args.timeout)
+        if args.log or args.log_path:
+            from . import session_log
+
+            session_log.require_support()
+            target = args.log_path
+            print(
+                f"Recording this session to {target or 'a new file under ' + str(session_log.sessions_dir())}.\n"
+                "Everything the host displays — including the commands you type — is saved. "
+                "Redaction masks credential-shaped values but is best effort.\n"
+                "Passwords typed at a no-echo prompt are not recorded.",
+                file=sys.stderr,
+            )
+            result = session_log.record(database, args.alias, log_path=target, timeout=args.timeout)
+            print(f"session recorded to {result['path']} (exit {result['exit_code']})", file=sys.stderr)
+            return int(result["exit_code"])
         return services.connections.connect(args.alias, timeout=args.timeout)
     if args.command == "exec":
         if args.reuse > 0 and os.name == "nt":

@@ -189,6 +189,16 @@ run a `server test` first just to stall — respond in seconds, not minutes:
 Keep the whole explanation to two or three sentences. Do not present a
 numbered menu of connection modes.
 
+If the user wants a record of a session, hand them
+`serverctl connect <alias> --log --log-path FILE`; it needs a POSIX terminal, and
+reading the transcript back is disclosing session content, so do it only when
+asked and never paste a whole transcript into a reply.
+
+If the user asks for mosh (roaming, flaky mobile links), hand them
+`serverctl connect <alias> --mosh` — it needs the local `mosh` client and
+`mosh-server` on the host, and `serverctl doctor --json` reports the client.
+Never substitute a plain ssh session for a mosh request, or the reverse.
+
 If a check reports an unknown host key, hand the same `connect` command to
 the user's terminal and ask them to compare the displayed fingerprint with
 a trusted source before confirming. Interactive `connect` can pass that
@@ -333,6 +343,73 @@ Three tools, in the order to reach for them:
 
 Recursive transfer is deliberately unsupported. If the user needs a whole tree,
 say so and offer `serverctl exec` with a remote archive step, or a mount.
+
+## Ports and tunnels
+
+When the user wants "reach the database through the server", "expose this port
+locally", or a SOCKS proxy, use saved tunnel profiles instead of writing
+`ssh -L` yourself. A profile records what should be forwarded; the process that
+implements it is separate, and only `tunnel status` can tell you whether that
+process is alive on this machine.
+
+```bash
+./scripts/serverctl tunnel add db1-local --server db1 --local 15432:localhost:5432
+./scripts/serverctl tunnel open db1-local --json
+./scripts/serverctl tunnel status --json
+./scripts/serverctl tunnel close db1-local
+```
+
+Rules that keep this honest:
+
+- `--local 15432:localhost:5432` means this machine's port 15432 reaches
+  `localhost:5432` **on the host**. The right-hand host resolves remotely, so
+  naming `localhost` there is correct; rewriting it to the host's external name
+  changes what the tunnel does.
+- The listen address defaults to `127.0.0.1`. A `0.0.0.0` or `*` bind exposes
+  the forward to the local network — do that only when the user asked for it,
+  and say so in your reply.
+- `open` either returns a pid or fails with the host's own error (unknown host
+  key, port already taken, bad credential). Never report a tunnel as up when
+  `open` failed, and do not retry it in a loop; a host that has never been
+  verified needs `serverctl server test ALIAS` first, because a background
+  forward has no terminal in which to confirm a host key.
+- Re-running `open` on a live profile is safe (it reports `already_open`), and
+  closing a profile that is not running is a no-op, so a teardown step can be
+  repeated.
+- Tunnels belong to the machine and session that started them: they do not
+  survive a reboot, and a database copied elsewhere knows nothing about them.
+  Close what you opened when the task ends, and tell the user which tunnels you
+  left running.
+
+## Moving inventory between machines
+
+`serverctl export --output inventory.json` writes a deterministic document of
+hosts, saved directories, and forwarding profiles; `serverctl import FILE`
+previews and `--apply` writes it. Use it instead of copying `manager.db` or
+hand-editing records, and prefer it over re-adding hosts one by one.
+
+The file holds no secrets: a host carries its credential *label*, never the
+secret or the id. On import, an unknown label is reported as a warning and the
+host arrives without a credential — say that, and let the user decide whether to
+attach or create one. Existing hosts are untouched unless `--overwrite`, and
+saved directories and tunnels are merged, never deleted by omission.
+
+## What you leave behind
+
+Every `exec`, `reveal`, `connect`, and tunnel `open`/`close` is appended to a
+local audit log (`serverctl audit list`, newest first). The log is evidence of
+what was attempted and what it returned, so when the user asks "what did you do
+on that host", read it instead of reconstructing from memory:
+
+```bash
+./scripts/serverctl audit list --alias web1 --json
+./scripts/serverctl audit list --event reveal --limit 20
+```
+
+It never stores a secret: a reveal appears as a credential label and slot, and
+credentials inside a recorded command line are masked. Never copy a value from a
+command into a reply because it will "already be logged" — the mask is a safety
+net, not a licence to pass secrets through command lines.
 
 ## Host-bound skills
 
