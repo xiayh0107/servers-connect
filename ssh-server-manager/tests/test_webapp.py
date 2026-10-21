@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -660,7 +661,10 @@ def test_unexpected_api_failure_is_logged_and_not_disclosed(tmp_path, monkeypatc
     assert response.json() == {"ok": False, "error": "InternalServerError", "message": "internal server error"}
     log = tmp_path / "runtime" / "ui-errors.log"
     assert log.exists()
-    assert oct(log.stat().st_mode & 0o777) == "0o600"
+    # Windows has no POSIX mode bits: st_mode reports 0o666 for any file, so the
+    # privacy assertion only means something where the chmod can take effect.
+    if os.name != "nt":
+        assert stat.S_IMODE(log.stat().st_mode) == 0o600
     text = log.read_text(encoding="utf-8")
     assert "/api/v1/hosts/missing/paths" in text
     assert "RuntimeError: vault handle leaked /secret" in text
