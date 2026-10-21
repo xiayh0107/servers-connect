@@ -29,15 +29,13 @@ ecosystem). Ordered by expected impact.
 4. ~~**Port forwarding profiles**~~ **Done (unreleased):** saved `-L/-R/-D`
    tunnels per server (`serverctl tunnel add` / `open` / `close` / `status`),
    opened as detached background ssh processes with status and teardown.
-   Runtime state lives in the private runtime directory, not the database. Still
-   open: tunnel management in the Web UI.
+   Runtime state lives in the private runtime directory, not the database.
 5. ~~**Audit log**~~ **Done (unreleased):** `serverctl audit list [--json]`
    appends one JSON object per event to a mode-600 `audit.log` under the private
    data directory: `exec` and `exec_result`, `reveal` and `reveal_denied`,
    `connect`, `tunnel_open` and `tunnel_close`. Credentials in a recorded command
    line are masked and a reveal is recorded by label, never by value. The log
-   rotates itself (5 MiB, three segments, and reads span every segment). Still
-   open: filtering the log from the Web UI.
+   rotates itself (5 MiB, three segments, and reads span every segment).
 6. ~~**Git-friendly export**~~ **Done (unreleased):** `serverctl export` writes
    a deterministic JSON document of hosts, saved directories and forwarding
    profiles (never secrets or credential ids; a host carries its credential
@@ -47,8 +45,7 @@ ecosystem). Ordered by expected impact.
    speaks MCP over stdio with read-only inventory tools by default; `test_host`
    needs `--allow-remote` and `run_command` needs `--allow-exec` plus one
    `--allow-command` glob per shape. No reveal tool, argv-only commands, and
-   acting calls are audited. Still open: serving the same tools over HTTP for
-   remote agents. The Skill remains the recommended path.
+   acting calls are audited. The Skill remains the recommended path.
 8. ~~**Session logging for `connect`**~~ **Done (unreleased):**
    `serverctl connect ALIAS --log` records a mode-600 transcript through a pty
    proxy, stripping control sequences and masking credential-shaped values. Only
@@ -68,5 +65,23 @@ ecosystem). Ordered by expected impact.
     Electron/Tauri shell would add a second toolchain and a second update path to
     reach the same page. That stays a non-goal, recorded here so the item is
     closed rather than forever pending.
+
+## Deliberately not planned
+
+Recorded so these stay decisions rather than indefinitely pending work.
+
+- **MCP over HTTP for remote agents.** The MCP wrapper speaks stdio because the
+  inventory, the vault and the audit log all belong to one OS account on one
+  machine. An HTTP listener reachable by another machine is the opposite of that
+  boundary, and the loopback Web UI already covers same-machine use.
+- **Tunnel and audit surfaces in the Web UI.** Both have complete CLI surfaces
+  (`serverctl tunnel`, `serverctl audit`), which is what agents and scripts use.
+  Adding them to the six-page UI means new pages inside the 150/250 KiB gzip
+  budgets for information a person rarely needs interactively — a tunnel is
+  opened and a log is read far more often from a shell. Revisit if real use shows
+  people opening tunnels from the browser.
+- **winget manifest and a bundled desktop shell.** Covered above: winget needs a
+  Windows installer this repo does not build, and a desktop shell would add a
+  second toolchain to reach a page a browser already serves.
 
 Non-goals: cloud sync of secrets, telemetry, subscriptions, Electron.
