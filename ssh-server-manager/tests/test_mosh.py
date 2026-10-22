@@ -78,6 +78,7 @@ def test_a_missing_client_does_not_silently_fall_back(database, monkeypatch):
         mosh.connect(database, "box")
 
 
+@pytest.mark.skipif(os.name == 'nt', reason='mosh is refused on Windows by design')
 def test_connect_runs_the_client_with_the_askpass_environment(database, monkeypatch, tmp_path):
     binary = tmp_path / "mosh"
     binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -98,6 +99,7 @@ def test_connect_runs_the_client_with_the_askpass_environment(database, monkeypa
     assert observed["env"]["LC_ALL"] == "en_US.UTF-8"
 
 
+@pytest.mark.skipif(os.name == 'nt', reason='mosh is refused on Windows by design')
 def test_connect_keeps_a_utf8_locale_the_user_already_has(database, monkeypatch, tmp_path):
     binary = tmp_path / "mosh"
     binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")

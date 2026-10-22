@@ -67,11 +67,18 @@ sys.exit(status)
 def remote(tmp_path, monkeypatch):
     binary_directory = tmp_path / "bin"
     binary_directory.mkdir()
-    launcher = binary_directory / "sftp"
     script = tmp_path / "fake_sftp.py"
     script.write_text("#!" + sys.executable + "\n" + FAKE_SFTP, encoding="utf-8")
-    launcher.write_text("#!/bin/sh\nexec {} {}\n".format(sys.executable, script), encoding="utf-8")
-    launcher.chmod(0o755)
+    # A shim on PATH lets the real subprocess plumbing run unchanged. Windows has
+    # no /bin/sh, so the launcher is a .bat there; shutil.which finds either via
+    # PATHEXT, which keeps the batch-text assertions covered on all three OSes.
+    if os.name == "nt":
+        launcher = binary_directory / "sftp.bat"
+        launcher.write_text('@"{}" "{}" %*\r\n'.format(sys.executable, script), encoding="utf-8")
+    else:
+        launcher = binary_directory / "sftp"
+        launcher.write_text("#!/bin/sh\nexec {} {}\n".format(sys.executable, script), encoding="utf-8")
+        launcher.chmod(0o755)
     remote_root = tmp_path / "remote"
     remote_root.mkdir()
     monkeypatch.setenv("FAKE_SFTP_ROOT", str(remote_root))

@@ -22,7 +22,7 @@ from pathlib import Path
 
 RELEASE = "0.8.0"
 LEGACY_SCHEMA = 5
-CANDIDATE_SCHEMA = 7
+CANDIDATE_SCHEMA = 8
 FIXTURE_PASSWORD = "disposable-upgrade-fixture-password"
 LEGACY_TABLES = (
     "credentials", "servers", "settings", "webauthn_credentials",
@@ -164,10 +164,10 @@ def worker(mode: str, root: Path, expected_version: str) -> None:
             print("Published 0.8.0 seeded schema 5: 4 hosts, 3 credentials, contexts, notes, paths, Skill bindings and auth settings")
             return
 
-        require(SCHEMA_VERSION == CANDIDATE_SCHEMA, "Candidate does not support schema 7")
+        require(SCHEMA_VERSION == CANDIDATE_SCHEMA, "Candidate does not support schema 8")
         with closing(database.connect()) as connection:
             require(connection.execute("PRAGMA user_version").fetchone()[0] == CANDIDATE_SCHEMA,
-                    "Upgrade did not reach schema 7")
+                    "Upgrade did not reach schema 8")
             baseline = json.loads((root / "baseline.json").read_text(encoding="utf-8"))
             for table, saved in baseline.items():
                 quoted = ", ".join('"' + column.replace('"', '""') + '"' for column in saved["columns"])
@@ -203,7 +203,7 @@ def worker(mode: str, root: Path, expected_version: str) -> None:
         Database()
         Database()
         require(snapshot(database.path) == current, "Repeated database startup changed migrated data")
-        print(f"Candidate {expected_version}: schema 5 to 7, all original records/auth settings preserved, defaults and repeated startup passed")
+        print(f"Candidate {expected_version}: schema 5 to 8, all original records/auth settings preserved, defaults and repeated startup passed")
 
 
 def run_upgrade(distribution: Path, expected_version: str) -> None:

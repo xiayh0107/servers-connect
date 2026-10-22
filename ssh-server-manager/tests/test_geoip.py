@@ -7,6 +7,8 @@ clear message rather than a silent guess.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from ssh_server_manager import geoip
@@ -95,7 +97,13 @@ def test_the_index_is_rebuilt_when_the_file_changes(tmp_path, monkeypatch):
     assert geoip.lookup("198.51.100.1")["country_code"] == "DE"
     path = tmp_path / "geo.csv"
     path.write_text("198.51.100.0/24,FR\n", encoding="utf-8")
-    # A different size and mtime means a different cache key.
+    # "DE" and "FR" are the same length, so the size cannot distinguish these two
+    # files and the cache key rests on the timestamp alone. Filesystems with a
+    # coarse timestamp (and CI runners, which write both within one tick) can
+    # reuse the old value, so set a clearly newer mtime rather than relying on
+    # the clock moving between two writes.
+    later = path.stat().st_mtime_ns + 1_000_000_000
+    os.utime(path, ns=(later, later))
     assert geoip.lookup("198.51.100.1")["country_code"] == "FR"
 
 
