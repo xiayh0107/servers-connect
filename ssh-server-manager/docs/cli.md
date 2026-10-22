@@ -13,8 +13,12 @@ serverctl doctor [--json]
 
 `doctor` checks: serverctl version, platform (and whether connection reuse
 is available), database path, ssh / sftp / ssh-keygen presence and client version,
-original and managed config paths, vault backend safety, and the Python
-dependencies needed by the UI. Exit code is `0` only if every check passes.
+original and managed config paths, vault backend safety, the Python dependencies
+needed by the UI, and the two pieces of local state the newer pages read —
+`tunnels` (runtime directory writable, and whether a process command line can
+actually be read here, which is what separates a live forward from an orphan)
+and `audit` (log path, writability, how many segments exist and how large they
+are, and the rotation threshold). Exit code is `0` only if every check passes.
 
 For agent-driven installation, that exit code means the **local installation**
 is healthy; it is not the end of first-run onboarding and does not prove any

@@ -73,6 +73,12 @@
   A profile write now *preserves* an unchanged looked-up value without letting it
   mint a new one, `serverctl import` applies a location through the resolver's own
   entry point, and a manual override in the file still wins on import.
+- `serverctl doctor` now reports `tunnels` (runtime directory writable, whether a
+  process command line can be read on this machine — the capability that
+  distinguishes a live forward from an orphan, probed against the current process
+  rather than assumed) and `audit` (log path, writability, existing segment count
+  and size, rotation threshold). Segment counts include only files that exist, so
+  an empty log reports zero rather than the four names it could occupy.
 - Add an MCP HTTP transport for clients that cannot spawn a process:
   `serverctl mcp serve --http [--port N] [--token-file PATH]`. It is the same
   server, policy and audit trail as stdio — only the transport differs — and it

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from ssh_server_manager import __version__
-from ssh_server_manager.cli import main, skill_link_status
+from ssh_server_manager.cli import main, run_doctor, skill_link_status
 from ssh_server_manager.db import Database, NotFoundError
 from ssh_server_manager.validation import ValidationError
 
@@ -507,3 +507,32 @@ def test_geo_resolve_needs_a_target(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing-config"))
     assert main(["geo", "resolve"]) == 2
     assert "name a host" in capsys.readouterr().err
+
+
+def test_doctor_reports_tunnel_and_audit_state(tmp_path, monkeypatch):
+    """doctor must answer "can this machine track forwards and keep a log?"."""
+    monkeypatch.setenv("SSM_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("SSM_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setenv("SSM_MANAGED_SSH_CONFIG", str(tmp_path / "managed.conf"))
+    monkeypatch.setenv("SSM_ORIGINAL_SSH_CONFIG", str(tmp_path / "missing.conf"))
+
+    result = run_doctor(Database(tmp_path / "manager.db"))
+
+    tunnels = result["tunnels"]
+    assert tunnels["runtime_dir"] == str(tmp_path / "runtime")
+    assert tunnels["writable"] is True
+    # A bool either way: the probe must not raise when the OS denies it.
+    assert isinstance(tunnels["process_inspection"], bool)
+
+    audit = result["audit"]
+    assert audit["path"].endswith("audit.log")
+    # An empty log occupies nothing; the four candidate names are not segments.
+    assert audit["segments"] == 0 and audit["bytes"] == 0
+    assert audit["rotates_at_bytes"] > 0
+
+    from ssh_server_manager import audit as audit_module
+
+    audit_module.record("exec", actor="cli", command=["uptime"], returncode=0)
+    after = run_doctor(Database(tmp_path / "manager.db"))["audit"]
+    assert after["segments"] == 1
+    assert after["bytes"] > 0

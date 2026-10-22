@@ -250,6 +250,19 @@ def process_command_line(pid: int) -> str | None:
     return _ps_command_line(pid)
 
 
+def inspection_available() -> bool:
+    """Whether this machine lets us read a process command line for *our* pids.
+
+    Probed against the current process rather than assumed: a sandbox can deny
+    /proc or sysctl while the platform normally allows it, and reporting "yes"
+    there would make a tunnel look orphaned when it is only unreadable.
+    """
+    try:
+        return bool(process_command_line(os.getpid()))
+    except Exception:  # noqa: BLE001 - a probe must never raise into doctor
+        return False
+
+
 def _procfs_command_line(pid: int) -> str | None:
     try:
         raw = Path(f"/proc/{int(pid)}/cmdline").read_bytes()

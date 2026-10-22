@@ -767,6 +767,49 @@ def skill_link_status(dirs: Sequence[Path] | None = None) -> dict[str, Any]:
     return status
 
 
+def _tunnel_health() -> dict[str, Any]:
+    """Whether saved forwards can be tracked here, without opening one."""
+    from . import tunnels as tunnel_module
+
+    try:
+        runtime = tunnel_module.runtime_dir()
+        writable = os.access(runtime, os.W_OK) if runtime.exists() else os.access(runtime.parent, os.W_OK)
+    except OSError as exc:
+        return {"ok": False, "message": str(exc)}
+    # Forwarding needs ssh itself; Windows has no connection reuse, so the state
+    # file is all there is to inspect.
+    return {
+        "ok": writable,
+        "runtime_dir": str(runtime),
+        "writable": writable,
+        "process_inspection": tunnel_module.inspection_available(),
+        "connection_reuse": os.name != "nt",
+    }
+
+
+def _audit_health() -> dict[str, Any]:
+    """Whether the local log can be written, without writing an event."""
+    from . import audit as audit_module
+
+    path = audit_module.audit_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        writable = os.access(path.parent, os.W_OK)
+    except OSError as exc:
+        return {"ok": False, "path": str(path), "message": str(exc)}
+    # log_paths() lists every segment the log *may* occupy; report only the ones
+    # that exist, so "4 segments on an empty log" cannot read as real history.
+    present = [segment for segment in audit_module.log_paths() if segment.exists()]
+    return {
+        "ok": writable,
+        "path": str(path),
+        "writable": writable,
+        "segments": len(present),
+        "bytes": sum(segment.stat().st_size for segment in present),
+        "rotates_at_bytes": audit_module.max_bytes(),
+    }
+
+
 def run_doctor(database: Database) -> dict[str, Any]:
     ssh_path = shutil.which("ssh")
     checks: dict[str, Any] = {
@@ -788,6 +831,8 @@ def run_doctor(database: Database) -> dict[str, Any]:
         "mount": mount_capability(),
         "mosh": mosh_capability(),
         "geoip": geoip_capability(),
+        "tunnels": _tunnel_health(),
+        "audit": _audit_health(),
     }
     try:
         checks["vault"] = {"ok": True, **get_vault().diagnose()}
