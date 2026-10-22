@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.10.0 — 2026-10-22
+
 - Add `serverctl export` / `serverctl import` for moving the inventory between
   machines and versioning it in git. The export is a deterministic JSON document
   (hosts sorted by alias, fixed key order, no timestamps) of host profiles, their
