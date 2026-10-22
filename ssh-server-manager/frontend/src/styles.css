@@ -719,7 +719,12 @@
 .ports-table td,.audit-table td{height:58px}
 .ports-table td>.cell-stack>small,.audit-table td>.cell-stack>small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ports-table .mono,.audit-table .mono{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.audit-table td:last-child,.ports-table td:last-child{text-align:right}
+/* Both tables follow the redesign's lane header: uppercase, tracked, and sitting
+   on the page surface with a single rule instead of the legacy grey band. */
+.ports-table thead th,.audit-table thead th{background:var(--color-surface);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--color-line-strong);font-size:var(--text-xs);font-weight:600;color:var(--color-muted)}
+/* Audit's last column is an outcome (exit code, refused): right-align it.
+   Ports' last column is prose ("Exposed", "on db1"), so it stays left. */
+.audit-table td:last-child{text-align:right}
 .event-chip{display:inline-flex;align-items:center;height:19px;padding:0 var(--space-2);border-radius:var(--radius-sm);background:var(--color-control);color:var(--color-muted);font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0}
 .event-chip.exec{background:var(--color-accent-soft);color:var(--color-accent)}
 .event-chip.denied{background:var(--color-danger-soft);color:var(--color-danger)}

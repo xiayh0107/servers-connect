@@ -68,7 +68,7 @@ export default function PortsPage({hosts}: {hosts: Host[]}) {
     </EmptyState> : <>
       <div className="table-wrap ports-table">
         <table>
-          <thead><tr><th>Tunnel</th><th>Host</th><th>Forward</th><th>State</th><th>Listening</th><th aria-label="Actions"/></tr></thead>
+          <thead><tr><th>Tunnel</th><th>Host</th><th>Forward</th><th>State</th><th>Listening</th></tr></thead>
           <tbody>
             {filtered.map(tunnel => <tr key={tunnel.id} className={tunnel.orphan ? 'orphan' : undefined}>
               <td>
@@ -99,7 +99,6 @@ export default function PortsPage({hosts}: {hosts: Host[]}) {
                 </div>
               </td>
               <td>{listeningLabel(tunnel)}</td>
-              <td className="right"><span className="row-hint mono">{tunnel.id.slice(0, 4)}</span></td>
             </tr>)}
           </tbody>
         </table>

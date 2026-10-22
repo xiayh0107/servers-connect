@@ -105,3 +105,15 @@ it('refreshes on demand', async () => {
   fireEvent.click(screen.getByRole('button', {name: /Refresh/}));
   await waitFor(() => expect(mocked.mock.calls.length).toBeGreaterThan(before));
 });
+
+it('never prints an internal id in the row', async () => {
+  // A truncated profile id used to sit in a trailing column: it is not part of
+  // the design and told the reader nothing. Guard against it coming back.
+  render(<PortsPage hosts={hosts}/>);
+  const table = await screen.findByRole('table');
+  expect(within(table).queryByText('3f2a')).toBeNull();
+  expect(table.textContent).not.toMatch(/[0-9a-f]{4}\s*$/);
+  // Five columns, matching the five the header declares.
+  const headers = within(table).getAllByRole('columnheader');
+  expect(headers.length).toBe(5);
+});
