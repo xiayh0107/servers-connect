@@ -9,6 +9,10 @@ If this client can speak MCP but cannot read a Skill, `serverctl mcp serve`
 exposes the local inventory read-only, plus host checks and allowlisted
 commands when it is started with `--allow-remote` / `--allow-exec` +
 `--allow-command`. It never reveals a secret. Everything below still applies.
+Add `--http` only if this client cannot spawn a process: that listener is
+loopback-only, needs a per-launch bearer token (`--token-file` keeps it out of a
+terminal transcript), and refuses browser origins, so it is not a way to reach
+this inventory from a web page.
 
 ## First: route through `serverctl`, not raw ssh
 

@@ -82,7 +82,13 @@
   request carrying an `Origin` header so a browser page cannot drive it even with
   a stolen token, accepts only `POST /mcp`, and answers a notification with `202`
   and no body. Verified live: 401 without the token, 403 from a browser origin,
-  and `lsof` showing a loopback-only listener.
+  and `lsof` showing a loopback-only listener. Also verified against the official
+  MCP Python SDK's Streamable HTTP transport, which completes `initialize`
+  (reporting protocol `2025-06-18`), `tools/list`, and `tools/call`, and gets
+  `run_command` refused under the default policy; a test drives that SDK when it
+  is installed and skips otherwise, so it never becomes a suite requirement. No
+  `Mcp-Session-Id` is issued, so a client has no session to terminate and the
+  transport needs no state.
 - Add the Web UI for the two surfaces that only had a CLI: a **Ports** page and
   an **Audit** page. Both are GET-only, so neither can start, stop, or rewrite
   anything from a browser. `GET /api/v1/tunnels` joins saved forwarding profiles

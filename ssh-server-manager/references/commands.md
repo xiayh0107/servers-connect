@@ -343,6 +343,7 @@ about address routing, not a statement about where data is stored.
 
 ```bash
 ./scripts/serverctl mcp serve [--allow-remote] [--allow-exec] [--allow-command PATTERN]
+                                [--http] [--port N] [--token-file PATH]
 ./scripts/serverctl mcp tools [--allow-remote] [--allow-exec] [--allow-command PATTERN] [--json]
 ```
 
@@ -352,6 +353,15 @@ Only for clients that cannot read this Skill. Read-only unless `--allow-remote`
 result. `mcp tools` lists what a policy exposes before you wire up a client, and
 every acting call is audited under actor `mcp`. Do not start it in a terminal a
 human is using for anything else: stdout is the protocol channel.
+
+`--http` switches to a loopback HTTP endpoint (`POST /mcp`) for clients that
+cannot spawn a process. Same server, policy and audit trail; the transport alone
+changes. It binds `127.0.0.1`, rejects a non-loopback `Host`, requires
+`Authorization: Bearer <token>` on every request, and rejects any request with an
+`Origin` header — a browser cannot drive it even if it learns the token. The
+token is printed once to stderr at launch; `--token-file` writes it to a mode-600
+file instead, which is what a client config should read. `--port 0` (the default)
+picks a free port. Prefer stdio whenever the client can spawn a process.
 
 ## Audit log
 

@@ -293,6 +293,22 @@ Configure the client to run that command over stdio (stdout carries protocol
 messages only). `serverctl mcp tools` prints what a given policy would expose,
 which is the fastest way to confirm a client will see the tools you expect.
 
+If the client cannot spawn a process, serve the same tools over loopback HTTP
+instead:
+
+```bash
+serverctl mcp serve --http --port 0 --token-file ~/.cache/ssm-mcp-token
+# stderr: MCP endpoint: http://127.0.0.1:PORT/mcp
+```
+
+Point the client at that URL with `Authorization: Bearer <token>` read from the
+token file. Same tools, same policy, same audit actor. Three refusals are fixed
+and not configurable: the listener binds loopback only and rejects a non-loopback
+`Host`; every request needs the bearer token; and any request carrying an
+`Origin` header is refused, so a browser page cannot drive your servers even if
+the token leaks into it. That last rule is the point — it is what separates this
+from "an MCP server on a port".
+
 What it does not do, by construction:
 
 - **No secret tools.** There is no reveal tool and no result carries a vault
