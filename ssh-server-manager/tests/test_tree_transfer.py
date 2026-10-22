@@ -4,6 +4,12 @@ A fake `sftp` on PATH interprets the batch this code generates, so the tests
 exercise the real subprocess plumbing — the batch text, the ordering, the
 destination layout — without needing an SSH server. The remote listing used by a
 download is stubbed, because the listing route has its own coverage.
+
+The shim is a POSIX shell script, so the whole module skips on Windows. The code
+it drives is platform-neutral and is still covered there, without a shim:
+test_runner.py builds SFTP command streams through the same `_sftp_command`,
+test_file_backend.py covers the SFTP batch semantics, and test_modern_fixture.py
+covers them end to end.
 """
 
 from __future__ import annotations
@@ -18,6 +24,11 @@ import pytest
 from ssh_server_manager.db import Database
 from ssh_server_manager.ssh_runner import SSHRunner
 from ssh_server_manager.validation import ValidationError
+
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="the fake sftp is a POSIX shell script on PATH; Windows cannot exec it",
+)
 
 
 FAKE_SFTP = r'''
@@ -69,16 +80,14 @@ def remote(tmp_path, monkeypatch):
     binary_directory.mkdir()
     script = tmp_path / "fake_sftp.py"
     script.write_text("#!" + sys.executable + "\n" + FAKE_SFTP, encoding="utf-8")
-    # A shim on PATH lets the real subprocess plumbing run unchanged. Windows has
-    # no /bin/sh, so the launcher is a .bat there; shutil.which finds either via
-    # PATHEXT, which keeps the batch-text assertions covered on all three OSes.
-    if os.name == "nt":
-        launcher = binary_directory / "sftp.bat"
-        launcher.write_text('@"{}" "{}" %*\r\n'.format(sys.executable, script), encoding="utf-8")
-    else:
-        launcher = binary_directory / "sftp"
-        launcher.write_text("#!/bin/sh\nexec {} {}\n".format(sys.executable, script), encoding="utf-8")
-        launcher.chmod(0o755)
+    # A shim on PATH lets the real subprocess plumbing run unchanged. It has to be
+    # a shell script, which is why this module skips on Windows: there is no
+    # /bin/sh, and CreateProcess cannot be relied on to launch a .bat in place of
+    # a binary, so a Windows shim would fail for reasons unrelated to the code
+    # under test.
+    launcher = binary_directory / "sftp"
+    launcher.write_text("#!/bin/sh\nexec {} {}\n".format(sys.executable, script), encoding="utf-8")
+    launcher.chmod(0o755)
     remote_root = tmp_path / "remote"
     remote_root.mkdir()
     monkeypatch.setenv("FAKE_SFTP_ROOT", str(remote_root))
