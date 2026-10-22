@@ -1,8 +1,34 @@
 # Changelog
 
-## Unreleased
+## 0.10.1 — 2026-10-22
 
-Nothing yet.
+No runtime change: the installed wheel behaves exactly as 0.10.0 does. This
+patch corrects the checks and the source distribution that ship alongside it, so
+that a tree built from the sdist verifies upgrades against the schema it actually
+has, and so that the suite passes on every platform CI covers.
+
+- Fix the upgrade smoke check, which had stopped guarding anything. It pinned the
+  candidate schema to 7 while the tunnels table moved the database to schema 8,
+  so it asserted the candidate "does not support schema 7" and failed everywhere
+  the moment the schema changed. With the constant corrected, a real published
+  0.8.0 database (schema 5) migrates to this version with every host, credential,
+  tag, note, saved path, Skill binding and authentication setting preserved, and
+  repeated startup leaves the file unchanged. The check now lives in the sdist
+  in its working form.
+- Keep the suite portable. The mosh session tests drove a real session on
+  Windows, where mosh is refused by design; they now carry the same platform
+  guard the feature uses. The recursive-transfer tests put a `#!/bin/sh` shim on
+  PATH to stand in for `sftp`, which Windows cannot execute, so that module skips
+  there and its docstring names where the same code is still covered without a
+  shim (`test_runner.py` builds the SFTP command streams, `test_file_backend.py`
+  covers the batch semantics, `test_modern_fixture.py` covers them end to end).
+- Make the GeoIP index-rebuild test deterministic. It rewrote the range file from
+  `DE` to `FR` — the same byte length — and relied on the clock advancing between
+  two writes for the cache to invalidate, which a coarse-timestamp filesystem or
+  a CI runner that writes both within one tick defeats. The test now sets a newer
+  mtime explicitly.
+
+## Unreleased
 
 ## 0.10.0 — 2026-10-22
 
