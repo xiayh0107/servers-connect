@@ -432,6 +432,12 @@ host arrives without a credential — say that, and let the user decide whether 
 attach or create one. Existing hosts are untouched unless `--overwrite`, and
 saved directories and tunnels are merged, never deleted by omission.
 
+For a new machine the order matters: preview the import, have the user create
+each named credential in their own terminal or the browser (`credential
+add-password LABEL` and friends; you may create `agent` ones yourself), and
+only then run `--apply`, so every host arrives with its credential attached.
+Secrets never travel between machines; there is no sync for them.
+
 ## What you leave behind
 
 Every `exec`, `reveal`, `connect`, tunnel `open`/`close`, and `credential

@@ -98,10 +98,23 @@ manager intentionally does not poll every host in the background.
 rendered config at `~/.ssh/ssh-server-manager.conf`, secrets in the OS
 vault under service `ssh-server-manager`.
 
-**How do I move to a new machine?**
-Copy the database (it holds no secrets), re-add secrets on the new machine,
-or simply re-import from `~/.ssh/config` and re-create credentials.
-A git-friendly export command is on the roadmap.
+**How do I move to a new machine, or keep several in step?**
+Export on the machine that is set up, and import on the other:
+
+```bash
+serverctl export --output inventory.json   # hosts, saved directories, tunnels
+serverctl import inventory.json            # on the other machine: preview
+serverctl credential add-password LABEL    # each credential the preview names
+serverctl import inventory.json --apply
+```
+
+The file is deterministic JSON with no secrets in it, so it can live in a
+private git repository or a synced folder and be re-imported whenever it
+changes (existing hosts stay as they are unless `--overwrite`). Passwords and
+key passphrases stay in each machine's OS keychain and are never exported: a host
+carries its credential's *label*, and import attaches it only when a credential
+with that label exists, so create those first. Syncing secrets between machines
+is deliberately not offered.
 
 **Does it ever modify my `~/.ssh/config`?**
 No. It renders a separate file that `Include`s your config last. Never

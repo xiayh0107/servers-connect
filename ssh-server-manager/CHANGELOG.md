@@ -57,6 +57,11 @@ has, and so that the suite passes on every platform CI covers.
   which `brew audit` requires. The formula's test no longer runs `doctor`, which
   fails without an OS keychain, and the formula declares the toolchain its
   from-source resources need (Rust, pkgconf, OpenSSL, libffi, libyaml).
+- `serverctl import` now says what to do about a credential label that does not
+  exist on this machine — create it before `--apply`, or attach it afterwards
+  with `server edit` — and the FAQ's "move to a new machine" answer describes
+  the export/import flow instead of copying the database (issue #15). Secrets
+  still never leave the OS keychain.
 - Say plainly that `credential edit --replace-secret`, and the Web UI's
   **Replace** password field, change only the copy saved on this machine. Both
   now point at `credential rotate` for a real server-side change.

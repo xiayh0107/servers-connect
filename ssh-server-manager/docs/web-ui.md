@@ -217,6 +217,9 @@ may be unknown until an explicit operation observes the actual backend.
 Password and passphrase replacements are entered directly into the local UI.
 Leaving a field blank preserves the saved value; spaces remain part of the
 secret. A saved passphrase is cleared only by the explicit clear control.
+Replacing a password changes only the copy saved on this computer, and the
+field says so. When a server's own password changes, `serverctl credential
+rotate ALIAS` checks the new one against the server before saving it.
 Private-key credentials point to a local file; the manager never deletes that
 file when a credential is removed.
 
