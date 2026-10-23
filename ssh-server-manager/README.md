@@ -196,6 +196,9 @@ It links the skill into every detected agent (`~/.claude/skills`,
 `~/.codex/skills`, …), installs dependencies, and runs `doctor`. Windows
 uses `install.ps1`. See [docs/ai-agents.md](docs/ai-agents.md).
 
+Only the CLI and Web UI: `pipx install ssh-server-manager`, or
+`brew install xiayh0107/tap/ssh-server-manager`.
+
 ## Documentation
 
 | Doc | Contents |

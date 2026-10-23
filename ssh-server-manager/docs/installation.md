@@ -17,7 +17,13 @@ Installs `serverctl` as an isolated global command:
 pipx install ssh-server-manager
 # or
 uv tool install ssh-server-manager
+# or, on macOS and Linux with Homebrew
+brew install xiayh0107/tap/ssh-server-manager
 ```
+
+The Homebrew formula installs the same PyPI release into its own virtualenv
+([xiayh0107/homebrew-tap](https://github.com/xiayh0107/homebrew-tap)); see
+[packaging.md](packaging.md) for how it is kept in step.
 
 Then from anywhere:
 

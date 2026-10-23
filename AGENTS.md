@@ -127,11 +127,13 @@ hand-edit it there. Then:
 2. Run the full test suite; build with
    `.venv/bin/python -m build --outdir dist .` and smoke-test the wheel in a
    clean venv (`serverctl --version`).
-3. Render the packaging files from that sdist:
-   `scripts/prepare_packaging dist/ssh_server_manager-X.Y.Z.tar.gz` (see
-   `docs/packaging.md`; never hand-edit the formula's hash).
+3. Packaging is rendered after step 5, not from this sdist: `publish.yml`
+   builds its own, so only PyPI's file has the hash Homebrew downloads.
 4. Commit, push, tag `vX.Y.Z`, and `gh release create vX.Y.Z` with the wheel
    and sdist attached (`dist/` is not tracked by git).
 5. Publishing the GitHub Release triggers `publish.yml`, which uploads to
    PyPI via Trusted Publishing (OIDC, environment `pypi`, `skip-existing`
    enabled). No local credentials are involved; twine is a manual fallback.
+6. Update the Homebrew tap from PyPI's sdist with `scripts/prepare_packaging`
+   and a pull request to `xiayh0107/homebrew-tap` (`docs/packaging.md`; never
+   hand-edit the formula's hash).

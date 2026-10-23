@@ -1,34 +1,48 @@
-# Homebrew formula for ssh-server-manager.
+# Homebrew formula for ssh-server-manager, published in the xiayh0107/tap tap
+# (https://github.com/xiayh0107/homebrew-tap).
 #
-# Rendered by `scripts/prepare_packaging` from a built sdist; do not edit the
-# version or sha256 by hand. Publish it to a tap:
+# Rendered by `scripts/prepare_packaging` from the sdist PyPI serves; do not
+# edit the version or sha256 by hand. Then, in the tap checkout:
 #
-#   brew tap-new YOURUSER/ssh-server-manager
-#   cp ssh-server-manager.rb "$(brew --repository YOURUSER/ssh-server-manager)/Formula/"
-#   brew update-python-resources YOURUSER/ssh-server-manager/ssh-server-manager
-#   git -C "$(brew --repository YOURUSER/ssh-server-manager)" add -A && git commit -m "ssh-server-manager ${VERSION}"
+#   cp ssh-server-manager.rb "$(brew --repository xiayh0107/tap)/Formula/"
+#   brew update-python-resources xiayh0107/tap/ssh-server-manager
 #
+# and open a pull request there, so `brew test-bot` builds it on macOS and Linux.
 # `brew update-python-resources` fills the resource blocks: they pin every
 # dependency's sdist hash, and resolving them needs network access, so they are
-# generated in the tap rather than committed from here.
+# generated in the tap rather than committed from here. Homebrew installs every
+# resource from source, which is why Rust (pydantic-core, cryptography, bcrypt),
+# OpenSSL, libffi and libyaml are build or runtime dependencies here.
 class SshServerManager < Formula
   include Language::Python::Virtualenv
 
   desc "Manage SSH hosts and credentials for humans and AI agents"
   homepage "https://github.com/xiayh0107/servers-connect"
-  url "https://files.pythonhosted.org/packages/source/s/ssh-server-manager/ssh_server_manager-${VERSION}.tar.gz"
+  url "${SDIST_URL}"
   sha256 "${SDIST_SHA256}"
   license "MIT"
 
+  depends_on "pkgconf" => :build
+  depends_on "rust" => :build
+  depends_on "libyaml"
+  depends_on "openssl@3"
   depends_on "python@3.13"
+
+  uses_from_macos "libffi"
 
   def install
     virtualenv_install_with_resources
   end
 
   test do
-    assert_match "serverctl ${VERSION}", shell_output("#{bin}/serverctl --version")
-    # doctor exits non-zero when a dependency is missing; --version must not.
-    system bin/"serverctl", "doctor", "--json"
+    assert_match "serverctl #{version}", shell_output("#{bin}/serverctl --version")
+    # The vault is the OS keychain, which a test sandbox does not have, so the
+    # check stays on local metadata: create a host and read it back.
+    ENV["SSM_DATA_DIR"] = (testpath/"data").to_s
+    ENV["SSM_RUNTIME_DIR"] = (testpath/"run").to_s
+    ENV["SSM_MANAGED_SSH_CONFIG"] = (testpath/"managed.conf").to_s
+    ENV["SSM_ORIGINAL_SSH_CONFIG"] = (testpath/"none").to_s
+    system bin/"serverctl", "server", "add", "web1", "--hostname", "web1.example.com", "--username", "deploy"
+    assert_match "web1.example.com", shell_output("#{bin}/serverctl server list --json")
   end
 end

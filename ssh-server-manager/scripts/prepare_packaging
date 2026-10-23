@@ -6,23 +6,36 @@ version and the sdist's hash have to match the artifact that was actually
 uploaded, and a hand-edited hash is the kind of mistake that only shows up for
 the person who cannot install the tool.
 
+The formula downloads from PyPI, and publish.yml builds its own sdist rather
+than uploading the local one; sdists are not byte-reproducible, so a local
+build never has PyPI's hash. The rendered hash is therefore checked against
+PyPI, and the file to render from is PyPI's own, after the release is published.
+
 Usage:
-    scripts/prepare_packaging dist/ssh_server_manager-0.9.0.tar.gz
-    scripts/prepare_packaging --output dist/packaging dist/*.tar.gz
+    scripts/prepare_packaging /tmp/pypi/ssh_server_manager-0.9.0.tar.gz
+    scripts/prepare_packaging --offline --output dist/packaging dist/*.tar.gz
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import sys
 import tarfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_DIRECTORY = ROOT / "packaging"
 SDIST_RE = re.compile(r"^ssh_server_manager-(?P<version>[0-9][^-]*)\.tar\.gz$")
+PYPI_RELEASE = "https://pypi.org/pypi/ssh-server-manager/{version}/json"
+PYPI_SDIST = (
+    "https://files.pythonhosted.org/packages/source/s/ssh-server-manager/"
+    "ssh_server_manager-{version}.tar.gz"
+)
 
 
 def package_version() -> str:
@@ -62,6 +75,47 @@ def verify_sdist(path: Path, version: str) -> None:
         raise SystemExit(f"{path} does not contain {expected_root}/")
 
 
+def pypi_sdist(version: str) -> dict[str, str] | None:
+    """The URL and hash PyPI serves for this version's sdist, or None if it has none yet."""
+    try:
+        with urllib.request.urlopen(PYPI_RELEASE.format(version=version), timeout=20) as response:
+            payload = json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise SystemExit(f"cannot read PyPI's release data for {version}: {exc}") from exc
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise SystemExit(
+            f"cannot read PyPI's release data for {version}: {exc}; "
+            "pass --offline to render without the check"
+        ) from exc
+    for item in payload.get("urls", []):
+        if item.get("packagetype") == "sdist":
+            return {"url": str(item["url"]), "sha256": str(item["digests"]["sha256"])}
+    return None
+
+
+def verify_published(version: str, digest: str, name: str) -> str:
+    """The formula downloads PyPI's file, so its hash is the only one that installs.
+
+    Returns the file's own URL: Homebrew's audit wants it rather than the
+    /packages/source/ redirect.
+    """
+    published = pypi_sdist(version)
+    if published is None:
+        raise SystemExit(
+            f"PyPI has no sdist for {version} yet. The formula downloads from PyPI, so render "
+            "it after publish.yml has uploaded the release (or pass --offline for a local check)"
+        )
+    if published["sha256"] != digest:
+        raise SystemExit(
+            f"{name} is not the file PyPI serves for {version} (sha256 {digest[:12]}..., PyPI has "
+            f"{published['sha256'][:12]}...). publish.yml builds its own sdist, so render from "
+            f"PyPI's: {PYPI_SDIST.format(version=version)}"
+        )
+    return published["url"]
+
+
 def render(template: Path, replacements: dict[str, str]) -> str:
     text = template.read_text(encoding="utf-8")
     for key, value in replacements.items():
@@ -81,6 +135,11 @@ def main(argv: list[str] | None = None) -> int:
         default=ROOT / "dist" / "packaging",
         help="where to write the rendered files (default: dist/packaging)",
     )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="skip the check that the hash matches the sdist PyPI serves (local checks only)",
+    )
     arguments = parser.parse_args(argv)
 
     sdist = arguments.sdist.expanduser()
@@ -95,8 +154,11 @@ def main(argv: list[str] | None = None) -> int:
         )
     verify_sdist(sdist, version)
     digest = sha256_of(sdist)
+    url = PYPI_SDIST.format(version=version)
+    if not arguments.offline:
+        url = verify_published(version, digest, sdist.name)
 
-    replacements = {"VERSION": version, "SDIST_SHA256": digest}
+    replacements = {"VERSION": version, "SDIST_URL": url, "SDIST_SHA256": digest}
     written: list[Path] = []
     for template in sorted(TEMPLATE_DIRECTORY.rglob("*.in")):
         target = arguments.output / template.relative_to(TEMPLATE_DIRECTORY).with_suffix("")

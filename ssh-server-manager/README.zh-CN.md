@@ -115,6 +115,8 @@ curl -fsSL https://raw.githubusercontent.com/xiayh0107/servers-connect/main/inst
 
 自动把 skill 链接进检测到的所有智能体（`~/.claude/skills`、`~/.codex/skills` 等）、安装依赖并运行 `doctor` 体检。Windows 用 `install.ps1`。详见 [docs/ai-agents.md](docs/ai-agents.md)。
 
+只要 CLI 和 Web UI：`pipx install ssh-server-manager`，或 `brew install xiayh0107/tap/ssh-server-manager`。
+
 ## 文档
 
 安装（[docs/installation.md](docs/installation.md)）、快速上手（[docs/quickstart.md](docs/quickstart.md)）、CLI 参考（[docs/cli.md](docs/cli.md)）、Web UI（[docs/web-ui.md](docs/web-ui.md)）、安全模型（[docs/security.md](docs/security.md)）、平台说明（[docs/platforms.md](docs/platforms.md)）、AI 集成（[docs/ai-agents.md](docs/ai-agents.md)）、常见问题（[docs/faq.md](docs/faq.md)）。

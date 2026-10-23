@@ -48,6 +48,15 @@ has, and so that the suite passes on every platform CI covers.
   credential is still sent the saved password. Each check is audited as
   `password_rotate` (host, label, outcome; never a value), and the Audit page
   names it. Without a terminal the command exits 2 before any prompt.
+- Publish the Homebrew tap: `brew install xiayh0107/tap/ssh-server-manager`
+  ([xiayh0107/homebrew-tap](https://github.com/xiayh0107/homebrew-tap)), built by
+  `brew test-bot` on macOS and Linux. `scripts/prepare_packaging` now refuses an
+  sdist whose hash is not the one PyPI serves, because `publish.yml` builds its
+  own sdist and a local `dist/` file therefore never matches what Homebrew
+  downloads (`--offline` skips the check). It fills in PyPI's own file URL,
+  which `brew audit` requires. The formula's test no longer runs `doctor`, which
+  fails without an OS keychain, and the formula declares the toolchain its
+  from-source resources need (Rust, pkgconf, OpenSSL, libffi, libyaml).
 - Say plainly that `credential edit --replace-secret`, and the Web UI's
   **Replace** password field, change only the copy saved on this machine. Both
   now point at `credential rotate` for a real server-side change.

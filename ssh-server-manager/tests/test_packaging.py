@@ -44,15 +44,19 @@ def test_the_template_has_no_stale_placeholders(packaging):
     template = packaging.TEMPLATE_DIRECTORY / "homebrew" / "ssh-server-manager.rb.in"
     assert template.is_file()
     text = template.read_text(encoding="utf-8")
-    assert "${VERSION}" in text and "${SDIST_SHA256}" in text
+    assert "${SDIST_URL}" in text and "${SDIST_SHA256}" in text
 
 
-def test_rendering_fills_the_version_and_the_real_hash(packaging, tmp_path):
+def test_rendering_fills_the_version_and_the_real_hash(packaging, tmp_path, monkeypatch):
     archive = make_sdist(tmp_path, packaging.package_version())
+    hashed = f"https://files.pythonhosted.org/packages/ab/cd/ef/ssh_server_manager-{packaging.package_version()}.tar.gz"
+    monkeypatch.setattr(packaging, "pypi_sdist",
+                        lambda version: {"url": hashed, "sha256": packaging.sha256_of(archive)})
     assert packaging.main([str(archive), "--output", str(tmp_path / "out")]) == 0
     rendered = (tmp_path / "out" / "homebrew" / "ssh-server-manager.rb").read_text(encoding="utf-8")
     assert f'sha256 "{packaging.sha256_of(archive)}"' in rendered
-    assert f"ssh_server_manager-{packaging.package_version()}.tar.gz" in rendered
+    # Homebrew's audit wants the file's own URL, not the /packages/source/ redirect.
+    assert f'url "{hashed}"' in rendered
     assert "${" not in rendered
     # The formula must not pin a Python that the project does not support.
     assert 'depends_on "python@3.13"' in rendered
@@ -90,3 +94,31 @@ def test_unfilled_placeholders_are_caught(packaging, tmp_path):
     template.write_text("version ${VERSION}\nother ${SOMETHING_ELSE}\n", encoding="utf-8")
     with pytest.raises(SystemExit, match="SOMETHING_ELSE"):
         packaging.render(template, {"VERSION": "1.2.3"})
+
+
+def test_a_local_build_that_is_not_pypis_file_is_refused(packaging, tmp_path, monkeypatch):
+    # publish.yml rebuilds the sdist, and sdists are not byte-reproducible, so a
+    # local dist/ file installs nowhere: the formula downloads PyPI's.
+    archive = make_sdist(tmp_path, packaging.package_version())
+    monkeypatch.setattr(packaging, "pypi_sdist", lambda version: {"url": "unused", "sha256": "0" * 64})
+    with pytest.raises(SystemExit, match="not the file PyPI serves"):
+        packaging.main([str(archive), "--output", str(tmp_path / "out")])
+    assert not (tmp_path / "out").exists()
+
+
+def test_an_unpublished_version_is_refused_until_pypi_has_it(packaging, tmp_path, monkeypatch):
+    archive = make_sdist(tmp_path, packaging.package_version())
+    monkeypatch.setattr(packaging, "pypi_sdist", lambda version: None)
+    with pytest.raises(SystemExit, match="render it after publish.yml"):
+        packaging.main([str(archive), "--output", str(tmp_path / "out")])
+
+
+def test_offline_rendering_skips_the_pypi_check(packaging, tmp_path, monkeypatch):
+    def unreachable(version):
+        raise AssertionError("--offline must not contact PyPI")
+
+    archive = make_sdist(tmp_path, packaging.package_version())
+    monkeypatch.setattr(packaging, "pypi_sdist", unreachable)
+    assert packaging.main([str(archive), "--offline", "--output", str(tmp_path / "out")]) == 0
+    rendered = (tmp_path / "out" / "homebrew" / "ssh-server-manager.rb").read_text(encoding="utf-8")
+    assert "/packages/source/s/ssh-server-manager/" in rendered

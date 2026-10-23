@@ -174,6 +174,14 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/xia
 
 The installer installs dependencies, exposes `serverctl`, links the skill into detected local agents, and runs `serverctl doctor`.
 
+Only the CLI and Web UI, without the skill links:
+
+```bash
+pipx install ssh-server-manager
+# or
+brew install xiayh0107/tap/ssh-server-manager
+```
+
 ---
 
 ## Host-specific Agent Skills
