@@ -30,6 +30,28 @@ has, and so that the suite passes on every platform CI covers.
 
 ## Unreleased
 
+- Add `serverctl credential rotate ALIAS` for a host whose login password is
+  changing, so a new password is never saved before the server accepts it
+  (issue #3). serverctl does not change the password on the server — the human
+  does, with the account's own tools, because a scripted `passwd` dialogue
+  cannot be made reliable. The command takes the new password at a hidden
+  prompt and holds it in memory only, waits while the server-side change is
+  made, then proves a fresh password-only login through the isolated credential
+  probe (no agent, no key files, no shared connection, strict host-key
+  checking, no remote session). Only then does it write the vault. A rejected
+  password saves nothing and is followed by one check of the saved password, so
+  the message says whether the server still has the old one; Enter re-checks
+  and Ctrl-C stops with the vault exactly as it was. A credential that other
+  hosts share is never overwritten: they keep the old password and the rotated
+  host moves to a new credential, `LABEL (ALIAS)` or `--new-label`. The
+  candidate is offered to the target hop only, so a jump host that shares the
+  credential is still sent the saved password. Each check is audited as
+  `password_rotate` (host, label, outcome; never a value), and the Audit page
+  names it. Without a terminal the command exits 2 before any prompt.
+- Say plainly that `credential edit --replace-secret`, and the Web UI's
+  **Replace** password field, change only the copy saved on this machine. Both
+  now point at `credential rotate` for a real server-side change.
+
 ## 0.10.0 — 2026-10-22
 
 - Add `serverctl export` / `serverctl import` for moving the inventory between

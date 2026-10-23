@@ -583,7 +583,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--event",
         action="append",
         default=[],
-        help="only these event kinds (exec, exec_result, reveal, reveal_denied, connect, tunnel_open, tunnel_close)",
+        help="only these event kinds (exec, exec_result, reveal, reveal_denied, password_rotate, connect, tunnel_open, tunnel_close)",
     )
     audit_list.add_argument("--since", help="only events at or after this ISO-8601 timestamp")
     add_json_option(audit_list)
@@ -618,11 +618,20 @@ def build_parser() -> argparse.ArgumentParser:
     add_agent = credential_commands.add_parser("add-agent", epilog=credential_edit_hint)
     add_agent.add_argument("label")
     add_json_option(add_agent)
-    edit_credential = credential_commands.add_parser("edit")
+    edit_credential = credential_commands.add_parser(
+        "edit",
+        epilog="--replace-secret changes only the password saved on this machine; it does "
+        "not change it on any server. After changing a host's login password, use "
+        "'serverctl credential rotate ALIAS', which verifies the new password first.",
+    )
     edit_credential.add_argument("credential")
     edit_credential.add_argument("--label")
     edit_credential.add_argument("--key-path")
-    edit_credential.add_argument("--replace-secret", action="store_true")
+    edit_credential.add_argument(
+        "--replace-secret",
+        action="store_true",
+        help="replace the saved password (local vault only; the server is untouched)",
+    )
     edit_credential.add_argument("--replace-passphrase", action="store_true")
     edit_credential.add_argument("--clear-passphrase", action="store_true")
     add_json_option(edit_credential)
@@ -630,6 +639,29 @@ def build_parser() -> argparse.ArgumentParser:
     remove_credential.add_argument("credential")
     remove_credential.add_argument("--yes", action="store_true")
     add_json_option(remove_credential)
+    rotate_credential = credential_commands.add_parser(
+        "rotate",
+        help="save a host's new login password once the host accepts it (terminal only)",
+        description="Change a host's login password safely. serverctl never changes the "
+        "password on the server: you do that with the account's own tools (for example "
+        "'passwd' inside 'serverctl connect ALIAS'). This command takes the new password "
+        "through a hidden prompt, waits while you change it, proves a fresh password-only "
+        "login with it, and only then saves it. Until that login succeeds, the saved "
+        "password is left as it was.",
+        epilog="If no other host uses the credential it is updated in place. If others do, "
+        "they keep the old password and ALIAS is moved to a new credential (named "
+        "'LABEL (ALIAS)' unless --new-label is given). To change only the saved copy "
+        "without touching or checking the server, use 'serverctl credential edit LABEL "
+        "--replace-secret'.",
+    )
+    rotate_credential.add_argument("host", metavar="ALIAS", help="the host whose login password is changing")
+    rotate_credential.add_argument(
+        "--new-label", help="label for the new credential when the current one is shared with other hosts"
+    )
+    rotate_credential.add_argument(
+        "--timeout", type=int, default=15, help="seconds to allow for each login check (default 15)"
+    )
+    add_json_option(rotate_credential)
 
     connect = commands.add_parser(
         "connect",
@@ -683,6 +715,80 @@ def resolve_credential(service: CredentialApplicationService, value: str | None)
     if not value or value.casefold() == "none":
         return None
     return service.get(value)["id"]
+
+
+def rotation_failure(result: dict[str, Any]) -> str:
+    alias, label = result["host_alias"], result["credential_label"]
+    if result["error_code"] != "authentication-failed":
+        return f"Could not check the new password: {result['message']} Nothing was saved."
+    accepted = result["saved_password_accepted"]
+    if accepted is True:
+        return (f"{alias} rejected the new password and still accepts the saved one, so the change "
+                f"has not happened on the server yet. Nothing was saved; {label} is unchanged.")
+    if accepted is False:
+        return (f"{alias} rejected both the new password and the saved one. Nothing was saved. "
+                "If the server's password was set to something else, start over with that "
+                "password; if you are locked out, use the provider's console or recovery tools.")
+    return (f"{alias} rejected the new password, and the saved one could not be checked. "
+            f"Nothing was saved; {label} is unchanged.")
+
+
+def rotate_password(service: CredentialApplicationService, args: argparse.Namespace) -> int:
+    """Hidden prompt, the human's own server-side change, then proof before saving.
+
+    The candidate lives in this process only. Stopping at any point before the
+    proof leaves the saved credential exactly as it was; the rotation can simply
+    be started again with the password the server now has.
+    """
+    plan = service.rotation_plan(args.host, new_label=args.new_label)
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise ValidationError(
+            "credential rotate asks for the new password at a hidden prompt and waits while "
+            "you change it on the server, so it needs a terminal (TTY); run "
+            f"'serverctl credential rotate {plan['host_alias']}' in your own terminal"
+        )
+    alias, label = plan["host_alias"], plan["credential_label"]
+    first = getpass.getpass(f"New login password for {alias}: ")
+    second = getpass.getpass("Confirm new password: ")
+    if first != second:
+        raise VaultError("password confirmation does not match")
+    if not first:
+        raise ValidationError("password must not be empty")
+    if plan["mode"] == "split":
+        target = (f"It will be saved as a new credential, {plan['new_label']}, for {alias} only; "
+                  f"{label} keeps the old password for {', '.join(plan['shared_with'])}.")
+    else:
+        target = f"It will replace the password saved in {label}."
+    print(
+        f"Nothing is saved yet. {target}\n"
+        f"Now change the login password on {alias} with its own tools; for example, in another "
+        f"terminal run 'serverctl connect {alias}' and then 'passwd'.\n"
+        "Press Enter when the server should accept the new password, or Ctrl-C to stop "
+        "without saving.",
+        file=sys.stderr,
+    )
+    try:
+        while True:
+            if not sys.stdin.readline():
+                raise KeyboardInterrupt
+            print(f"Checking a fresh password-only login to {alias}...", file=sys.stderr)
+            result = service.rotate_password(plan["host_id"], first, new_label=args.new_label,
+                                             timeout=args.timeout)
+            if result["committed"]:
+                break
+            print(rotation_failure(result), file=sys.stderr)
+            print("Press Enter to check again, or Ctrl-C to stop without saving.", file=sys.stderr)
+    except KeyboardInterrupt:
+        print(f"\nStopped. Nothing was saved; {label} still holds the old password.", file=sys.stderr)
+        return 1
+    if args.json:
+        emit(result, as_json=True)
+    elif result["mode"] == "split":
+        print(f"Saved. {alias} accepted the new password; it is now in {result['credential']['label']}, "
+              f"bound to {alias}. {label} keeps the old password for {', '.join(result['shared_with'])}.")
+    else:
+        print(f"Saved. {alias} accepted the new password, and {label} now holds it.")
+    return 0
 
 
 def require_new_credential_label(service: CredentialApplicationService, label: str) -> None:
@@ -1378,6 +1484,8 @@ def handle(args: argparse.Namespace) -> int:
         if args.credential_command == "list":
             emit(services.credentials.list(), as_json=args.json)
             return 0
+        if args.credential_command == "rotate":
+            return rotate_password(services.credentials, args)
         service = services.credentials
         if args.credential_command == "add-password":
             require_new_credential_label(services.credentials, args.label)

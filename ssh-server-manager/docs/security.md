@@ -80,6 +80,35 @@ The secret exists only in the memory of the helper and ssh. It never
 appears in command lines, environment variables, files, logs, or the
 calling process's output.
 
+### Changing a password
+
+Saving a new password and changing the password on a server are different
+operations, and the tool keeps them apart. `credential edit --replace-secret`
+(and the Web UI's **Replace**) changes only the copy saved in the vault.
+`credential rotate ALIAS` is for a host whose login password is changing, and it
+never runs anything on the server — the human changes the password with the
+account's own tools, because a scripted `passwd` dialogue cannot be made
+reliable across systems.
+
+What `rotate` guarantees:
+
+- The new password is read at a hidden prompt and held in that process only.
+  It is checked through the same isolated credential probe as **Test
+  credential**: password authentication only, no agent, no key files, no
+  `ControlMaster` reuse, strict host-key checking, and no remote session. The
+  probe serves the candidate to the target hop alone, under an identity no
+  saved credential has, so a jump host that shares the credential is still
+  offered the saved password.
+- Nothing is written until that login succeeds. A rejection saves nothing and
+  is followed by one check of the saved password, so the result can say whether
+  the server still has the old one. Interrupting at any point before success
+  leaves the vault as it was; running `rotate` again with the password the
+  server now has is the recovery.
+- A credential that other hosts also use is never overwritten: they keep the
+  old password, and the rotated host is bound to a new credential.
+- Each check is appended to the audit log as `password_rotate` with the host,
+  the credential label and the outcome — never a value.
+
 ## Host-bound skill routing
 
 Host-skill bindings are local routing metadata, not a capability or policy

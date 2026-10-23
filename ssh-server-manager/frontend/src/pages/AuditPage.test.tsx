@@ -100,3 +100,17 @@ it('explains an empty log instead of showing an empty table', async () => {
   expect(await screen.findByText('Nothing recorded yet')).toBeTruthy();
   expect(screen.getByText(/History from before this feature was added is not backfilled/)).toBeTruthy();
 });
+
+it('names a password rotation and whether the new password was saved', async () => {
+  events.push(
+    event({at: at(40), event: 'password_rotate', command: null, returncode: null, credential: 'web-pass', alias: 'web1', ok: true}),
+    event({at: at(45), event: 'password_rotate', command: null, returncode: null, credential: 'web-pass', alias: 'web1', ok: false, error_code: 'authentication-failed'}),
+  );
+  render(<AuditPage/>);
+
+  const saved = (await screen.findByText('Password rotated')).closest('tr') as HTMLElement;
+  expect(within(saved).getByText('saved')).toBeTruthy();
+  expect(within(saved).getByText('web-pass')).toBeTruthy();
+  const refused = screen.getByText('New password not accepted').closest('tr') as HTMLElement;
+  expect(within(refused).getByText('not saved')).toBeTruthy();
+});

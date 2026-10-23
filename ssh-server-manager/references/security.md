@@ -63,6 +63,13 @@
   wait for their exit within a shared cleanup deadline, release those handles
   and confirm the job has no active processes. Uncertain membership or exit
   must fail the probe and still terminate its private job.
+- Keep "replace the saved password" and "follow a server's password change"
+  separate. `credential rotate` never runs a remote command; it holds the new
+  password in process memory, proves a fresh password-only probe login with it
+  (offered to the target hop only, so jumps sharing the credential still get the
+  saved value), and writes the vault only after that succeeds. A shared
+  credential is never overwritten: the rotated host moves to a new credential.
+  Audit each check by host and label only.
 - Serialize credential mutations/tests/reveal/bindings/deletion across processes.
   Default deletion refuses references; explicit detach/delete validates a fresh
   reference snapshot and journals cleanup atomically with the DB deletion.

@@ -238,3 +238,11 @@ it('removes a revealed secret after fifteen seconds without renewing the grant',
   await act(async()=>vi.advanceTimersByTime(15_001));
   expect(screen.queryByText('synthetic-expiring-value')).toBeNull();expect(mocked.mock.calls.filter(([path])=>path.endsWith('/reveal'))).toHaveLength(1);
 });
+
+it('says that replacing a saved password does not change it on the server',()=>{
+  render(<CredentialsPage {...props(credential())}/>);
+  expect(screen.queryByText(/not the one on the server/)).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Replace'}));
+  expect(screen.getByText(/not the one on the server/)).toBeTruthy();
+  expect(screen.getByText('serverctl credential rotate ALIAS')).toBeTruthy();
+});

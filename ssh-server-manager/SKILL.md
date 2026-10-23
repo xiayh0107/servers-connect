@@ -253,6 +253,30 @@ falling back to raw ssh.
 Keep the guidance to a sentence or two per step, and never paste a menu of
 onboarding options.
 
+## When the user changes a server password
+
+"Change the password" means one of two jobs; tell them apart from context
+rather than asking with a menu (中文：改服务器密码 / 更新保存的密码):
+
+- **The server's login password is changing, or just changed.** Hand
+  `serverctl credential rotate ALIAS` to the user's own terminal (the same
+  delivery rule as `connect`). It takes the new password at a hidden prompt,
+  waits while the user changes it on the server — for example
+  `serverctl connect ALIAS`, then `passwd` — proves a fresh password-only
+  login with it, and only then saves it. Until that login succeeds the saved
+  password is untouched, so stopping is always safe. If other hosts share the
+  credential, they keep the old password and ALIAS moves to a new credential
+  named `LABEL (ALIAS)` (or `--new-label`).
+- **Only the saved copy is wrong** (a typo when it was added; the server already
+  has the right password). `serverctl credential edit LABEL --replace-secret`
+  replaces the local copy without checking the server, as does the credential's
+  **Replace** field in the browser.
+
+serverctl never changes a password on a server itself. Do not script `passwd` or
+`chpasswd` through `exec`, and never put an old or new password in a command,
+chat, or file. When the user reports that the rotation saved, `serverctl server
+test ALIAS --json` confirms the host from your side.
+
 ## Interaction style
 
 - Treat `serverctl` as an agent-facing capability API, not something the user
@@ -410,10 +434,11 @@ saved directories and tunnels are merged, never deleted by omission.
 
 ## What you leave behind
 
-Every `exec`, `reveal`, `connect`, and tunnel `open`/`close` is appended to a
-local audit log (`serverctl audit list`, newest first). The log is evidence of
-what was attempted and what it returned, so when the user asks "what did you do
-on that host", read it instead of reconstructing from memory:
+Every `exec`, `reveal`, `connect`, tunnel `open`/`close`, and `credential
+rotate` check is appended to a local audit log (`serverctl audit list`, newest
+first). The log is evidence of what was attempted and what it returned, so when
+the user asks "what did you do on that host", read it instead of reconstructing
+from memory:
 
 ```bash
 ./scripts/serverctl audit list --alias web1 --json

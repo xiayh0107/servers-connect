@@ -27,6 +27,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -168,6 +169,18 @@ def _external_config(alias: str, path: Path, *, trust_only: bool = False,
                                      if key not in {"hostname", "user", "port", "proxyjump"}}}
     except (OSError, UnicodeError, ValueError, ValidationError) as exc:
         raise _ProbeError("external-config-unsupported") from exc
+
+
+def _candidate_vault(base: Callable[[], VaultProtocol], identifier: str,
+                     candidate: str) -> Callable[[], VaultProtocol]:
+    """Serve one unsaved password under a probe-only identity; delegate the rest."""
+    class CandidateVault:
+        def get_secret(self, credential_id: str, slot: str) -> str | None:
+            if credential_id == identifier:
+                return candidate if slot == "password" else None
+            return base().get_secret(credential_id, slot)
+
+    return CandidateVault
 
 
 class _Broker(socketserver.ThreadingTCPServer):
@@ -704,20 +717,36 @@ class CredentialProbeRunner:
         return environment
 
     def test(self, credential_id: str, host_identifier: str, *, timeout: float = 8,
-             cancel_event: threading.Event | None = None) -> dict[str, Any]:
-        for event in self.stream(credential_id, host_identifier, timeout=timeout, cancel_event=cancel_event):
+             cancel_event: threading.Event | None = None, candidate: str | None = None) -> dict[str, Any]:
+        for event in self.stream(credential_id, host_identifier, timeout=timeout, cancel_event=cancel_event,
+                                 candidate=candidate):
             if event["type"] == "result":
                 return event["result"]
         raise RuntimeError("credential probe produced no result")
 
     def stream(self, credential_id: str, host_identifier: str, *, timeout: float = 8,
-               cancel_event: threading.Event | None = None) -> Iterator[dict[str, Any]]:
+               cancel_event: threading.Event | None = None,
+               candidate: str | None = None) -> Iterator[dict[str, Any]]:
+        """Authenticate the target hop with the credential, or with `candidate`.
+
+        A candidate is an unsaved replacement password held in this process
+        only. It is offered to the target hop alone, under an identity no saved
+        credential has, so a jump host that shares the credential still gets the
+        saved value. It never reaches the vault, the manifest or a log.
+        """
         if not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or not 0 < timeout <= 120:
             raise ValidationError("credential test timeout must be between 0 and 120 seconds")
         started = time.monotonic()
         deadline = started + timeout
         credential = self.database.get_credential(credential_id)
         host = self.database.get_server(host_identifier)
+        vault_factory = self.vault_factory
+        target_credential = credential
+        if candidate is not None:
+            if credential["kind"] != "password" or not candidate:
+                raise ValidationError("only a non-empty password can be verified as a replacement")
+            target_credential = {**credential, "id": f"candidate:{uuid.uuid4()}", "has_secret": True}
+            vault_factory = _candidate_vault(self.vault_factory, target_credential["id"], candidate)
         stages: list[dict[str, Any]] = []
         code: str | None = None
         method: str | None = None
@@ -732,13 +761,13 @@ class CredentialProbeRunner:
 
         yield stage("prepare", "running", "Preparing an isolated authentication request.")
         try:
-            if credential["kind"] == "password" and not credential["has_secret"]:
+            if target_credential["kind"] == "password" and not target_credential["has_secret"]:
                 raise _ProbeError("credential-secret-missing")
-            hops = self._hops(host, credential)
+            hops = self._hops(host, target_credential)
             temporary = tempfile.TemporaryDirectory(prefix="credential-probe-", dir=runtime_dir())
             directory = Path(temporary.name)
             config, _ = self._prepare(directory, hops, timeout)
-            broker = _Broker(hops, self.vault_factory)
+            broker = _Broker(hops, vault_factory)
             environment = self._environment(hops, directory, broker)
             if cancel_event and cancel_event.is_set():
                 raise _ProbeError("cancelled")

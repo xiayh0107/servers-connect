@@ -56,6 +56,14 @@ Replace the stored secret with `serverctl credential edit LABEL
 label is refused *before* the password prompt runs, so you never type the
 secret twice for nothing.
 
+**I changed (or am about to change) a server's login password.**
+Run `serverctl credential rotate ALIAS` in your terminal. It takes the new
+password at a hidden prompt, waits while you change it on the server, and saves
+it only after a fresh password-only login with it succeeds — so a typo or a
+`passwd` that did not take never replaces a password that still works. Use
+`credential edit --replace-secret` only when the server already has the right
+password and the saved copy is wrong; it does not contact the server.
+
 ## Web UI
 
 **The URL says "use the one-time URL opened by serverctl ui".**

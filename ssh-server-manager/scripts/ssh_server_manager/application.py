@@ -24,7 +24,7 @@ from .paths import managed_ssh_config_path
 from .service import CredentialService, SkillService
 from .ssh_config import render_config, validate_include_source
 from .ssh_runner import SSHError, SSHRunner
-from .validation import ValidationError
+from .validation import ValidationError, validate_label
 from .vault import ObservedVault, VaultError, VaultProtocol, get_vault
 
 
@@ -484,6 +484,93 @@ class CredentialApplicationService:
 
     def tests(self, identifier: str) -> list[dict[str, Any]]:
         return self.database.list_credential_tests(identifier)
+
+    def rotation_plan(self, host_identifier: str, *, new_label: str | None = None) -> dict[str, Any]:
+        """Say what saving a new password for one host would change, without a secret.
+
+        Shells call this before any hidden prompt, so a host that cannot be
+        rotated, or a label that is already taken, fails before anyone types.
+        """
+        host = self.database.get_server(host_identifier)
+        if not host.get("credential_id"):
+            raise ValidationError(f"{host['alias']} has no saved credential to rotate")
+        credential = self.database.get_credential(host["credential_id"])
+        if credential["kind"] != "password":
+            raise ValidationError(
+                f"{host['alias']} uses {'an' if credential['kind'] == 'agent' else 'a'} {credential['kind']} "
+                "credential; only a saved password can be rotated"
+            )
+        sharing = sorted(item["alias"] for item in self.database.list_servers()
+                         if item.get("credential_id") == credential["id"] and item["id"] != host["id"])
+        label = None
+        if sharing:
+            label = validate_label(new_label or f"{credential['label']} ({host['alias']})")
+            if any(other["label"].casefold() == label.casefold() for other in self.database.list_credentials()):
+                raise ConflictError(f"credential label already exists: {label}; choose another with --new-label")
+        elif new_label is not None:
+            raise ValidationError(
+                f"{credential['label']} is used by {host['alias']} only, so it is updated in place; drop --new-label"
+            )
+        return {"host_id": host["id"], "host_alias": host["alias"], "credential_id": credential["id"],
+                "credential_label": credential["label"], "credential_updated_at": credential["updated_at"],
+                "shared_with": sharing, "mode": "split" if sharing else "replace", "new_label": label}
+
+    def rotate_password(self, host_identifier: str, candidate: str, *, new_label: str | None = None,
+                        timeout: int = 8, actor: str = "cli") -> dict[str, Any]:
+        """Save a new password for one host only after that host accepts it.
+
+        Nothing here changes a password on the server; the human does that with
+        the account's own tools. The candidate is proven by a fresh password-only
+        login (no agent, key or shared connection) before anything is saved. A
+        credential no other host uses is updated in place; a shared one is left
+        alone for the hosts still on the old password, and this host is bound to
+        a new credential instead. A rejected candidate changes nothing and is
+        followed by one check of the saved password, so the caller can say which
+        password the server accepts now.
+        """
+        from .credential_probe import CredentialProbeRunner
+        if not candidate:
+            raise ValidationError("password must not be empty")
+        plan = self.rotation_plan(host_identifier, new_label=new_label)
+        with credential_lock(self.database.path, plan["credential_id"]):
+            current = self.rotation_plan(plan["host_id"], new_label=new_label)
+            if (current["credential_id"], current["credential_updated_at"], current["shared_with"]) != (
+                    plan["credential_id"], plan["credential_updated_at"], plan["shared_with"]):
+                raise ConflictError("the host or its credential changed; run the rotation again")
+            runner = CredentialProbeRunner(self.database, self._vault)
+            verified = runner.test(plan["credential_id"], plan["host_id"], timeout=timeout, candidate=candidate)
+            outcome: dict[str, Any] = {
+                "host_alias": plan["host_alias"], "credential_label": plan["credential_label"],
+                "shared_with": plan["shared_with"], "verified": verified["ok"], "committed": False,
+                "mode": None, "credential": None, "error_code": verified["error_code"],
+                "message": verified["message"], "saved_password_accepted": None,
+            }
+            if not verified["ok"]:
+                if verified["error_code"] == "authentication-failed":
+                    saved = runner.test(plan["credential_id"], plan["host_id"], timeout=timeout)
+                    outcome["saved_password_accepted"] = saved["ok"] if saved["ok"] or (
+                        saved["error_code"] == "authentication-failed") else None
+                audit.record("password_rotate", actor=actor, alias=plan["host_alias"],
+                             credential=plan["credential_label"], ok=False, error_code=verified["error_code"])
+                return outcome
+            service = self._service()
+            if plan["mode"] == "replace":
+                credential = service.update(plan["credential_id"], secret=candidate,
+                                            expected_updated_at=plan["credential_updated_at"])
+            else:
+                credential = service.create_password(plan["new_label"], candidate)
+                try:
+                    self.database.update_server(plan["host_id"], credential_id=credential["id"])
+                except Exception:
+                    self.delete(credential["id"])
+                    raise
+            self.render()
+            # The proof belongs to whichever credential now holds the password.
+            self.database.record_credential_test(credential["id"], {**verified, "credential_id": credential["id"]})
+            audit.record("password_rotate", actor=actor, alias=plan["host_alias"],
+                         credential=credential["label"], ok=True)
+            return {**outcome, "committed": True, "mode": plan["mode"],
+                    "credential": self.database.get_credential(credential["id"])}
 
     def reveal(self, identifier: str, *, actor: str = "cli") -> dict[str, Any]:
         # Authorization belongs to the calling shell. HTTP must consume a

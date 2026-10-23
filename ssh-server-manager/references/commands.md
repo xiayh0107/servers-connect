@@ -131,9 +131,22 @@ Changing hostname or port clears the old endpoint's observations.
 ./scripts/serverctl credential edit LABEL [--label NEW_LABEL] [--key-path PATH]
   [--replace-secret] [--replace-passphrase] [--clear-passphrase]
 ./scripts/serverctl credential remove LABEL [--yes]
+./scripts/serverctl credential rotate ALIAS [--new-label LABEL] [--timeout SECONDS] [--json]
 ```
 
 Secret input uses a local hidden prompt. There is deliberately no CLI command that reveals a saved secret.
+
+`edit --replace-secret` changes only the copy saved on this machine; it does not
+check or change the server. `rotate` is for a host whose login password is
+changing: it needs a terminal, takes the new password at a hidden prompt, waits
+while the human changes it on the server with the account's own tools, proves a
+fresh password-only login (no agent, key, or shared connection), and only then
+saves it. A rejected password saves nothing and is followed by one check of the
+saved password, so the output says which one the server accepts. A credential no
+other host uses is updated in place; a shared one keeps the old password for the
+other hosts, and ALIAS is bound to a new credential `LABEL (ALIAS)` unless
+`--new-label` names it. Each check is recorded in the audit log as
+`password_rotate`. serverctl never runs `passwd` for you.
 
 Keys are locally parsed before saving, supporting OpenSSH/PEM RSA, ECDSA and
 Ed25519 identities. Unsupported formats fail explicitly. An encrypted key needs

@@ -1640,3 +1640,47 @@ def test_real_deadline_and_disconnect_close_processes(request_state, loopback_se
     finally:
         timer.cancel()
     assert not list(Path(os.environ["SSM_RUNTIME_DIR"]).glob("credential-probe-*"))
+
+
+def test_candidate_requires_a_password_credential(request_state):
+    database, credential, host, vault = request_state
+    agent = database.create_credential(label="Agent", kind="agent")
+    runner = CredentialProbeRunner(database, lambda: vault)
+    with pytest.raises(ValidationError):
+        runner.test(agent["id"], host["id"], candidate="rotated-candidate-secret")
+    with pytest.raises(ValidationError):
+        runner.test(credential["id"], host["id"], candidate="")
+
+
+def test_real_candidate_reaches_the_target_only_and_never_the_vault(
+        request_state, loopback_servers, tmp_path, probe_evidence):
+    database, credential, host, vault = request_state
+    # The jump shares the credential and still has the saved password; only the
+    # target's account was changed.
+    jump = loopback_servers()
+    target = loopback_servers(password="rotated-candidate-secret")
+    database.create_server(alias="jump", hostname="127.0.0.1", username="fixture", port=jump.port,
+                           credential_id=credential["id"])
+    database.update_server(host["id"], port=target.port, proxy_jumps=["jump"])
+    result = fixture_runner(database, vault, tmp_path, [jump, target]).test(
+        credential["id"], host["id"], timeout=8, candidate="rotated-candidate-secret")
+    if not result["ok"] or result["method"] != "password":
+        _fail_probe(result, probe_evidence, expected_hop_count=2,
+                    server_password_attempts=[len(server.password_attempts) for server in (jump, target)])
+    assert jump.password_attempts == ["fixture-password-never-log"]
+    assert target.password_attempts == ["rotated-candidate-secret"]
+    assert result["credential_id"] == credential["id"]
+    assert vault.get_secret(credential["id"], "password") == "fixture-password-never-log"
+    assert "rotated-candidate-secret" not in json.dumps(result)
+    assert not jump.sessions and not target.sessions
+    assert not list(Path(os.environ["SSM_RUNTIME_DIR"]).glob("credential-probe-*"))
+
+
+def test_real_rejected_candidate_is_an_authentication_failure(request_state, loopback_servers, tmp_path):
+    database, credential, host, vault = request_state
+    server = loopback_servers()
+    database.update_server(host["id"], port=server.port)
+    result = fixture_runner(database, vault, tmp_path, [server]).test(
+        credential["id"], host["id"], timeout=5, candidate="not-yet-changed")
+    assert not result["ok"] and result["error_code"] == "authentication-failed", result
+    assert server.password_attempts == ["not-yet-changed"]

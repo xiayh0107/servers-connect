@@ -164,9 +164,24 @@ serverctl credential add-agent LABEL
 serverctl credential edit LABEL|ID [--label NEW] [--key-path PATH]
     [--replace-secret] [--replace-passphrase] [--clear-passphrase]
 serverctl credential remove LABEL|ID [--yes]
+serverctl credential rotate ALIAS [--new-label LABEL] [--timeout SECONDS] [--json]
 ```
 
 Notes:
+
+- Two different "password changes": `credential edit --replace-secret` changes
+  only the copy saved on this machine and never contacts a server.
+  `credential rotate ALIAS` is for a host whose login password is changing. It
+  takes the new password at a hidden prompt, waits while you change it on the
+  server with the account's own tools (for example `serverctl connect ALIAS`,
+  then `passwd`), proves a fresh password-only login with it, and only then
+  saves it. Press Enter to check, Enter again to re-check after a rejection, or
+  Ctrl-C to stop; until a login succeeds the saved password is untouched.
+  A rejection is followed by one check of the saved password, so the message says
+  whether the server still has the old one. When other hosts share the
+  credential they keep the old password, and ALIAS is moved to a new credential
+  `LABEL (ALIAS)` (or `--new-label`). It needs a terminal and exits 2 without
+  one; it exits 1 when stopped without saving.
 
 - Secrets are always collected through a hidden local prompt (`getpass`),
   never through arguments or environment variables.

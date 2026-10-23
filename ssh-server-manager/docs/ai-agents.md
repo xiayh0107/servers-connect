@@ -388,3 +388,9 @@ the tool itself:
 5. Never treat a host-skill binding as authorization. It routes local
    instructions after the user has chosen the hosts; it does not choose hosts
    or approve remote changes.
+6. Never change a server's password through `exec` (`passwd`, `chpasswd`) or
+   carry an old or new password in a command. Hand
+   `serverctl credential rotate ALIAS` to the user's terminal: the user changes
+   the password on the server, and serverctl saves the new one only after a
+   fresh login with it succeeds. `credential edit --replace-secret` is the
+   local-only fix for a saved copy that was typed wrong.

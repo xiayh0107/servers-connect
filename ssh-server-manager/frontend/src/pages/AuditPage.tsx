@@ -6,7 +6,7 @@ import {Badge, Button, EmptyState, ErrorNotice, Icon, PageHeader} from '../ui';
 /** Event kinds grouped into the chips the filters use. */
 const GROUPS: {id: string; label: string; chip: string; events: string[]}[] = [
   {id: 'exec', label: 'Commands', chip: 'exec', events: ['exec', 'exec_result']},
-  {id: 'reveal', label: 'Secrets', chip: 'reveal', events: ['reveal']},
+  {id: 'reveal', label: 'Secrets', chip: 'reveal', events: ['reveal', 'password_rotate']},
   {id: 'denied', label: 'Refused', chip: 'denied', events: ['reveal_denied']},
   {id: 'tunnel', label: 'Tunnels', chip: 'tunnel', events: ['tunnel_open', 'tunnel_close']},
   {id: 'session', label: 'Sessions', chip: 'session', events: ['connect', 'session_log']},
@@ -118,6 +118,7 @@ function chipFor(event: AuditEvent) {
 function labelFor(event: AuditEvent) {
   if (event.event === 'reveal_denied') return 'DENIED';
   if (event.event === 'reveal') return 'REVEAL';
+  if (event.event === 'password_rotate') return 'ROTATE';
   if (event.event === 'exec_result') return 'RESULT';
   if (event.event.startsWith('tunnel_')) return 'TUNNEL';
   if (event.event === 'exec') return 'EXEC';
@@ -132,6 +133,7 @@ function verbFor(event: AuditEvent) {
     case 'exec_result': return 'Command finished';
     case 'reveal': return 'Secret revealed';
     case 'reveal_denied': return 'Reveal refused';
+    case 'password_rotate': return event.ok ? 'Password rotated' : 'New password not accepted';
     case 'tunnel_open': return 'Tunnel opened';
     case 'tunnel_close': return 'Tunnel closed';
     case 'connect': return 'Session opened';
@@ -146,6 +148,7 @@ function detailFor(event: AuditEvent) {
   if (event.event === 'reveal' || event.event === 'reveal_denied') {
     return event.credential ? `${event.credential}${event.slot ? ` · ${event.slot}` : ''}` : '';
   }
+  if (event.event === 'password_rotate') return event.credential || '';
   if (event.event.startsWith('tunnel_')) return [event.tunnel, event.forward].filter(Boolean).join(' · ');
   if (event.event === 'session_log') return event.path || '';
   return event.host || '';
@@ -163,6 +166,7 @@ function outcomeFor(event: AuditEvent) {
     return <Badge tone={code === 0 ? 'ok' : 'failed'}>{`exit ${code}`}</Badge>;
   }
   if (event.event === 'reveal') return <Badge>ok</Badge>;
+  if (event.event === 'password_rotate') return event.ok ? <Badge tone="ok">saved</Badge> : <Badge tone="failed">not saved</Badge>;
   if (event.event === 'tunnel_open' && event.pid) return <span className="mono muted">{`pid ${event.pid}`}</span>;
   return <span className="faint">—</span>;
 }

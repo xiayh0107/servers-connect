@@ -56,8 +56,11 @@ web1` opens the browser directly on web1's credential form.
 
 Note that `add` only creates — it refuses an alias that already exists. To
 change anything later (including the attached credential), use
-`serverctl server edit web1 ...`; to replace a stored password, use
-`serverctl credential edit prod-password --replace-secret`.
+`serverctl server edit web1 ...`; to fix a stored password that was typed
+wrong, use `serverctl credential edit prod-password --replace-secret` (this
+changes only the saved copy). When the server's own password changes, run
+`serverctl credential rotate web1` instead: it checks the new password against
+the server before saving it.
 
 Behind a bastion? Model the hop as its own alias and chain it:
 
