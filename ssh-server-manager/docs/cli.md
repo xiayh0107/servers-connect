@@ -178,10 +178,14 @@ Notes:
   saves it. Press Enter to check, Enter again to re-check after a rejection, or
   Ctrl-C to stop; until a login succeeds the saved password is untouched.
   A rejection is followed by one check of the saved password, so the message says
-  whether the server still has the old one. When other hosts share the
-  credential they keep the old password, and ALIAS is moved to a new credential
-  `LABEL (ALIAS)` (or `--new-label`). It needs a terminal and exits 2 without
-  one; it exits 1 when stopped without saving.
+  whether the server still has the old one. When another attempt cannot help —
+  the server rejects both passwords, or a jump host rejects its own saved
+  credential (named in the message) — the command stops instead of offering a
+  retry, so it does not run the account into a lockout rule. If the host or its
+  credential binding changes during the wait, nothing is saved. When other hosts
+  share the credential they keep the old password, and ALIAS is moved to a new
+  credential `LABEL (ALIAS)` (or `--new-label`). It needs a terminal and exits 2
+  without one; it exits 1 when stopped without saving.
 
 - Secrets are always collected through a hidden local prompt (`getpass`),
   never through arguments or environment variables.

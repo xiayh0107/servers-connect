@@ -717,20 +717,32 @@ def resolve_credential(service: CredentialApplicationService, value: str | None)
     return service.get(value)["id"]
 
 
-def rotation_failure(result: dict[str, Any]) -> str:
+def rotation_failure(result: dict[str, Any]) -> tuple[str, bool]:
+    """Explain a check that did not save, and whether checking again can help.
+
+    A retry costs a login attempt, so it is offered only when the server may
+    still be about to accept the new password; after a rejection that another
+    attempt cannot fix, stopping protects the account from lockout rules.
+    """
     alias, label = result["host_alias"], result["credential_label"]
     if result["error_code"] != "authentication-failed":
-        return f"Could not check the new password: {result['message']} Nothing was saved."
+        return f"Could not check the new password: {result['message']} Nothing was saved.", True
+    if result["rejected_by"] not in (None, "target"):
+        jump = result["rejected_by"]
+        return (f"The jump host {jump} rejected its own saved credential, so {alias} was never asked. "
+                f"Nothing was saved. Check it with 'serverctl server test {jump}'; if it shares this "
+                f"account and its password changed too, rotate {jump} first."), False
     accepted = result["saved_password_accepted"]
     if accepted is True:
         return (f"{alias} rejected the new password and still accepts the saved one, so the change "
-                f"has not happened on the server yet. Nothing was saved; {label} is unchanged.")
+                f"has not happened on the server yet. Nothing was saved; {label} is unchanged."), True
     if accepted is False:
         return (f"{alias} rejected both the new password and the saved one. Nothing was saved. "
-                "If the server's password was set to something else, start over with that "
-                "password; if you are locked out, use the provider's console or recovery tools.")
+                "Stopping here so repeated attempts do not lock the account. If the server's password "
+                "was set to something else, start over with that password; if you are locked out, use "
+                "the provider's console or recovery tools."), False
     return (f"{alias} rejected the new password, and the saved one could not be checked. "
-            f"Nothing was saved; {label} is unchanged.")
+            f"Nothing was saved; {label} is unchanged."), True
 
 
 def rotate_password(service: CredentialApplicationService, args: argparse.Namespace) -> int:
@@ -740,6 +752,8 @@ def rotate_password(service: CredentialApplicationService, args: argparse.Namesp
     proof leaves the saved credential exactly as it was; the rotation can simply
     be started again with the password the server now has.
     """
+    if not 1 <= args.timeout <= 120:
+        raise ValidationError("--timeout must be between 1 and 120 seconds")
     plan = service.rotation_plan(args.host, new_label=args.new_label)
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         raise ValidationError(
@@ -773,10 +787,13 @@ def rotate_password(service: CredentialApplicationService, args: argparse.Namesp
                 raise KeyboardInterrupt
             print(f"Checking a fresh password-only login to {alias}...", file=sys.stderr)
             result = service.rotate_password(plan["host_id"], first, new_label=args.new_label,
-                                             timeout=args.timeout)
+                                             timeout=args.timeout, expected=plan)
             if result["committed"]:
                 break
-            print(rotation_failure(result), file=sys.stderr)
+            message, retry = rotation_failure(result)
+            print(message, file=sys.stderr)
+            if not retry:
+                return 1
             print("Press Enter to check again, or Ctrl-C to stop without saving.", file=sys.stderr)
     except KeyboardInterrupt:
         print(f"\nStopped. Nothing was saved; {label} still holds the old password.", file=sys.stderr)

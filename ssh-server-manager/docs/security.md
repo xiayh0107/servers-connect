@@ -99,9 +99,14 @@ What `rotate` guarantees:
   probe serves the candidate to the target hop alone, under an identity no
   saved credential has, so a jump host that shares the credential is still
   offered the saved password.
-- Nothing is written until that login succeeds. A rejection saves nothing and
-  is followed by one check of the saved password, so the result can say whether
-  the server still has the old one. Interrupting at any point before success
+- Nothing is written until that login succeeds. A rejection by the target saves
+  nothing and is followed by one check of the saved password, so the result can
+  say whether the server still has the old one. A rejection by a jump host is
+  reported as that jump's, with no second attempt, and after any rejection a
+  retry cannot fix the command stops rather than feed a lockout rule. The plan
+  shown before the wait is compared again under the credential lock, so a
+  binding or sharing change made meanwhile refuses the save; once the save
+  starts, Ctrl-C is deferred until it finishes. Interrupting at any point before success
   leaves the vault as it was; running `rotate` again with the password the
   server now has is the recovery.
 - A credential that other hosts also use is never overwritten: they keep the

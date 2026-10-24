@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,7 +13,7 @@ import pytest
 from ssh_server_manager import audit
 from ssh_server_manager.application import CredentialApplicationService
 from ssh_server_manager.cli import main
-from ssh_server_manager.db import ConflictError, Database, utc_now
+from ssh_server_manager.db import ConflictError, Database, DatabaseError, utc_now
 from ssh_server_manager.validation import ValidationError
 from ssh_server_manager.vault import MemoryVault
 
@@ -27,24 +29,30 @@ class ScriptedRunner:
     def __init__(self, server_passwords: dict[str, str | None], offered: list):
         self.server_passwords = server_passwords
         self.offered = offered
+        self.rejecting_jump: str | None = None
 
     def __call__(self, database, vault_factory):
         self.database, self.vault_factory = database, vault_factory
         return self
 
     def test(self, credential_id, host_id, *, timeout=8, candidate=None):
+        if not 0 < timeout <= 120:
+            raise ValidationError("credential test timeout must be between 0 and 120 seconds")
         password = candidate if candidate is not None else self.vault_factory().get_secret(credential_id, "password")
         host = self.database.get_server(host_id)
         self.offered.append((host["alias"], "candidate" if candidate is not None else "saved"))
         current = self.server_passwords[host["alias"]]
-        if current is None:
+        failed_hop = host["alias"]
+        if self.rejecting_jump:
+            ok, code, failed_hop = False, "authentication-failed", self.rejecting_jump
+        elif current is None:
             ok, code = False, "network-unreachable"
         else:
             ok, code = password == current, None if password == current else "authentication-failed"
         return {"ok": ok, "error_code": code, "message": "accepted" if ok else "not accepted",
                 "latency_ms": 1, "checked_at": utc_now(), "host_id": host["id"], "host_alias": host["alias"],
                 "credential_id": credential_id, "credential_kind": "password",
-                "method": "password" if ok else None, "stages": []}
+                "method": "password" if ok else None, "stages": [], "failed_hop": None if ok else failed_hop}
 
 
 @pytest.fixture
@@ -62,10 +70,10 @@ def state(tmp_path, monkeypatch):
                                   credential_id=credential["id"])
     offered: list = []
     passwords = {"web1": NEW}
-    monkeypatch.setattr("ssh_server_manager.credential_probe.CredentialProbeRunner",
-                        ScriptedRunner(passwords, offered))
+    runner = ScriptedRunner(passwords, offered)
+    monkeypatch.setattr("ssh_server_manager.credential_probe.CredentialProbeRunner", runner)
     return SimpleNamespace(database=database, vault=vault, service=service, credential=credential,
-                           host=host, offered=offered, passwords=passwords, rendered=rendered)
+                           host=host, offered=offered, passwords=passwords, rendered=rendered, runner=runner)
 
 
 def audit_events():
@@ -167,16 +175,83 @@ def test_plan_refuses_what_cannot_be_rotated_without_reading_a_secret(state):
     assert state.offered == []
 
 
-def test_rotation_refuses_when_the_binding_changed_under_it(state, monkeypatch):
+def test_rotation_refuses_when_the_plan_shown_is_no_longer_true(state):
+    # The plan is what the human was told before changing the server; another
+    # host binding the credential meanwhile must not turn "replace" into an
+    # overwrite of a credential that is now shared.
     plan = state.service.rotation_plan("web1")
-    stale = {**plan, "credential_updated_at": "1970-01-01T00:00:00Z"}
-    calls = iter([stale, plan])
-    monkeypatch.setattr(state.service, "rotation_plan", lambda *args, **kwargs: next(calls))
+    state.database.create_server(alias="web2", hostname="b.example", port=22, username="deploy",
+                                 credential_id=state.credential["id"])
 
-    with pytest.raises(ConflictError):
-        state.service.rotate_password("web1", NEW)
+    with pytest.raises(ConflictError, match="changed since the rotation started"):
+        state.service.rotate_password("web1", NEW, expected=plan)
     assert state.offered == []
     assert state.vault.get_secret(state.credential["id"], "password") == OLD
+
+
+def test_a_label_that_stopped_needing_a_split_is_a_conflict_not_a_late_validation_error(state):
+    state.database.create_server(alias="web2", hostname="b.example", port=22, username="deploy",
+                                 credential_id=state.credential["id"])
+    plan = state.service.rotation_plan("web1", new_label="web1 login")
+    state.database.delete_server("web2")
+
+    with pytest.raises(ConflictError, match="changed since the rotation started"):
+        state.service.rotate_password("web1", NEW, new_label="web1 login", expected=plan)
+    assert state.offered == []
+
+
+def test_a_jump_rejecting_its_own_credential_is_not_blamed_on_the_target(state):
+    state.runner.rejecting_jump = "bastion"
+
+    result = state.service.rotate_password("web1", NEW)
+
+    assert not result["committed"] and result["rejected_by"] == "bastion"
+    # No second login is spent on a jump that already refused.
+    assert state.offered == [("web1", "candidate")]
+    assert result["saved_password_accepted"] is None
+    assert state.vault.get_secret(state.credential["id"], "password") == OLD
+
+
+def test_a_failed_rebind_rolls_the_new_credential_back(state, monkeypatch):
+    state.database.create_server(alias="web2", hostname="b.example", port=22, username="deploy",
+                                 credential_id=state.credential["id"])
+    original = state.database.update_server
+
+    def refuse_rebind(identifier, **changes):
+        if "credential_id" in changes:
+            raise ConflictError("simulated rebind failure")
+        return original(identifier, **changes)
+
+    monkeypatch.setattr(state.database, "update_server", refuse_rebind)
+    with pytest.raises(DatabaseError, match="accepted the new password, but saving it failed"):
+        state.service.rotate_password("web1", NEW)
+    assert [item["label"] for item in state.database.list_credentials()] == ["web-pass"]
+    assert set(state.vault.values.values()) == {OLD}
+    assert state.database.get_server("web1")["credential_id"] == state.credential["id"]
+    assert audit_events()[0]["error_code"] == "save-failed"
+
+
+def test_a_failed_in_place_save_restores_the_old_password_and_says_the_server_changed(state, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise DatabaseError("simulated database failure")
+
+    monkeypatch.setattr(state.database, "update_credential", refuse)
+    with pytest.raises(DatabaseError, match="The server already has the new password"):
+        state.service.rotate_password("web1", NEW)
+    assert state.vault.get_secret(state.credential["id"], "password") == OLD
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX signal delivery to the current process")
+def test_ctrl_c_during_the_save_is_deferred_until_it_finishes():
+    import signal
+
+    from ssh_server_manager.application import _interrupts_deferred
+
+    before = signal.getsignal(signal.SIGINT)
+    with _interrupts_deferred():
+        os.kill(os.getpid(), signal.SIGINT)
+        time.sleep(0.05)
+    assert signal.getsignal(signal.SIGINT) is before
 
 
 def test_real_rotation_saves_only_what_the_server_accepted(tmp_path, monkeypatch, loopback_servers):
@@ -247,6 +322,42 @@ def test_cli_rotation_explains_a_rejection_and_stops_without_saving(cli_state, m
     assert "still accepts the saved one" in captured.err
     assert "Nothing was saved; web-pass still holds the old password" in captured.err
     assert cli_state.vault.get_secret(cli_state.credential["id"], "password") == OLD
+
+
+def test_cli_rotation_stops_after_both_passwords_are_rejected(cli_state, monkeypatch, capsys):
+    cli_state.passwords["web1"] = "something-else"
+    terminal(monkeypatch, lines=("\n", "\n", "\n"))
+
+    assert main(["credential", "rotate", "web1"]) == 1
+    captured = capsys.readouterr()
+    assert "rejected both" in captured.err and "Stopping here" in captured.err
+    assert "check again" not in captured.err
+    # One check: the candidate, then the saved password once. No retries.
+    assert cli_state.offered == [("web1", "candidate"), ("web1", "saved")]
+
+
+def test_cli_rotation_names_a_jump_that_rejected_its_own_credential(cli_state, monkeypatch, capsys):
+    cli_state.runner.rejecting_jump = "bastion"
+    terminal(monkeypatch, lines=("\n", "\n"))
+
+    assert main(["credential", "rotate", "web1"]) == 1
+    err = capsys.readouterr().err
+    assert "jump host bastion rejected its own saved credential" in err
+    assert "serverctl server test bastion" in err
+    assert cli_state.offered == [("web1", "candidate")]
+
+
+def test_cli_rotation_checks_the_timeout_before_any_prompt(cli_state, monkeypatch, capsys):
+    import getpass
+
+    def forbidden(prompt):
+        raise AssertionError("an invalid --timeout must fail before the hidden prompt")
+
+    terminal(monkeypatch)
+    monkeypatch.setattr(getpass, "getpass", forbidden)
+    for value in ("0", "121"):
+        assert main(["credential", "rotate", "web1", "--timeout", value, "--json"]) == 2
+        assert "--timeout must be between 1 and 120" in json.loads(capsys.readouterr().out)["message"]
 
 
 def test_cli_rotation_retries_on_enter(cli_state, monkeypatch, capsys):

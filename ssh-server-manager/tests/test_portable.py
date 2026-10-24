@@ -442,3 +442,32 @@ def test_a_manual_location_overwrites_a_looked_up_one_on_import(database):
         "city": "Ashburn",
         "source": "manual",
     }
+
+
+def test_binding_a_credential_takes_that_credentials_lock(database, monkeypatch):
+    # Rotation decides "update in place" from who shares a credential, under its
+    # lock; an import binding a host to it must wait for that lock.
+    from contextlib import contextmanager
+
+    locked = []
+
+    @contextmanager
+    def recording_lock(path, identifier, **kwargs):
+        locked.append(identifier)
+        yield
+
+    monkeypatch.setattr(portable, "credential_lock", recording_lock)
+    first = database.create_credential(label="First", kind="agent")
+    second = database.create_credential(label="Second", kind="agent")
+
+    def document(label):
+        return portable.load_document_text(_document(hosts=[
+            {"alias": "web1", "hostname": "web1.example", "username": "deploy", "port": 22,
+             "credential": label}]))
+
+    portable.apply(document("first"), database)
+    assert locked == [first["id"]]
+    locked.clear()
+    portable.apply(document("second"), database, overwrite=True)
+    assert sorted(locked) == sorted([first["id"], second["id"]])
+    assert database.get_server("web1")["credential_id"] == second["id"]

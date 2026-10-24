@@ -1671,6 +1671,7 @@ def test_real_candidate_reaches_the_target_only_and_never_the_vault(
     assert target.password_attempts == ["rotated-candidate-secret"]
     assert result["credential_id"] == credential["id"]
     assert vault.get_secret(credential["id"], "password") == "fixture-password-never-log"
+    assert "rotated-candidate-secret" not in vault.values.values()
     assert "rotated-candidate-secret" not in json.dumps(result)
     assert not jump.sessions and not target.sessions
     assert not list(Path(os.environ["SSM_RUNTIME_DIR"]).glob("credential-probe-*"))
@@ -1683,4 +1684,54 @@ def test_real_rejected_candidate_is_an_authentication_failure(request_state, loo
     result = fixture_runner(database, vault, tmp_path, [server]).test(
         credential["id"], host["id"], timeout=5, candidate="not-yet-changed")
     assert not result["ok"] and result["error_code"] == "authentication-failed", result
+    assert result["failed_hop"] == "target"
     assert server.password_attempts == ["not-yet-changed"]
+
+
+def test_real_jump_rejection_names_the_jump_and_never_reaches_the_target(
+        request_state, loopback_servers, tmp_path):
+    # The account was changed centrally, so the shared jump no longer accepts the
+    # saved password either: that must not read as the target refusing.
+    database, credential, host, vault = request_state
+    jump = loopback_servers(password="jump-was-changed-too")
+    target = loopback_servers(password="rotated-candidate-secret")
+    database.create_server(alias="jump", hostname="127.0.0.1", username="fixture", port=jump.port,
+                           credential_id=credential["id"])
+    database.update_server(host["id"], port=target.port, proxy_jumps=["jump"])
+    result = fixture_runner(database, vault, tmp_path, [jump, target]).test(
+        credential["id"], host["id"], timeout=8, candidate="rotated-candidate-secret")
+    assert not result["ok"] and result["error_code"] == "authentication-failed", result
+    assert result["failed_hop"] == "jump"
+    assert jump.password_attempts == ["fixture-password-never-log"]
+    assert target.password_attempts == []
+
+
+def test_real_candidate_never_reaches_request_files_or_the_ssh_environment(
+        request_state, loopback_servers, tmp_path, monkeypatch):
+    import ssh_server_manager.credential_probe as module
+
+    database, credential, host, vault = request_state
+    server = loopback_servers(password="rotated-candidate-secret")
+    database.update_server(host["id"], port=server.port)
+    written, launched = [], []
+    original_write = module._private_write
+
+    def recording_write(path, content):
+        written.append(content)
+        original_write(path, content)
+
+    class RecordingTree(module._ProcessTree):
+        def __init__(self, command, environment):
+            launched.append((command, environment))
+            super().__init__(command, environment)
+
+    monkeypatch.setattr(module, "_private_write", recording_write)
+    monkeypatch.setattr(module, "_ProcessTree", RecordingTree)
+    result = fixture_runner(database, vault, tmp_path, [server]).test(
+        credential["id"], host["id"], timeout=15 if os.name == "nt" else 8, candidate="rotated-candidate-secret")
+    assert result["ok"], result
+    # Config, manifest, askpass launcher and logs; argv and environment of ssh.
+    assert written and launched
+    assert not any("rotated-candidate-secret" in text for text in written)
+    assert "rotated-candidate-secret" not in json.dumps(launched)
+    assert "rotated-candidate-secret" not in vault.values.values()

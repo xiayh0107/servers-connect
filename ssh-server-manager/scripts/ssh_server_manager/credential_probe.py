@@ -750,6 +750,8 @@ class CredentialProbeRunner:
         stages: list[dict[str, Any]] = []
         code: str | None = None
         method: str | None = None
+        hops: list[dict[str, Any]] = []
+        confirmed: set[int] = set()
         tree: _ProcessTree | None = None
         broker: _Broker | None = None
         temporary: tempfile.TemporaryDirectory[str] | None = None
@@ -778,7 +780,6 @@ class CredentialProbeRunner:
             command = [self.ssh_binary, "-F", str(config), "-E", hops[-1]["log"], "-N", "-T",
                        hops[-1]["probe_alias"]]
             tree = _ProcessTree(command, environment)
-            confirmed: set[int] = set()
             expected_callbacks = set(range(len(hops)))
             while True:
                 if cancel_event and cancel_event.is_set():
@@ -852,6 +853,12 @@ class CredentialProbeRunner:
                 broker.close()
             if temporary is not None:
                 temporary.cleanup()
+        failed_hop = None
+        if code and hops:
+            # Jumps confirm in route order, so the first unconfirmed hop is the
+            # one that stopped the request. A caller can then tell a jump that
+            # rejected its own credential from the target rejecting this one.
+            failed_hop = hops[min(set(range(len(hops))) - confirmed, default=len(hops) - 1)]["alias"]
         if code:
             yield stage("authenticate", "failed", _MESSAGES.get(code, _MESSAGES["ssh-failed"]), error_code=code)
         yield {"type": "result", "result": {
@@ -859,4 +866,5 @@ class CredentialProbeRunner:
             "latency_ms": round((time.monotonic() - started) * 1000), "checked_at": utc_now(),
             "host_id": host["id"], "host_alias": host["alias"], "credential_id": credential["id"],
             "credential_kind": credential["kind"], "method": method, "stages": stages,
+            "failed_hop": failed_hop,
         }}

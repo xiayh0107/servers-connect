@@ -47,7 +47,16 @@ has, and so that the suite passes on every platform CI covers.
   candidate is offered to the target hop only, so a jump host that shares the
   credential is still sent the saved password. Each check is audited as
   `password_rotate` (host, label, outcome; never a value), and the Audit page
-  names it. Without a terminal the command exits 2 before any prompt.
+  names it. Without a terminal, or with a `--timeout` outside 1–120, the command
+  exits 2 before any prompt. A jump host that rejects its own saved credential
+  is named as such instead of being reported as the target, and after a
+  rejection another attempt cannot fix (both passwords refused, or a jump
+  refusing) the command stops instead of offering a retry that would count
+  against the account's lockout rules. The plan shown before the wait is
+  re-checked under the credential lock, `serverctl import` now takes the same
+  lock when it binds a credential, and Ctrl-C during the save is deferred until
+  the vault and the message agree. If the save itself fails after the server
+  accepted the password, the error says the server already has it.
 - Publish the Homebrew tap: `brew install xiayh0107/tap/ssh-server-manager`
   ([xiayh0107/homebrew-tap](https://github.com/xiayh0107/homebrew-tap)), built by
   `brew test-bot` on macOS and Linux. `scripts/prepare_packaging` now refuses an

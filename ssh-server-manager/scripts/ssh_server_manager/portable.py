@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
+from .credential_lock import credential_lock
 from .db import ConflictError, Database, DatabaseError, NotFoundError
 from .validation import ValidationError, validate_alias
 
@@ -189,6 +191,23 @@ def load_document_text(text: str, *, origin: str = "standard input") -> dict[str
     return {"format": FORMAT, "version": VERSION, "hosts": hosts}
 
 
+def _binding_locks(database: Database, *credential_ids: str | None) -> ExitStack:
+    """Serialize a host's credential binding with other credential operations.
+
+    The same per-credential lock guards edits, tests and rotations, so an
+    import cannot make a credential shared while a rotation is deciding whether
+    it may be updated in place.
+    """
+    stack = ExitStack()
+    try:
+        for identifier in sorted({item for item in credential_ids if item}):
+            stack.enter_context(credential_lock(database.path, identifier))
+    except BaseException:
+        stack.close()
+        raise
+    return stack
+
+
 def _host_payload(entry: dict[str, Any], credential_id: str | None) -> dict[str, Any]:
     """Only the fields the file actually states.
 
@@ -336,14 +355,21 @@ def apply(
         alias = entry["alias"]
         try:
             if action["action"] == "create":
-                database.create_server(**action["host"])
+                with _binding_locks(database, action["host"].get("credential_id")):
+                    database.create_server(**action["host"])
                 created.append(database.get_server(alias)["alias"])
                 _apply_geo(database, alias, entry.get("geo"))
             elif action["action"] == "update":
                 if not overwrite:
                     skipped.append(alias)
                     continue
-                database.update_server(action["host_id"], **action["changes"])
+                if "credential_id" in action["changes"]:
+                    current = database.get_server(action["host_id"])["credential_id"]
+                    locks = _binding_locks(database, current, action["changes"]["credential_id"])
+                else:
+                    locks = _binding_locks(database)
+                with locks:
+                    database.update_server(action["host_id"], **action["changes"])
                 _apply_geo(database, alias, entry.get("geo"))
                 updated.append(alias)
             else:

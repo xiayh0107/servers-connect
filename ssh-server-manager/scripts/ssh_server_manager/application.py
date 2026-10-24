@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from collections import Counter
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import signal
+import threading
 from threading import BoundedSemaphore, Event, Lock
 import uuid
-from typing import Any
+from typing import Any, Iterator
 
 from . import audit
 from .db import ConflictError, Database, DatabaseError, NotFoundError
@@ -39,6 +41,20 @@ def _route_hop(alias: str, inventory: dict[str, dict[str, Any]]) -> dict[str, An
             "last_test_error_code", "last_success_at",
         )},
     }
+
+
+@contextmanager
+def _interrupts_deferred() -> Iterator[None]:
+    """Let a short critical section finish even if Ctrl-C arrives during it."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    previous = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, lambda *_: None)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous if previous is not None else signal.default_int_handler)
 
 
 class HostService:
@@ -516,7 +532,8 @@ class CredentialApplicationService:
                 "shared_with": sharing, "mode": "split" if sharing else "replace", "new_label": label}
 
     def rotate_password(self, host_identifier: str, candidate: str, *, new_label: str | None = None,
-                        timeout: int = 8, actor: str = "cli") -> dict[str, Any]:
+                        timeout: int = 8, actor: str = "cli",
+                        expected: dict[str, Any] | None = None) -> dict[str, Any]:
         """Save a new password for one host only after that host accepts it.
 
         Nothing here changes a password on the server; the human does that with
@@ -524,51 +541,87 @@ class CredentialApplicationService:
         login (no agent, key or shared connection) before anything is saved. A
         credential no other host uses is updated in place; a shared one is left
         alone for the hosts still on the old password, and this host is bound to
-        a new credential instead. A rejected candidate changes nothing and is
-        followed by one check of the saved password, so the caller can say which
-        password the server accepts now.
+        a new credential instead. A candidate the target rejects changes nothing
+        and is followed by one check of the saved password, so the caller can say
+        which password the server accepts now; a jump that rejects its own
+        credential is reported as such, without spending another login on it.
+
+        `expected` is the plan the caller showed the human before the wait. It is
+        compared under the credential lock, so a binding, sharing or credential
+        change made meanwhile refuses the save instead of silently saving into
+        something the human was not told about.
         """
         from .credential_probe import CredentialProbeRunner
         if not candidate:
             raise ValidationError("password must not be empty")
-        plan = self.rotation_plan(host_identifier, new_label=new_label)
+        plan = expected or self.rotation_plan(host_identifier, new_label=new_label)
+        alias = plan["host_alias"]
+        changed = (f"{alias} or its credential changed since the rotation started, so nothing was saved; "
+                   f"if the server already has the new password, run 'serverctl credential rotate {alias}' "
+                   "again and enter it")
         with credential_lock(self.database.path, plan["credential_id"]):
-            current = self.rotation_plan(plan["host_id"], new_label=new_label)
-            if (current["credential_id"], current["credential_updated_at"], current["shared_with"]) != (
-                    plan["credential_id"], plan["credential_updated_at"], plan["shared_with"]):
-                raise ConflictError("the host or its credential changed; run the rotation again")
+            try:
+                current = self.rotation_plan(plan["host_id"], new_label=new_label)
+            except (ValidationError, DatabaseError) as exc:
+                raise ConflictError(f"{changed} ({exc})") from exc
+            if any(current[key] != plan[key] for key in
+                   ("credential_id", "credential_updated_at", "shared_with", "mode", "new_label")):
+                raise ConflictError(changed)
             runner = CredentialProbeRunner(self.database, self._vault)
             verified = runner.test(plan["credential_id"], plan["host_id"], timeout=timeout, candidate=candidate)
             outcome: dict[str, Any] = {
-                "host_alias": plan["host_alias"], "credential_label": plan["credential_label"],
+                "host_alias": alias, "credential_label": plan["credential_label"],
                 "shared_with": plan["shared_with"], "verified": verified["ok"], "committed": False,
                 "mode": None, "credential": None, "error_code": verified["error_code"],
-                "message": verified["message"], "saved_password_accepted": None,
+                "message": verified["message"], "rejected_by": None, "saved_password_accepted": None,
             }
             if not verified["ok"]:
                 if verified["error_code"] == "authentication-failed":
-                    saved = runner.test(plan["credential_id"], plan["host_id"], timeout=timeout)
-                    outcome["saved_password_accepted"] = saved["ok"] if saved["ok"] or (
-                        saved["error_code"] == "authentication-failed") else None
-                audit.record("password_rotate", actor=actor, alias=plan["host_alias"],
+                    failed = verified.get("failed_hop")
+                    on_target = failed is None or failed.casefold() == alias.casefold()
+                    outcome["rejected_by"] = "target" if on_target else failed
+                    if on_target:
+                        saved = runner.test(plan["credential_id"], plan["host_id"], timeout=timeout)
+                        outcome["saved_password_accepted"] = saved["ok"] if saved["ok"] or (
+                            saved["error_code"] == "authentication-failed") else None
+                audit.record("password_rotate", actor=actor, alias=alias,
                              credential=plan["credential_label"], ok=False, error_code=verified["error_code"])
                 return outcome
-            service = self._service()
-            if plan["mode"] == "replace":
-                credential = service.update(plan["credential_id"], secret=candidate,
-                                            expected_updated_at=plan["credential_updated_at"])
-            else:
-                credential = service.create_password(plan["new_label"], candidate)
+            # The server already has the new password; finish the save even if
+            # Ctrl-C arrives in the middle (for example during a keychain
+            # authorization dialog), so the vault and the message agree.
+            with _interrupts_deferred():
                 try:
-                    self.database.update_server(plan["host_id"], credential_id=credential["id"])
-                except Exception:
-                    self.delete(credential["id"])
-                    raise
-            self.render()
-            # The proof belongs to whichever credential now holds the password.
-            self.database.record_credential_test(credential["id"], {**verified, "credential_id": credential["id"]})
-            audit.record("password_rotate", actor=actor, alias=plan["host_alias"],
-                         credential=credential["label"], ok=True)
+                    service = self._service()
+                    if plan["mode"] == "replace":
+                        credential = service.update(plan["credential_id"], secret=candidate,
+                                                    expected_updated_at=plan["credential_updated_at"])
+                    else:
+                        credential = service.create_password(plan["new_label"], candidate)
+                        try:
+                            self.database.update_server(plan["host_id"], credential_id=credential["id"])
+                        except Exception:
+                            self.delete(credential["id"])
+                            raise
+                except Exception as exc:
+                    audit.record("password_rotate", actor=actor, alias=alias,
+                                 credential=plan["credential_label"], ok=False, error_code="save-failed")
+                    raise DatabaseError(
+                        f"{alias} accepted the new password, but saving it failed ({exc}); the previous "
+                        "saved password was restored where possible. The server already has the new "
+                        f"password: run 'serverctl credential rotate {alias}' again once this is fixed, or "
+                        f"'serverctl credential edit {plan['credential_label']} --replace-secret'"
+                    ) from exc
+                audit.record("password_rotate", actor=actor, alias=alias, credential=credential["label"], ok=True)
+                # The proof belongs to whichever credential now holds the password.
+                self.database.record_credential_test(credential["id"], {**verified, "credential_id": credential["id"]})
+                try:
+                    self.render()
+                except Exception as exc:
+                    raise DatabaseError(
+                        f"the new password for {alias} was saved in {credential['label']}, but the managed "
+                        f"SSH config could not be rendered ({exc}); fix that, then run 'serverctl config render'"
+                    ) from exc
             return {**outcome, "committed": True, "mode": plan["mode"],
                     "credential": self.database.get_credential(credential["id"])}
 

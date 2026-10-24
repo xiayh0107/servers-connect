@@ -142,7 +142,9 @@ changing: it needs a terminal, takes the new password at a hidden prompt, waits
 while the human changes it on the server with the account's own tools, proves a
 fresh password-only login (no agent, key, or shared connection), and only then
 saves it. A rejected password saves nothing and is followed by one check of the
-saved password, so the output says which one the server accepts. A credential no
+saved password, so the output says which one the server accepts. When both are
+rejected, or a jump host rejects its own saved credential (the message names
+it), the command stops rather than spend more login attempts. A credential no
 other host uses is updated in place; a shared one keeps the old password for the
 other hosts, and ALIAS is bound to a new credential `LABEL (ALIAS)` unless
 `--new-label` names it. Each check is recorded in the audit log as
